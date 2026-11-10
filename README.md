@@ -1,4 +1,8 @@
-# Highrise House
+# Blender Works
+
+Independent procedural Blender studies, one directory per work. Shared materials and helpers live in `shared/`, the Three.js viewer in `web/`; the commands in each section run from the repository root.
+
+## Highrise House
 
 A procedural Blender model of a high-rise residential complex composed of two independently configured apartment towers, a continuous curved glass podium, open pilotis levels, sky gardens, and landscaped roofs. The project explores facade rhythm, public space, structure, and lighting at the scale of a dense vertical development.
 
