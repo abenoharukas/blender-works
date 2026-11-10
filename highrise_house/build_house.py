@@ -641,20 +641,49 @@ _BOX_FACES = [
 ]
 
 
+class Part:
+    """A centred geometry fragment that is merged by :func:`join`.
+
+    Parts carry vertices, faces, one material and a placement, but no mesh
+    datablock and no scene object. The facade, ceilings and mullions of one
+    group are tens of thousands of boxes; creating a mesh and an object for
+    each of them (and then asking Blender to join them back together) was the
+    reason a build took minutes. A part costs a Python list instead, so a whole
+    group becomes one mesh in one pass.
+    """
+
+    __slots__ = ("name", "verts", "faces", "material", "location", "rotation")
+
+    def __init__(self, name, verts, faces, material, location=None,
+                 rotation=None):
+        self.name = name
+        self.verts = verts
+        self.faces = faces
+        self.material = material
+        self.location = Vector(location) if location is not None else Vector(
+            (0.0, 0.0, 0.0))
+        self.rotation = rotation
+
+    def placed(self):
+        """World-space vertices, and whether a transform had to be applied."""
+        if self.rotation is None and not any(self.location):
+            return self.verts, False
+        matrix = Matrix.Translation(self.location)
+        if self.rotation is not None:
+            matrix = matrix @ Euler(self.rotation, "XYZ").to_matrix().to_4x4()
+        (a, b, c, d), (e, f, g, h), (i, j, k, l) = (
+            matrix[0], matrix[1], matrix[2])
+        return ([(a * x + b * y + c * z + d,
+                  e * x + f * y + g * z + h,
+                  i * x + j * y + k * z + l) for x, y, z in self.verts],
+                True)
+
+
 def box(name, center, dims, mat, rot=None):
     """Axis-aligned box (optionally rotated about its own centre)."""
-    mesh = bpy.data.meshes.new(name)
     sx, sy, sz = dims
     verts = [(v[0] * sx, v[1] * sy, v[2] * sz) for v in _BOX_VERTS]
-    mesh.from_pydata(verts, [], _BOX_FACES)
-    mesh.validate()
-    obj = bpy.data.objects.new(name, mesh)
-    obj.location = center
-    if rot:
-        obj.rotation_euler = rot
-    obj.data.materials.append(mat)
-    bpy.context.collection.objects.link(obj)
-    return obj
+    return Part(name, verts, _BOX_FACES, mat, center, rot)
 
 
 def beam_between(name, start, end, width, mat):
@@ -670,7 +699,7 @@ def beam_between(name, start, end, width, mat):
 
 
 def spheres_mesh(name, centers, radius, mat, segments=10, latitudes=5):
-    """Create many low-poly, genuinely round light globes in one mesh."""
+    """Create many low-poly, genuinely round light globes as one part."""
     if not centers:
         return None
     vertices, faces = [], []
@@ -701,44 +730,111 @@ def spheres_mesh(name, centers, radius, mat, segments=10, latitudes=5):
                 nxt = (segment + 1) % segments
                 faces.append((lower + segment, lower + nxt,
                               upper + nxt, upper + segment))
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(vertices, [], faces)
-    mesh.validate()
-    obj = bpy.data.objects.new(name, mesh)
-    obj.data.materials.append(mat)
-    bpy.context.collection.objects.link(obj)
-    return obj
+    return Part(name, vertices, faces, mat)
 
 
-def join(objects, name):
-    """Join a list of objects into one; returns the merged object."""
-    objects = [o for o in objects if o is not None]
-    if not objects:
+def join(parts, name):
+    """Merge a group of parts into one mesh object.
+
+    One pass over the parts' vertex and face lists, one mesh datablock, one
+    object. Materials keep their first-use order and the per-face material
+    indices are remapped onto it, so a group that mixes materials (the ceiling
+    light states, the sky gardens) still reads correctly. Real objects are
+    accepted too and are consumed into the merge, which keeps this a drop-in
+    replacement for ``bpy.ops.object.join()``.
+    """
+    parts = [p for p in parts if p is not None]
+    if not parts:
         return None
-    bpy.ops.object.select_all(action="DESELECT")
-    for o in objects:
-        o.select_set(True)
-    bpy.context.view_layer.objects.active = objects[0]
-    if len(objects) > 1:
-        bpy.ops.object.join()
-    merged = bpy.context.view_layer.objects.active
-    merged.name = name
-    merged.data.name = name
-    bpy.ops.object.select_all(action="DESELECT")
+
+    verts, faces, face_mats = [], [], []
+    mats, mat_index, consumed = [], {}, []
+
+    def slot(material):
+        key = material.name if material is not None else ""
+        index = mat_index.get(key)
+        if index is None:
+            index = len(mats)
+            mat_index[key] = index
+            mats.append(material)
+        return index
+
+    for part in parts:
+        if isinstance(part, Part):
+            placed, moved = part.placed()
+            offset = len(verts)
+            if moved:
+                verts.extend(placed)
+            else:
+                verts.extend(part.verts)
+            index = slot(part.material)
+            for face in part.faces:
+                faces.append(tuple(offset + vertex for vertex in face))
+                face_mats.append(index)
+            continue
+
+        if part.type != "MESH" or part.data is None:
+            continue
+        consumed.append(part)
+        mesh = part.data
+        slots = [slot(mat) for mat in mesh.materials]
+        matrix = part.matrix_world
+        (a, b, c, d), (e, f, g, h), (i, j, k, l) = (
+            matrix[0], matrix[1], matrix[2])
+        offset = len(verts)
+        for vertex in mesh.vertices:
+            x, y, z = vertex.co
+            verts.append((a * x + b * y + c * z + d,
+                          e * x + f * y + g * z + h,
+                          i * x + j * y + k * z + l))
+        for polygon in mesh.polygons:
+            faces.append(tuple(offset + index for index in polygon.vertices))
+            source = polygon.material_index
+            face_mats.append(slots[source] if source < len(slots) else 0)
+
+    merged_mesh = bpy.data.meshes.new(name)
+    merged_mesh.from_pydata(verts, [], faces)
+    for material in mats:
+        if material is not None:
+            merged_mesh.materials.append(material)
+    # Face materials go in before validate(): validate drops invalid faces, and
+    # indices written afterwards could no longer line up with the survivors.
+    merged_mesh.polygons.foreach_set("material_index", face_mats)
+    merged_mesh.validate()
+    merged_mesh.update()
+
+    merged = bpy.data.objects.new(name, merged_mesh)
+    bpy.context.collection.objects.link(merged)
+
+    if consumed:
+        # ``bpy.data.batch_remove`` drops the group in one go; removing objects
+        # one by one re-evaluated the dependency graph each time.
+        bpy.data.batch_remove(ids=consumed + [o.data for o in consumed])
     return merged
 
 
 def tapered_cylinder(name, center, radius_bottom, radius_top, height, mat,
                      vertices=12):
-    """Create one smooth tapered round element, such as a tree trunk."""
-    bpy.ops.mesh.primitive_cone_add(
-        vertices=vertices, radius1=radius_bottom, radius2=radius_top,
-        depth=height, location=center)
-    obj = bpy.context.object
-    obj.name = name
-    obj.data.name = name
-    obj.data.materials.append(mat)
-    return obj
+    """Create one smooth tapered round element, such as a tree trunk.
+
+    Built from a vertex list instead of ``bpy.ops.mesh.primitive_cone_add``: the
+    operator rebuilds context on every call, which dominated the tree building
+    when a sky garden plants dozens of them.
+    """
+    half = height / 2.0
+    verts, faces = [], []
+    for segment in range(vertices):
+        angle = 2.0 * math.pi * segment / vertices
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+        verts.append((radius_bottom * cos_a, radius_bottom * sin_a, -half))
+        verts.append((radius_top * cos_a, radius_top * sin_a, half))
+    for segment in range(vertices):
+        nxt = (segment + 1) % vertices
+        faces.append((2 * segment, 2 * nxt, 2 * nxt + 1, 2 * segment + 1))
+    faces.append(tuple(2 * s for s in reversed(range(vertices))))
+    faces.append(tuple(2 * s + 1 for s in range(vertices)))
+
+    return Part(name, verts, faces, mat, center)
 
 
 def waterdrop_canopy(name, center, radius, height, mat, segments=16):
@@ -777,14 +873,7 @@ def waterdrop_canopy(name, center, radius, height, mat, segments=16):
         faces.append((ring_starts[-1] + segment,
                       ring_starts[-1] + next_segment, top_index))
 
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(verts, [], faces)
-    mesh.validate()
-    obj = bpy.data.objects.new(name, mesh)
-    obj.location = center
-    obj.data.materials.append(mat)
-    bpy.context.collection.objects.link(obj)
-    return obj
+    return Part(name, verts, faces, mat, center)
 
 
 def planted_tree(name, center, soil_z, foliage_mat, trunk_mat, scale=1.0,
@@ -1588,13 +1677,7 @@ def semicircular_arch(name, start, end, outward, spring_z, top_z, mat):
                    4 * PILOTIS_ARCADE_SEGMENTS + 3,
                    4 * PILOTIS_ARCADE_SEGMENTS + 2,
                    4 * PILOTIS_ARCADE_SEGMENTS + 1)))
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(vertices, [], faces)
-    mesh.validate()
-    obj = bpy.data.objects.new(name, mesh)
-    obj.data.materials.append(mat)
-    bpy.context.collection.objects.link(obj)
-    return obj
+    return Part(name, vertices, faces, mat)
 
 
 def pilotis_arcades(mat):
@@ -2123,13 +2206,7 @@ def rounded_prism(name, center, width, depth, rotation_deg, radius, z0, z1, mat)
     for index in range(count):
         next_index = (index + 1) % count
         faces.append((index, next_index, count + next_index, count + index))
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(verts, [], faces)
-    mesh.validate()
-    obj = bpy.data.objects.new(name, mesh)
-    obj.data.materials.append(mat)
-    bpy.context.collection.objects.link(obj)
-    return obj
+    return Part(name, verts, faces, mat)
 
 
 def build_podium(mats, base_rectangles, diamond_grid_only=False):
@@ -2271,13 +2348,7 @@ def build_podium(mats, base_rectangles, diamond_grid_only=False):
         for index in range(count):
             next_index = (index + 1) % count
             faces.append((index, next_index, count + next_index, count + index))
-        mesh = bpy.data.meshes.new(name)
-        mesh.from_pydata(vertices, [], faces)
-        mesh.validate()
-        obj = bpy.data.objects.new(name, mesh)
-        obj.data.materials.append(concrete)
-        bpy.context.collection.objects.link(obj)
-        return obj
+        return Part(name, vertices, faces, concrete)
 
     def add_perimeter_glass(ring, floor_index, z0, z1):
         for edge_index, point in enumerate(ring):
