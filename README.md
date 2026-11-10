@@ -33,6 +33,7 @@ The image above captures the current Blender working view. The images below are 
 - **Landscaped roofs:** low planting and perimeter screens terminate both tower and podium volumes.
 - **Legible structure:** twin service cores continue through each tower, with exposed trusses and outrigger elements marking the taller tower's sky-garden levels.
 - **Layered lighting:** deterministic warm and cool room lights create a scattered, star-like pattern behind the glazing, while dense circular fixtures illuminate the podium soffits and pilotis arcades.
+- **Simulated interior fill:** an occupied tower of this size carries thousands of fixtures, so the whole shaft is lit by six large, shadowless area lights per tower instead of one real lamp per room. Each hangs just under a slab on a glazed storey, is sized to the clear floor plate, and is cut off at 46 m so it lights the storeys above and below without washing the roof garden or the podium beneath the base. The panel field still carries the per-room warm/cool pattern; the rig only lifts the interior so the rooms read through the glass.
 
 ## Main Views
 
@@ -382,6 +383,8 @@ configure_tower(3, 20, core_column_bays=3)  # Adjacent tower
 ```
 
 Materials are centralized in `materials.py`. The default palette combines warm pale stone, neutral transparent glass, dark anodized metal, and subdued green planting. Interior depth comes from discrete ceiling fixtures with deterministic warm, cool, and off states rather than a uniformly emissive surface placed behind the glazing.
+
+Because a real fit-out has thousands of fixtures, the scene also carries six `Interior_Lights_*` area lights per tower (`INTERIOR_LIGHT_COUNT`, `INTERIOR_LIGHT_ENERGY`, `INTERIOR_LIGHT_REACH`). They are shadowless on purpose: a shadowed area light is stopped by the floor plate and can only light its own storey, which is exactly why the same effect otherwise needs one light per room. `cutoff_distance` keeps that unshadowed reach inside the shaft. Each tower's rig is parented to one empty, so it moves with its tower and can be hidden in a single click; build with `-- --no-interior-lights` for an A/B without it. It is an approximation of brightness, not a lighting design: the interior of the real building would vary room by room.
 
 ## Current Status
 

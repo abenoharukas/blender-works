@@ -526,6 +526,9 @@ SITE_CENTER_X = 0.0
 SITE_CENTER_Y = 0.0
 SITE_DEPTH = D
 SITE_TOP_Z = CORE_TOP_Z
+# Set by ``--no-interior-lights``: build the same model without the simulated
+# interior rig, for an A/B of what the stand-in lights actually contribute.
+NO_INTERIOR_LIGHTS = False
 
 # Band offsets inside one floor. The vent + glass + vent band starts 0.50 m
 # above the floor; the taller remaining solid spandrel sits above it.
@@ -563,6 +566,40 @@ CEILING_LIGHT_Z = H - SLAB_T - CEILING_LIGHT_H / 2.0
 # lights on like a real inhabited building.
 CEILING_LIGHT_SEED = 20260823
 CEILING_LIGHT_ON_RATIO = 0.36
+
+# Simulated interior lighting. An occupied tower of this size carries thousands
+# of discrete room fixtures; the panel field above is their visible pattern, but
+# turning every one of them into a light source is neither affordable in the
+# viewport nor needed in the image. A handful of big, shadowless area lights
+# stand in for the rest of the load: one per tower per few storeys, sized to the
+# clear plan, so the shaft reads as lit from within and the glow reaches the
+# glazing on every floor instead of pooling on the one plate that holds a lamp.
+INTERIOR_LIGHT_COUNT = 6
+INTERIOR_LIGHT_ENERGY = 300000.0    # W per lamp, one lamp each way
+INTERIOR_LIGHT_SIZE_FRACTION = 0.92  # of the clear plan, minus the perimeter bay
+INTERIOR_LIGHT_DROP = 0.85          # hung below the slab it is mounted under
+# Reach, measured from the fixture: far enough to meet the zone of the light
+# above and below it so no storey stays dark, still short of the roof garden and
+# of the podium roof and ground beneath the base.
+INTERIOR_LIGHT_REACH = 46.0
+INTERIOR_LIGHT_SPECULAR = 0.0       # a panel seen in the panes, not a lamp
+INTERIOR_LIGHT_COOL = (0.86, 0.92, 1.00)
+INTERIOR_LIGHT_WARM = (1.00, 0.82, 0.60)
+
+# Podium interior rig. The podium is a stack of glazed decks standing on an open
+# pier base, and its base sits under a deep deck overhang, so no exterior light
+# reaches it. As in the towers, a handful of shadowless panels inside the deck
+# stack stand in for the thousands of fixtures: they light the soffits, the floor
+# plates and the piers from within, so the glass bands and the arcade read as lit
+# from inside instead of as a black plinth.
+PODIUM_LIGHT_ENERGY = 40000.0       # W per lamp, one lamp each way
+PODIUM_LIGHT_LEVELS = (4.0, 13.0, 21.0)  # pier void plus two glazed decks
+PODIUM_LIGHT_GRID = (5, 3)          # panels along x, along y
+PODIUM_LIGHT_SIZE = (62.0, 46.0)
+# The mall is one long plate, not a tower storey: a short cut-off left the bays
+# between panels dark, which is what read as black blotches through the glass.
+PODIUM_LIGHT_REACH = 130.0
+PODIUM_LIGHT_COLOR = (1.00, 0.92, 0.80)
 
 
 # ---------------------------------------------------------------------------
@@ -1671,12 +1708,132 @@ def pilotis_arcade_lights(mats):
     return bulbs_mesh
 
 
+def interior_light_storeys():
+    """Evenly spaced glazed storeys, one simulated fixture group each.
+
+    Only storeys that actually have windows are candidates: the blank base and
+    crown bands are solid walls, and the refuge / sky-garden storeys are open
+    double-height voids with no ceiling to hang a fixture under, so a light in
+    any of them would only spill where nothing can be seen.
+    """
+    storeys = [f for f in range(_glazed_first, _glazed_last + 1)
+               if f not in REFUGE_FLOOR_SET]
+    if INTERIOR_LIGHT_COUNT >= len(storeys):
+        return storeys
+    step = (len(storeys) - 1) / float(INTERIOR_LIGHT_COUNT - 1)
+    picked = sorted({int(round(index * step))
+                     for index in range(INTERIOR_LIGHT_COUNT)})
+    return [storeys[index] for index in picked]
+
+
+def interior_light_rig(prefix):
+    """A few large area lights per tower, standing in for every fixture.
+
+    Two properties make a handful of lights do the work of thousands:
+
+    * ``use_shadow`` is off, so a fixture lights the shaft it sits in rather
+      than only the plate directly beneath it. A shadowed area light is
+      stopped by the floor plate and can only ever light its own storey, which
+      is why the same trick needs one real light per room.
+    * ``cutoff_distance`` keeps that unshadowed reach inside the building, so
+      the glow cannot wash the roof garden above the top lamp or the podium and
+      ground far below the bottom one.
+
+    The rig is parented to one empty so each tower places it with the rest of
+    its geometry and so the whole approximation can be hidden in one click.
+    """
+    clear_w = W - 2 * WALL_T - 2.0
+    clear_d = D - 2 * WALL_T - 2.0
+    rig = bpy.data.objects.new(prefix, None)
+    rig.empty_display_type = "PLAIN_AXES"
+    rig.empty_display_size = 5.0
+    bpy.context.collection.objects.link(rig)
+
+    for index, storey in enumerate(interior_light_storeys()):
+        z0 = BASE_Z + storey * H
+        mount_z = z0 + H - SLAB_T - INTERIOR_LIGHT_DROP
+        # Two lamps per fixture, back to back: one washes the floor plate below
+        # it, one washes the ceiling above. A single area light emits on one
+        # side only, so a downward lamp leaves every soffit black — which is
+        # exactly what you see when you look up at the tower from the street.
+        for facing, rotation in (("down", (0.0, 0.0, 0.0)),
+                                 ("up", (math.pi, 0.0, 0.0))):
+            data = bpy.data.lights.new(f"{prefix}_{index:02d}_{facing}", type="AREA")
+            data.shape = "RECTANGLE"
+            data.size = clear_w * INTERIOR_LIGHT_SIZE_FRACTION
+            data.size_y = clear_d * INTERIOR_LIGHT_SIZE_FRACTION
+            data.energy = INTERIOR_LIGHT_ENERGY
+            # Alternating temperatures keep the shaft from reading as one colour;
+            # the panel field above carries the per-room warm/cool detail.
+            data.color = INTERIOR_LIGHT_WARM if index % 2 else INTERIOR_LIGHT_COOL
+            data.specular_factor = INTERIOR_LIGHT_SPECULAR
+            data.use_shadow = False
+            if hasattr(data, "use_custom_distance"):
+                data.use_custom_distance = True
+            if hasattr(data, "cutoff_distance"):
+                data.cutoff_distance = INTERIOR_LIGHT_REACH
+            light = bpy.data.objects.new(f"{prefix}_{index:02d}_{facing}", data)
+            light.location = (0.0, 0.0, mount_z)
+            light.rotation_euler = rotation
+            bpy.context.collection.objects.link(light)
+            light.parent = rig
+    return rig
+
+
+def podium_interior_rig(min_x, max_x, min_y, max_y):
+    """Stand-in fixtures inside the podium, modelled like the tower rig.
+
+    Panels hang in the void under the deck soffit and between the glazed podium
+    decks, one pair per grid position (one facing down, one facing up) so both
+    the plate below and the soffit above are lit. They are shadowless with a
+    short cut-off, so the light washes the interior and the glass bands and stops
+    there instead of spilling onto the site.
+    """
+    rig = bpy.data.objects.new("Interior_Lights_Podium", None)
+    rig.empty_display_type = "PLAIN_AXES"
+    rig.empty_display_size = 5.0
+    bpy.context.collection.objects.link(rig)
+
+    columns, rows = PODIUM_LIGHT_GRID
+    for column in range(columns):
+        x = min_x + (max_x - min_x) * (column + 0.5) / columns
+        for row in range(rows):
+            y = min_y + (max_y - min_y) * (row + 0.5) / rows
+            for level, z in enumerate(PODIUM_LIGHT_LEVELS):
+                for facing, rotation in (
+                        ("down", (0.0, 0.0, 0.0)),
+                        ("up", (math.pi, 0.0, 0.0))):
+                    # Integer indices only: a name ending in a float has
+                    # crashed Blender's stoi on reload before.
+                    name = (f"Interior_Lights_Podium_{column}{row}"
+                            f"_{level}_{facing}")
+                    data = bpy.data.lights.new(name, type="AREA")
+                    data.shape = "RECTANGLE"
+                    data.size = PODIUM_LIGHT_SIZE[0]
+                    data.size_y = PODIUM_LIGHT_SIZE[1]
+                    data.energy = PODIUM_LIGHT_ENERGY
+                    data.color = PODIUM_LIGHT_COLOR
+                    data.specular_factor = INTERIOR_LIGHT_SPECULAR
+                    data.use_shadow = False
+                    if hasattr(data, "use_custom_distance"):
+                        data.use_custom_distance = True
+                    if hasattr(data, "cutoff_distance"):
+                        data.cutoff_distance = PODIUM_LIGHT_REACH
+                    light = bpy.data.objects.new(name, data)
+                    light.location = (x, y, z)
+                    light.rotation_euler = rotation
+                    bpy.context.collection.objects.link(light)
+                    light.parent = rig
+    return rig
+
+
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
 
 def build(reset=True, mats=None, add_trusses=False,
-          truss_object_name="Structural_Trusses"):
+          truss_object_name="Structural_Trusses",
+          interior_light_prefix="Interior_Lights"):
     if reset:
         reset_scene()
 
@@ -1885,6 +2042,8 @@ def build(reset=True, mats=None, add_trusses=False,
         "Pilotis_Arcades": pilotis_arcade,
         "Pilotis_Arcade_Lights": pilotis_arcade_lamp,
         truss_object_name: join(trusses, truss_object_name),
+        "Interior_Lights": (interior_light_rig(interior_light_prefix)
+                            if interior_light_prefix else None),
     }
     return merged
 
@@ -2401,18 +2560,28 @@ def setup_render():
     cam = bpy.data.objects.new("Camera", cam_data)
 
     # Frame the whole two-tower site: pull back proportionally to its envelope.
-    reach = max(SITE_WIDTH, SITE_DEPTH, SITE_TOP_Z) * 1.35 * (cam_data.lens / 40.0)
+    # The margin has to clear the diagonal of the envelope, not one of its sides,
+    # because the camera looks in at 36 degrees and therefore projects the corner
+    # to corner span across the frame — at 1.35x the site was cropped.
+    reach = max(SITE_WIDTH, SITE_DEPTH, SITE_TOP_Z) * 2.05 * (cam_data.lens / 40.0)
     target = Vector((SITE_CENTER_X, SITE_CENTER_Y, SITE_TOP_Z * 0.52))
     eye = Vector((SITE_CENTER_X + reach * 0.78,
                   SITE_CENTER_Y - reach * 1.05, SITE_TOP_Z * 1.02))
     cam.location = eye
     cam.rotation_euler = (target - eye).normalized().to_track_quat("-Z", "Y").to_euler()
+    # The telephoto reach puts the camera more than a kilometre from the site,
+    # which is past Blender's default one-kilometre far clip: the model was
+    # being cut in half by the clip plane and the far tower dropped entirely.
+    # Derive the far clip from the distance actually used.
+    cam_data.clip_start = 0.1
+    cam_data.clip_end = (eye - target).length * 2.0
     bpy.context.collection.objects.link(cam)
     scene.camera = cam
 
 
 def report(objects, label="tower"):
-    total_verts = sum(len(o.data.vertices) for o in objects.values() if o)
+    total_verts = sum(len(o.data.vertices) for o in objects.values()
+                      if o is not None and o.type == "MESH")
     print(f"\n=== high-rise house: {label} ===")
     print(f"tower footprint      : {W:.1f} x {D:.1f} m")
     print(f"floor height         : {H:.1f} m")
@@ -2515,9 +2684,10 @@ def frame_viewport():
                     (math.radians(72.0), 0.0, math.radians(38.0)), "XYZ"
                 ).to_quaternion()
                 r3d.view_perspective = "PERSP"
-                # Keep Material Preview consistent when the saved file is
-                # reopened: the third world thumbnail is forest.exr, with the
-                # requested 30% background opacity and blur.
+                # Material Preview (the third viewport sphere) is the mode the
+                # file is expected to open in; the studio HDRI plus the scene
+                # lamps is the agreed default look. Do not switch this to
+                # Rendered.
                 space.shading.type = "MATERIAL"
                 space.shading.studio_light = "forest.exr"
                 space.shading.studiolight_background_alpha = 0.3
@@ -2579,18 +2749,25 @@ def rectangle_corners(center, width, depth, rotation_deg):
 
 def main():
     global SITE_WIDTH, SITE_CENTER_X, SITE_CENTER_Y, SITE_DEPTH, SITE_TOP_Z
+    global NO_INTERIOR_LIGHTS
 
+    NO_INTERIOR_LIGHTS = "--no-interior-lights" in sys.argv
     reset_scene()
     shared_mats = materials.build_all(engine=RENDER_ENGINE, wall_color=WALL_COLOR,
                                       glass_tint=GLASS_TINT)
     configure_tower(2, 18, core_column_bays=2)
+    lower_lights = (None if NO_INTERIOR_LIGHTS
+                    else "Interior_Lights_LowerTower")
     first_objects = build(reset=False, mats=shared_mats, add_trusses=True,
-                          truss_object_name="Structural_Trusses_LowerTower")
+                          truss_object_name="Structural_Trusses_LowerTower",
+                          interior_light_prefix=lower_lights)
     first_w, first_d, first_top = W, D, CORE_TOP_Z
     report(first_objects, "existing tower (2 groups x 17 floors, 18 rooms)")
 
     configure_tower(3, 20, core_column_bays=COMPANION_CORE_COLUMN_BAYS)
-    second_objects = build(reset=False, mats=shared_mats, add_trusses=True)
+    second_objects = build(reset=False, mats=shared_mats, add_trusses=True,
+                           interior_light_prefix=(None if NO_INTERIOR_LIGHTS else
+                                                  "Interior_Lights_CompanionTower"))
     second_w, second_d, second_top = W, D, CORE_TOP_Z
     second_center, second_rotation = book_layout(first_w, second_w)
     transform_objects(second_objects, second_center.x, second_center.y,
@@ -2630,6 +2807,9 @@ def main():
     print(f"overall envelope     : {SITE_WIDTH:.1f} x {SITE_DEPTH:.1f} m")
     print(f"site centre          : x = {SITE_CENTER_X:.1f}, y = {SITE_CENTER_Y:.1f} m")
     print(f"highest core top     : {SITE_TOP_Z:.2f} m")
+    print(f"interior light rig    : {INTERIOR_LIGHT_COUNT} area lights per tower, "
+          f"{INTERIOR_LIGHT_ENERGY:.0f} W each, {INTERIOR_LIGHT_REACH:.0f} m reach, "
+          f"stand-ins for thousands of fixtures")
     print("=== continuous Bezier podium ===")
     print(f"top / bottom depth   : {podium_depth:.1f} / {PODIUM_BOTTOM_DEPTH:.1f} m")
     print(f"open pilotis floors  : {PODIUM_PILOTIS_FLOORS}")
@@ -2638,12 +2818,27 @@ def main():
     print(f"base widths          : {podium_first_w:.1f} / {podium_second_w:.1f} m")
     print(f"top / tower soffit   : {PODIUM_TOP_Z:.1f} m")
     print("=====================\n")
+    if not NO_INTERIOR_LIGHTS:
+        podium_interior_rig(min_x, max_x, min_y, max_y)
+        podium_count = (2 * PODIUM_LIGHT_GRID[0] * PODIUM_LIGHT_GRID[1]
+                        * len(PODIUM_LIGHT_LEVELS))
+        print(f"podium light rig      : {podium_count} area lights inside the "
+              f"deck stack, {PODIUM_LIGHT_ENERGY:.0f} W each")
     setup_render()
     frame_viewport()
 
     os.makedirs(OUT_DIR, exist_ok=True)
     blend_path = os.path.join(OUT_DIR, "highrise_house.blend")
     bpy.context.scene["podium_top_z"] = PODIUM_TOP_Z
+    # Record what the interior lighting actually is: the real building carries
+    # thousands of fixtures, the scene carries a handful of stand-ins.
+    bpy.context.scene["interior_lighting"] = (
+        "disabled (--no-interior-lights)" if NO_INTERIOR_LIGHTS else
+        f"{INTERIOR_LIGHT_COUNT} shadowless area lights per tower at "
+        f"{INTERIOR_LIGHT_ENERGY:.0f} W, {INTERIOR_LIGHT_REACH:.0f} m reach, "
+        "standing in for the thousands of discrete room fixtures; the emissive "
+        "Ceiling_Lights field supplies their visible pattern")
+    bpy.context.scene["interior_lighting_is_approximation"] = True
     bpy.ops.wm.save_as_mainfile(filepath=blend_path)
 
     if "--no-glb" not in sys.argv:
