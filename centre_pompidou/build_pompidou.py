@@ -56,13 +56,36 @@ def glass_material(name="Escalator_Glass", color=(0.45, 0.72, 0.86, 1.0), alpha=
     return mat
 
 
-def cube(name, location, scale, mat, bevel=0.0):
-    bpy.ops.mesh.primitive_cube_add(location=location)
-    obj = bpy.context.object
-    obj.name = name
-    obj.scale = (scale[0] / 2, scale[1] / 2, scale[2] / 2)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+_CUBE_VERTS = ((-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+               (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1))
+_CUBE_FACES = ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
+               (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7))
+
+
+def mesh_object(name, verts, faces, mat, location=(0.0, 0.0, 0.0),
+                rotation=(0.0, 0.0, 0.0)):
+    """One object from a vertex list.
+
+    No operator: each ``bpy.ops.mesh.primitive_*_add`` re-evaluates the scene and
+    costs more as the scene grows, which is what made this build take minutes for
+    a few thousand members. Vertex lists cost almost nothing.
+    """
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.validate()
+    obj = bpy.data.objects.new(name, mesh)
+    obj.location = location
+    if any(rotation):
+        obj.rotation_euler = rotation
     obj.data.materials.append(mat)
+    bpy.context.collection.objects.link(obj)
+    return obj
+
+
+def cube(name, location, scale, mat, bevel=0.0):
+    verts = [(x * scale[0] / 2, y * scale[1] / 2, z * scale[2] / 2)
+             for x, y, z in _CUBE_VERTS]
+    obj = mesh_object(name, verts, _CUBE_FACES, mat, location)
     if bevel:
         mod = obj.modifiers.new("Edge bevel", "BEVEL")
         mod.width = bevel
@@ -71,14 +94,49 @@ def cube(name, location, scale, mat, bevel=0.0):
 
 
 def cylinder(name, location, radius, depth, mat, rotation=(0, 0, 0), vertices=16):
-    bpy.ops.mesh.primitive_cylinder_add(
-        vertices=vertices, radius=radius, depth=depth, location=location,
-        rotation=rotation,
-    )
-    obj = bpy.context.object
-    obj.name = name
-    obj.data.materials.append(mat)
-    return obj
+    half = depth / 2
+    verts = []
+    # Blender's own cylinder starts its section at the top (pi / 2), so the
+    # polygon stays where the saved scene had it.
+    for segment in range(vertices):
+        angle = 0.5 * math.pi + 2.0 * math.pi * segment / vertices
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+        verts.append((radius * cos_a, radius * sin_a, -half))
+    for segment in range(vertices):
+        angle = 0.5 * math.pi + 2.0 * math.pi * segment / vertices
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+        verts.append((radius * cos_a, radius * sin_a, half))
+    faces = []
+    for segment in range(vertices):
+        nxt = (segment + 1) % vertices
+        faces.append((segment, nxt, vertices + nxt, vertices + segment))
+    faces.append(tuple(reversed(range(vertices))))
+    faces.append(tuple(vertices + index for index in range(vertices)))
+    return mesh_object(name, verts, faces, mat, location, rotation)
+
+
+def torus(name, location, major_radius, minor_radius, mat,
+          major_segments=32, minor_segments=8, rotation=(0, 0, 0)):
+    """A ring with a round section, built directly as a vertex list."""
+    verts = []
+    for major in range(major_segments):
+        theta = 2.0 * math.pi * major / major_segments
+        cos_t, sin_t = math.cos(theta), math.sin(theta)
+        for minor in range(minor_segments):
+            phi = 2.0 * math.pi * minor / minor_segments
+            ring = major_radius + minor_radius * math.cos(phi)
+            verts.append((ring * cos_t, ring * sin_t,
+                          minor_radius * math.sin(phi)))
+    faces = []
+    for major in range(major_segments):
+        next_major = (major + 1) % major_segments
+        for minor in range(minor_segments):
+            next_minor = (minor + 1) % minor_segments
+            faces.append((major * minor_segments + minor,
+                          major * minor_segments + next_minor,
+                          next_major * minor_segments + next_minor,
+                          next_major * minor_segments + minor))
+    return mesh_object(name, verts, faces, mat, location, rotation)
 
 
 def beam(name, start, end, radius, mat, vertices=10):
@@ -302,14 +360,9 @@ def add_escalator(mats):
             landing_rib_count = math.ceil(landing_length / 2.0)
             for rib_index in range(landing_rib_count + 1):
                 frame_x = x - landing_length / 2 + landing_length * rib_index / landing_rib_count
-                bpy.ops.mesh.primitive_torus_add(
-                    major_radius=tube_radius + 0.01, minor_radius=0.12,
-                    major_segments=32, minor_segments=8,
-                    location=(frame_x, y, z + 1.65), rotation=(0, math.pi / 2, 0),
-                )
-                rib = bpy.context.object
-                rib.name = prefix + "_Landing_Rib"
-                rib.data.materials.append(mats["white"])
+                torus(prefix + "_Landing_Rib", (frame_x, y, z + 1.65),
+                      tube_radius + 0.01, 0.12, mats["white"],
+                      rotation=(0, math.pi / 2, 0))
 
         for level in range(6):
             if route_x[-1] > route_x[0]:
@@ -334,9 +387,9 @@ def add_escalator(mats):
                      (0.42, 2.05, 0.16), mats["metal"])
             for side in (-1, 1):
                 rail_y = y + side * 1.3
-                oriented_box(prefix + "_Glass_Balustrade", start, end,
-                             0.08, 1.35, mats["tube"])
-                bpy.context.object.location.y = rail_y
+                balustrade = oriented_box(prefix + "_Glass_Balustrade", start, end,
+                                          0.08, 1.35, mats["tube"])
+                balustrade.location.y = rail_y
                 beam(prefix + "_Red_Handrail",
                      (start[0], rail_y, start[2] + 1.15),
                      (end[0], rail_y, end[2] + 1.15),
@@ -348,15 +401,10 @@ def add_escalator(mats):
             rib_count = math.ceil(delta.length / 2.0)
             for frame_index in range(1, rib_count):
                 center = enclosure_start.lerp(enclosure_end, frame_index / rib_count)
-                bpy.ops.mesh.primitive_torus_add(
-                    major_radius=tube_radius + 0.01, minor_radius=0.12,
-                    major_segments=32, minor_segments=8, location=center,
-                )
-                rib = bpy.context.object
-                rib.name = prefix + "_Enclosure_Rib"
+                rib = torus(prefix + "_Enclosure_Rib", center,
+                            tube_radius + 0.01, 0.12, mats["white"])
                 rib.rotation_mode = "QUATERNION"
                 rib.rotation_quaternion = delta.to_track_quat("Z", "Y")
-                rib.data.materials.append(mats["white"])
 
     route("Escalator_Left_Facade_Up", -(FRAME_Y + 5.0), landing_x)
     route("Escalator_Right_Facade_Up", FRAME_Y + 5.0, list(reversed(landing_x)))

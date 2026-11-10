@@ -823,8 +823,10 @@ def tapered_cylinder(name, center, radius_bottom, radius_top, height, mat,
     """
     half = height / 2.0
     verts, faces = [], []
+    # Blender's cone primitive starts its section at pi / 2; keep the same
+    # rotation so the trunks and planters sit where the saved scene had them.
     for segment in range(vertices):
-        angle = 2.0 * math.pi * segment / vertices
+        angle = 0.5 * math.pi + 2.0 * math.pi * segment / vertices
         cos_a, sin_a = math.cos(angle), math.sin(angle)
         verts.append((radius_bottom * cos_a, radius_bottom * sin_a, -half))
         verts.append((radius_top * cos_a, radius_top * sin_a, half))
