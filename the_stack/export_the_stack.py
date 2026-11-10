@@ -113,6 +113,17 @@ def translate_glass_materials():
     return translated
 
 
+def gltf_export_options():
+    """Properties this Blender's bundled glTF exporter actually exposes.
+
+    Compression support moves between Blender releases: the meshopt properties
+    simply do not exist in every build, and passing them aborts the export with
+    an unrecognised-keyword error. Ask the operator instead of assuming.
+    """
+    return {prop.identifier
+            for prop in bpy.ops.export_scene.gltf.get_rna_type().properties}
+
+
 def scene_report(profile, compression, output, translated_glass, merged):
     mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
     vertices = sum(len(obj.data.vertices) for obj in mesh_objects)
@@ -229,19 +240,31 @@ def main():
         "export_cameras": False,
         "export_lights": False,
     }
-    if args.compression == "meshopt":
-        export_options.update(
-            export_meshopt_compression_enable=True,
-            export_meshopt_extension="EXT_meshopt_compression",
-        )
-    elif args.compression == "draco":
-        export_options.update(
-            export_draco_mesh_compression_enable=True,
-            export_draco_mesh_compression_level=6,
-        )
+    supported = gltf_export_options()
+    compression = args.compression
+    compression_options = {
+        "meshopt": {
+            "export_meshopt_compression_enable": True,
+            "export_meshopt_extension": "EXT_meshopt_compression",
+        },
+        "draco": {
+            "export_draco_mesh_compression_enable": True,
+            "export_draco_mesh_compression_level": 6,
+        },
+    }
+    if compression in compression_options:
+        options = compression_options[compression]
+        missing = [key for key in options if key not in supported]
+        if missing:
+            print(f"warning: this Blender's glTF exporter has no {compression} "
+                  f"support ({', '.join(missing)} is not available); exporting "
+                  "uncompressed instead")
+            compression = "none"
+        else:
+            export_options.update(options)
     bpy.ops.export_scene.gltf(**export_options)
     report = scene_report(
-        args.profile, args.compression, output, translated_glass, merged
+        args.profile, compression, output, translated_glass, merged
     )
     if args.report:
         payload = json.dumps(report, indent=2, sort_keys=True)

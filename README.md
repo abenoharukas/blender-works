@@ -185,7 +185,7 @@ Triangles:           198,860
 Meshopt:             EXT_meshopt_compression
 ```
 
-The original editable scene remains `the_stack/out/the_stack.blend`. The web asset is loaded by `web/index.html` through Three.js's `GLTFLoader` with `MeshoptDecoder`. The exporter supports `--profile static`, `--profile animated`, and `--profile architectural`; animated exports do not merge meshes. It also accepts `--compression draco`, `--compression meshopt`, `--compression none`, `--report`, `--no-merge-materials`, and `--preserve-materials`. LOD is intentionally not applied automatically because generic geometric decimation can damage glass, floors, instances, and animation semantics; runtime resolution and on-demand rendering are enabled in the viewer instead.
+The original editable scene remains `the_stack/out/the_stack.blend`. The web asset is loaded by `web/index.html` through Three.js's `GLTFLoader` with `MeshoptDecoder`. The exporter supports `--profile static`, `--profile animated`, and `--profile architectural`; animated exports do not merge meshes. It also accepts `--compression draco`, `--compression meshopt`, `--compression none`, `--report`, `--no-merge-materials`, and `--preserve-materials`. Compression is feature-detected against the bundled glTF exporter: this Blender (5.1) ships no meshopt properties, so a `meshopt` request warns once and exports uncompressed, and the report records the compression actually used. LOD is intentionally not applied automatically because generic geometric decimation can damage glass, floors, instances, and animation semantics; runtime resolution and on-demand rendering are enabled in the viewer instead.
 
 ## The Stack 2
 
