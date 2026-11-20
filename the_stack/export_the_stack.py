@@ -199,8 +199,9 @@ def main():
     parser.add_argument(
         "--compression",
         choices=("meshopt", "draco", "none"),
-        default="meshopt",
-        help="Geometry compression used by the browser asset.",
+        default="none",
+        help="Geometry compression used by the browser asset; uncompressed "
+             "by default so general-purpose importers can read the file.",
     )
     parser.add_argument(
         "--preserve-materials",
