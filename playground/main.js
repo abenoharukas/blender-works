@@ -279,7 +279,9 @@ function plotName(index) {
 }
 
 function frameEntry(entry) {
-  const box = new THREE.Box3().setFromObject(entry.group);
+  // Precise bounds: the models' merged meshes carry rotated transforms, and a
+  // non-precise Box3 inflates their axis-aligned box badly.
+  const box = new THREE.Box3().setFromObject(entry.group, true);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxSize = Math.max(size.x, size.y, size.z);
@@ -310,10 +312,11 @@ async function addModel(id, { focus = true } = {}) {
     const source = await loadAsset(config);
     const root = source.clone(true);
 
-    root.updateMatrixWorld(true);
-    const localBox = new THREE.Box3().setFromObject(root);
-    const localCenter = localBox.getCenter(new THREE.Vector3());
-    root.position.set(-localCenter.x, -localBox.min.y, -localCenter.z);
+    // Every study is authored with the ground at its own origin (the house
+    // convention). Do not lift by the bounding box: two of the web exports
+    // carry a merged mesh with stray geometry far below the origin, and
+    // grounding on the lowest vertex sends the whole building into the air.
+    root.position.set(0, 0, 0);
 
     const group = new THREE.Group();
     group.name = `${config.id}_${nextTicket}`;

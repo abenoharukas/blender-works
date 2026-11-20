@@ -36,5 +36,9 @@ a fixed seed, so every visit is the same scene.
   outdoor scene a low-opacity pane stacks into white haze at street distance.
   Interior fills (`emissiveIntensity` in the hundreds, in nits) are capped for
   the same reason.
-- Models are lifted 2 cm above the plaza slab so their base plates do not
-  z-fight with it.
+- Models are placed on their own origin, which is the ground plane in every
+  study, 2 cm above the plaza slab so base plates do not z-fight with it.
+  Grounding on the bounding box instead is wrong: `Box3.setFromObject` uses
+  each geometry's axis-aligned box, and the models' merged meshes keep rotated
+  transforms, so the box reaches far below the origin and lifts the building
+  into the air.
