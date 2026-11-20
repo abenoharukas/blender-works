@@ -100,15 +100,16 @@ def translate_glass_materials():
     cache = {}
     translated = 0
     for obj in bpy.context.scene.objects:
-        if obj.type != "MESH":
+        if obj.type not in ("MESH", "CURVE"):
             continue
-        for index, material in enumerate(obj.data.materials):
+        materials = obj.data.materials
+        for index, material in enumerate(materials):
             if not material or not _is_glass_like(material):
                 continue
             if material.name not in cache:
                 cache[material.name] = _make_web_glass(material)
                 translated += 1
-            obj.data.materials[index] = cache[material.name]
+            materials[index] = cache[material.name]
     print(f"Translated Blender glass materials for glTF: {translated}")
     return translated
 

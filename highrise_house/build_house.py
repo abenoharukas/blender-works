@@ -105,7 +105,7 @@ PODIUM_PILOTIS_COLUMN_PITCH = 12.0
 # so the pattern reads as an elegant large-scale facade rather than a fine mesh.
 PODIUM_DIAMOND_ROWS = 3
 PODIUM_DIAMOND_MEMBER = 0.32
-PODIUM_DIAMOND_STANDOFF = 0.08
+PODIUM_DIAMOND_STANDOFF = 0.22
 # The public podium ceilings use many small exposed globes.  Three-metre pitch
 # is dense enough to read as a galaxy from outside without becoming a luminous
 # ceiling panel; every fixture is on, with a sparse warm-white accent.
@@ -127,8 +127,8 @@ GLASS_T = 0.03
 # SAME plane as the wall, with no reveal and no sill. A non-zero inset here puts
 # the glass behind the wall face, and the 90 mm of opening side wall that leaves
 # is exactly what reads as a window sill — which is what we do not want.
-GLASS_INSET = 0.0     # from the outer wall face; 0 = flush with it
-VENT_INSET = 0.0      # louvres finish on the wall plane too
+GLASS_INSET = 0.04    # subtle 4 cm window setback so glass clears spandrel & corner planes
+VENT_INSET = 0.0      # louvres finish on the wall plane
 # The room window is the fixed module: exactly PANE_W x WIN_H of clear glass.
 # EVERYTHING outside is derived from the room-window counts — never the other way round.
 PANE_W = 4.00
@@ -140,14 +140,15 @@ PANE_GLASS_W = PANE_W - WINDOW_GAP
 # with the opening and the full-width ventilation band.
 END_PANE_GLASS_W = PANE_W - WINDOW_GAP / 2.0
 
-# The mullion is a cover cap centred on each pane joint: it sits on the glass
-# line and overlaps the two panes it joins, so it costs NO facade length.
+# The mullion is a cover cap centred on each pane joint: it sits proud of the
+# recessed glass plane (+6 cm) so opaque glazing never z-fights the joint caps,
+# and overlaps the two panes it joins, so it costs NO facade length.
 # That keeps the arithmetic clean — an opening is exactly N x PANE_W, so the
 # footprint comes out on whole metres:
 #   W = 18 x 4.00 + 2 x 2.00 = 76.00 m
 #   D =  9 x 4.00 + 2 x 2.00 = 40.00 m
 MULLION_W = 0.09
-MULLION_INSET = 0.0      # flush with the facade/glass plane to cover the joints
+MULLION_INSET = -0.06    # stands 6 cm proud of the recessed glass face (+2 cm proud of wall)
 
 # Solid wall kept at both ends of every facade, so the ribbon stops short of the
 # corners instead of wrapping them. Measured along the facade from the corner.
@@ -1930,7 +1931,8 @@ def podium_interior_rig(min_x, max_x, min_y, max_y):
 
 def build(reset=True, mats=None, add_trusses=False,
           truss_object_name="Structural_Trusses",
-          interior_light_prefix="Interior_Lights"):
+          interior_light_prefix="Interior_Lights",
+          ground_slab_z=-0.15):
     if reset:
         reset_scene()
 
@@ -1960,7 +1962,7 @@ def build(reset=True, mats=None, add_trusses=False,
     # The podium wraps around them; it does not replace or truncate them.
     tower_column_z0 = 0.0
     tower_column_height = CORE_TOP_Z
-    structure += [box("GroundSlab", (0.0, 0.0, -0.15), (W + 14.0, D + 14.0, 0.30), concrete)]
+    structure += [box("GroundSlab", (0.0, 0.0, ground_slab_z), (W + 14.0, D + 14.0, 0.30), concrete)]
 
     x_grid, y_grid = col_grid(W), col_grid(D)
     for i, x in enumerate(x_grid):
@@ -2931,7 +2933,8 @@ def main():
     configure_tower(3, 20, core_column_bays=COMPANION_CORE_COLUMN_BAYS)
     second_objects = build(reset=False, mats=shared_mats, add_trusses=True,
                            interior_light_prefix=(None if NO_INTERIOR_LIGHTS else
-                                                  "Interior_Lights_CompanionTower"))
+                                                  "Interior_Lights_CompanionTower"),
+                           ground_slab_z=-0.17)
     second_w, second_d, second_top = W, D, CORE_TOP_Z
     second_center, second_rotation = book_layout(first_w, second_w)
     transform_objects(second_objects, second_center.x, second_center.y,

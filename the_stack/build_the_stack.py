@@ -27,8 +27,8 @@ import os
 import random
 import sys
 
-import bmesh
 import bpy
+import bmesh
 from mathutils import Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -445,11 +445,11 @@ FRAME_BLADE_W = 0.18
 # what z-fights, and a 2-6 cm step is far above the depth resolution at the
 # 60-600 m review distances, so the offsets remove the flicker without reading
 # as depth.
-MULLION_OUT = FACADE
-TRANSOM_OUT = FACADE - 0.06
+MULLION_OUT = FACADE + 0.04
+TRANSOM_OUT = FACADE + 0.02
 GLASS_OUT = FACADE - 0.03
-DIAGRID_OUT = FACADE + 0.02
-FIN_OUT = FACADE
+DIAGRID_OUT = FACADE + 0.03
+FIN_OUT = FACADE + 0.04
 MULLION_D = FRAME_DEPTH
 TRANSOM_D = 0.40
 GLASS_D = 0.10

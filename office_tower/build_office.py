@@ -44,6 +44,8 @@ CLEAR_PANE_W = 1.50
 MULLION_W = 0.11
 MULLION_D = 0.14
 GLASS_T = 0.025
+GLASS_INSET = 0.05
+SLAB_INSET = 0.08
 FLOOR_T = 0.24
 INTERIOR_SETBACK = 0.65
 CURTAIN_SEED = 20260826
@@ -188,12 +190,13 @@ def make_glass(profile, cumulative, perimeter, material):
             s1 = (module + 1) * pitch - MULLION_W / 2
             a, b = profile_at(profile, cumulative, s0), profile_at(profile, cumulative, s1)
             na, nb = profile_normal(a), profile_normal(b)
+            ca, cb = a - na * GLASS_INSET, b - nb * GLASS_INSET
             base = len(vertices)
             for z in (bottom, top):
-                vertices.extend((a + na * GLASS_T / 2 + Vector((0, 0, z)),
-                                 b + nb * GLASS_T / 2 + Vector((0, 0, z)),
-                                 b - nb * GLASS_T / 2 + Vector((0, 0, z)),
-                                 a - na * GLASS_T / 2 + Vector((0, 0, z))))
+                vertices.extend((ca + na * GLASS_T / 2 + Vector((0, 0, z)),
+                                 cb + nb * GLASS_T / 2 + Vector((0, 0, z)),
+                                 cb - nb * GLASS_T / 2 + Vector((0, 0, z)),
+                                 ca - na * GLASS_T / 2 + Vector((0, 0, z))))
             faces.extend([
                 (base, base + 1, base + 5, base + 4),
                 (base + 3, base + 7, base + 6, base + 2),
@@ -222,8 +225,8 @@ def make_mullions(profile, cumulative, floors, modules, pitch, material):
 def append_frosted_panel(vertices, faces, a, b, na, nb, z0, z1):
     """Append a thin privacy-film panel just inside a glass pane."""
     base = len(vertices)
-    outside_a = a - na * (GLASS_T / 2 + CURTAIN_GAP)
-    outside_b = b - nb * (GLASS_T / 2 + CURTAIN_GAP)
+    outside_a = a - na * (GLASS_INSET + GLASS_T / 2 + CURTAIN_GAP)
+    outside_b = b - nb * (GLASS_INSET + GLASS_T / 2 + CURTAIN_GAP)
     inside_a = outside_a - na * CURTAIN_T
     inside_b = outside_b - nb * CURTAIN_T
     for z in (z0, z1):
@@ -370,13 +373,17 @@ def make_ceiling_lights(on_material, off_material):
 def make_floor_slabs(profile, material):
     vertices, faces = [], []
     n = len(profile)
+    inset_profile = []
+    for x, y in profile:
+        nrm = profile_normal(Vector((x, y, 0.0)))
+        inset_profile.append((x - nrm.x * SLAB_INSET, y - nrm.y * SLAB_INSET))
     # Every storey has a complete structural plate, including the refuge levels.
     # The pilotis remains open below its first plate at level 3.
     for floor in range(PILOTIS_FLOORS, TOTAL_LEVELS + 1):
         z = floor * FLOOR_HEIGHT
         base = len(vertices)
-        vertices.extend((x, y, z) for x, y in profile)
-        vertices.extend((x, y, z - FLOOR_T) for x, y in profile)
+        vertices.extend((x, y, z) for x, y in inset_profile)
+        vertices.extend((x, y, z - FLOOR_T) for x, y in inset_profile)
         faces.extend((base + i, base + (i + 1) % n,
                       base + n + (i + 1) % n, base + n + i) for i in range(n))
         faces.append(tuple(base + i for i in range(n - 1, -1, -1)))

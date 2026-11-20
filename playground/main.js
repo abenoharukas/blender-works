@@ -155,33 +155,46 @@ function prepareMaterials(root) {
   root.traverse((object) => {
     if (!object.isMesh) return;
 
-    // In the existing web export of The Stack, the cool curtain-wall glass sits
-    // ~4.9 cm outside the diagrid X-frame (20.304 m vs 20.255 m). Turning that
-    // glass opaque for outdoor daylight buries and z-fights the diagonal frame.
-    // Inset the horizontal glass envelope by 10 cm so the X-frame stands ~5 cm proud.
-    if (object.name === 'Web_Stack_Glass_Cool_Web') {
-      const bounds = new THREE.Box3().setFromObject(object);
-      if (bounds.max.z > 20.28) {
-        object.scale.x *= (57.804 - 0.10) / 57.804;
-        object.scale.z *= (20.304 - 0.10) / 20.304;
-        object.updateMatrixWorld(true);
-      }
+    const meshName = object.name ?? '';
+    // Interior roller blinds sit 10-12 cm behind the curtain wall. When
+    // outdoor glass is rendered opaque below, hide interior curtain meshes so
+    // they do not add ~200k unseen triangles or bleed at extreme distances.
+    if (/curtain/i.test(meshName) && !/wall/i.test(meshName)) {
+      object.visible = false;
+      return;
     }
 
-    const isFrostMesh = /frost/i.test(object.name ?? '');
-    const isGlassMesh = /glass/i.test(object.name ?? '') && !isFrostMesh;
+    const isEscalatorTube = /escalator.*glass|continuous_glass_tube/i.test(meshName);
+    const isFrostMesh = /frost/i.test(meshName);
+    const isGlassMesh = /glass/i.test(meshName) && !isFrostMesh && !isEscalatorTube;
+    const isLightMesh = /light|glow/i.test(meshName);
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
       if (!material) continue;
-      const namedGlass = /glass/i.test(material.name ?? '') && !/frost/i.test(material.name ?? '');
-      if ((material.transmission ?? 0) > 0.4 || namedGlass || isGlassMesh) {
+      const matName = material.name ?? '';
+      const isEscalatorGlass = isEscalatorTube || /escalator_glass/i.test(matName);
+      const namedGlass = /glass/i.test(matName) && !/frost/i.test(matName) && !isEscalatorGlass;
+      if (isEscalatorGlass) {
+        // Centre Pompidou's exterior escalator tube is a single-wall glass
+        // enclosure wrapping the red circulation stair; keep it translucent.
+        material.transmission = 0;
+        material.transparent = true;
+        material.opacity = 0.34;
+        material.depthWrite = false;
+        material.color.setHex(0x8ab8cf);
+        material.metalness = 0.12;
+        material.roughness = 0.08;
+        material.envMapIntensity = 1.35;
+        material.userData.isPlaygroundGlass = true;
+        material.needsUpdate = true;
+      } else if ((material.transmission ?? 0) > 0.4 || namedGlass || isGlassMesh) {
         material.transmission = 0;
         material.transparent = false;
         material.opacity = 1;
         material.depthWrite = true;
         material.polygonOffset = true;
-        material.polygonOffsetFactor = 2;
-        material.polygonOffsetUnits = 2;
+        material.polygonOffsetFactor = 1;
+        material.polygonOffsetUnits = 1;
         material.color.setHex(0x3d505b);
         material.metalness = 0.35;
         material.roughness = 0.12;
@@ -190,6 +203,7 @@ function prepareMaterials(root) {
         material.envMapIntensity = 2.0;
         material.clearcoat = 0;
         material.specularIntensity = 0.4;
+        material.userData.isPlaygroundGlass = true;
         material.needsUpdate = true;
       } else if (isFrostMesh) {
         material.transmission = 0;
@@ -197,17 +211,23 @@ function prepareMaterials(root) {
         material.opacity = 1;
         material.depthWrite = true;
         material.polygonOffset = true;
-        material.polygonOffsetFactor = 2;
-        material.polygonOffsetUnits = 2;
+        material.polygonOffsetFactor = 1;
+        material.polygonOffsetUnits = 1;
         material.color.setHex(0x697880);
         material.roughness = 0.35;
         material.metalness = 0.15;
+        material.userData.isPlaygroundFrost = true;
         material.needsUpdate = true;
       }
       // The glTF carries the Blender interior fills as emissive materials in
-      // nits (100, 360). Outdoors at midday they would blow the facade white,
-      // so they stay a hint of a lit room instead.
-      if (material.emissiveIntensity > 2) material.emissiveIntensity = 1.1;
+      // nits (8..360). Clamp for daylight balance and tag for night boost.
+      const hasEmissive = (material.emissive && (material.emissive.r + material.emissive.g + material.emissive.b > 0.02))
+        || Boolean(material.emissiveMap)
+        || isLightMesh;
+      if (hasEmissive && !material.userData.isPlaygroundGlass && !material.userData.isPlaygroundFrost) {
+        material.userData.isTowerEmissive = true;
+        if (material.emissiveIntensity > 2) material.emissiveIntensity = 1.1;
+      }
     }
   });
 }
@@ -305,6 +325,10 @@ async function addModel(id, { focus = true } = {}) {
 
 function removeEntry(entry) {
   scene.remove(entry.group);
+  if (entry.interiorLights) {
+    entry.interiorLights.forEach((pt) => scene.remove(pt));
+    entry.interiorLights = null;
+  }
   const index = placed.indexOf(entry);
   if (index >= 0) placed.splice(index, 1);
   reservedPlots.delete(entry.plot);

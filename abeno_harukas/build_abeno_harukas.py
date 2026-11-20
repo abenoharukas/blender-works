@@ -407,6 +407,36 @@ def curtain_wall(name, points, z0, z1, glass, spandrel):
     return mesh_object(name, vision_v, vision_f, glass)
 
 
+def facade_beams_mesh(name, members, width, depth, material):
+    """Merge oriented rectangular facade frame bars into a single mesh."""
+    verts, faces = [], []
+    for start, end, outward in members:
+        s, e = Vector(start), Vector(end)
+        delta = e - s
+        length = delta.length
+        if length < 1e-6:
+            continue
+        z_axis = delta / length
+        n_axis = Vector(outward).normalized()
+        x_axis = n_axis.cross(z_axis)
+        if x_axis.length < 1e-6:
+            x_axis = Vector((1.0, 0.0, 0.0))
+        else:
+            x_axis.normalize()
+        y_axis = z_axis.cross(x_axis).normalized()
+        mid = (s + e) / 2
+        base = len(verts)
+        for sx, sy, sz in ((-1, -1, -1), (1, -1, -1), (1, 1, -1),
+                           (-1, 1, -1), (-1, -1, 1), (1, -1, 1),
+                           (1, 1, 1), (-1, 1, 1)):
+            offset = (x_axis * (sx * width / 2)
+                      + y_axis * (sy * depth / 2)
+                      + z_axis * (sz * length / 2))
+            verts.append(tuple(mid + offset))
+        faces.extend(tuple(base + i for i in face) for face in BOX_FACES)
+    return mesh_object(name, verts, faces, material)
+
+
 def facade_grid(name, points, z0, z1, frame):
     """Curtain wall frame: fine vertical mullions at the pane module, a
     transom at every storey line and at the vision/spandrel split. Runs the
@@ -414,6 +444,7 @@ def facade_grid(name, points, z0, z1, frame):
     bottom — it does not break where the glass splits around the exposed
     staggered trusses."""
     short = STOREY_H * SHORT_GLASS_FRACTION
+    centre = Vector((*plan_centre(points), 0.0))
     levels = set()
     z = z0
     while z < z1 - 0.01:
@@ -426,17 +457,24 @@ def facade_grid(name, points, z0, z1, frame):
     mullions, transoms = [], []
     for edge in range(4):
         a, b = points[edge], points[(edge + 1) % 4]
-        count = max(1, round(math.hypot(b[0] - a[0], b[1] - a[1])
-                             / MULLION_SPACING))
+        edge_vec = Vector((b[0] - a[0], b[1] - a[1], 0.0))
+        outward = Vector((edge_vec.y, -edge_vec.x, 0.0)).normalized()
+        if outward.dot(Vector((a[0], a[1], 0.0)) - centre) < 0:
+            outward = -outward
+        mullion_shift = outward * 0.010   # outer face +7.0 cm, inner -5.0 cm
+        transom_shift = outward * 0.005   # outer face +5.5 cm, inner -4.5 cm
+        count = max(1, round(edge_vec.length / MULLION_SPACING))
         for k in range(1, count):
             fraction = k / count
-            mullions.append((edge_point(points, edge, fraction, z0, 0.002),
-                             edge_point(points, edge, fraction, z1, 0.002)))
+            p0 = edge_point(points, edge, fraction, z0) + mullion_shift
+            p1 = edge_point(points, edge, fraction, z1) + mullion_shift
+            mullions.append((p0, p1, outward))
         for level in sorted(levels):
-            transoms.append((edge_point(points, edge, 0.0, level, 0.002),
-                             edge_point(points, edge, 1.0, level, 0.002)))
-    beams_mesh(f"{name}_Mullions", mullions, 0.12, frame)
-    beams_mesh(f"{name}_Transoms", transoms, 0.10, frame)
+            p0 = edge_point(points, edge, 0.0, level) + transom_shift
+            p1 = edge_point(points, edge, 1.0, level) + transom_shift
+            transoms.append((p0, p1, outward))
+    facade_beams_mesh(f"{name}_Mullions", mullions, 0.12, 0.12, frame)
+    facade_beams_mesh(f"{name}_Transoms", transoms, 0.10, 0.10, frame)
 
 
 def mass_bands(name, height):
