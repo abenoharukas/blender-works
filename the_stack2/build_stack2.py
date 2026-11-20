@@ -16,18 +16,20 @@ between seven 1.2 m frames — so it reads as six bays and each core takes one
 group. The short face is 40.8 m — 16 + 4 + 16 with four frames — so the slab
 does not read too thin while both faces keep the 16 m clear group module
 (client direction). The storey program sets the
-height: every zone uses the same 4 m storey, so 12 mall floors, 24 office floors
-and 36 apartment floors put the top plate at 288 m; the glass tops out at
-298.8 m and the 1.2 m frame cap brings the tower to 300.0 m over 72 floors. The
-refuge truss bands separate the glazed floor groups and carry no facade frame,
-so every storey keeps its full 4 m. The shared 4 m storey gives all four refuge plazas
-the same two-storey = 8 m volume — a planted garden deck with a chunky
-Abeno-style chevron belt truss spanning both storeys above it.
+height: every glazed zone uses the same 4 m storey, so 10 mall floors, 22 office
+floors and 32 apartment floors put the top plate at 280 m; the glass tops out at
+290.8 m and the 1.2 m frame cap brings the tower to 292.0 m over 68 storey
+levels. The refuge bands separate the glazed floor groups and carry no facade
+frame: each is one 6 m open volume — a planted garden deck with a chunky
+Abeno-style chevron belt truss spanning the band above it (client direction: the
+former two-storey = 8 m bands read too tall). A 6 m band is not a multiple of
+the 4 m storey, so every floor above a refuge sits 2 m lower than the 4 m grid
+alone would put it and the tower loses 2 m per refuge.
 
 The identity of the building is the public route up its middle: two service
 cores run along the long axis and, between them, one continuous chain of
 escalators climbs the full height from the ground hall to the planted roof,
-stopping at four two-storey sky-garden plazas. The envelope is one continuous
+stopping at four 6 m sky-garden bands. The envelope is one continuous
 glass skin wrapped in a chunky square-section frame cage: prongs about 16 m
 apart, rungs on the refuge truss lines so every rung lands on a floor line,
 flush with the glass, so at distance the tower reads as a stack of big frames.
@@ -68,26 +70,58 @@ DEPTH = (sum(SHORT_GROUPS)
          + (len(SHORT_GROUPS) + 1) * FRAME_SQUARE)      # 40.8
 
 # Program and storey heights. Retail/mall at the base, offices through the
-# middle, apartments at the top. Every zone uses the same 4 m storey so every
-# refuge is the same two storeys = 8 m (client direction: the mall and office
-# belt trusses must match the apartment ones). The floor counts alone set every
-# zone boundary and the total height, so changing a count moves the whole stack
-# with it. The counts are the rentable storeys: each refuge is two storeys carved
-# out of a zone (a planted garden deck and the chevron truss spanning both
-# storeys above it), so removing its former open storey drops the stack by one
-# storey per refuge.
+# middle, apartments at the top. Every glazed zone uses the same 4 m storey, so
+# the floor counts alone set every zone boundary and the total height. Each
+# refuge is one 6 m open band of its own — a planted garden deck under a chunky
+# chevron belt truss — not the two 4 m storeys of the earlier scheme (client
+# direction: the mall, office and apartment bands all read too tall at 8 m).
 MALL_H, OFFICE_H, APARTMENT_H = 4.0, 4.0, 4.0
-# The apartment zone runs in two 15-storey (60 m) groups above the office line,
-# then a six-storey crown zone to the top plate (client direction: trim each
-# group by three storeys from the earlier 18-storey scheme).
-MALL_FLOORS, OFFICE_FLOORS, APARTMENT_FLOORS = 12, 24, 36
-LEVEL_BASE = MALL_FLOORS * MALL_H
-LEVEL_APARTMENT = LEVEL_BASE + OFFICE_FLOORS * OFFICE_H
-LEVEL_ROOF = LEVEL_APARTMENT + APARTMENT_FLOORS * APARTMENT_H
+REFUGE_H = 6.0
+# The program from the ground up: (count, height, zone). The apartment zone runs
+# in two groups above the office line, split by the mid refuge, then a six-storey
+# crown zone to the top plate (client direction: trim each group from the earlier
+# 18-storey scheme).
+PROGRAM = (
+    (10, MALL_H, "mall"),
+    (1, REFUGE_H, "refuge"),          # 40-46: mall refuge
+    (11, OFFICE_H, "office"),
+    (1, REFUGE_H, "refuge"),          # 90-96: office refuge
+    (11, OFFICE_H, "office"),
+    (1, REFUGE_H, "refuge"),          # 140-146: apartment refuge
+    (13, APARTMENT_H, "apartment"),
+    (1, REFUGE_H, "refuge"),          # 198-204: mid apartment refuge
+    (19, APARTMENT_H, "apartment"),
+)
+
+
+def program_levels():
+    """Storey tops from the ground up, one entry per storey, plus each refuge
+    band's (deck, ceiling) pair."""
+    levels, refuges, z = [], [], 0.0
+    for count, height, zone in PROGRAM:
+        for _ in range(count):
+            z = round(z + height, 3)
+            levels.append(z)
+            if zone == "refuge":
+                refuges.append((round(z - height, 3), z))
+    return levels, tuple(refuges)
+
+
+STOREY_LEVELS, REFUGES = program_levels()
+REFUGE_MALL, REFUGE_OFFICE = REFUGES[0], REFUGES[1]
+REFUGE_APARTMENT, REFUGE_APARTMENT_MID = REFUGES[2], REFUGES[3]
+MALL_FLOORS, OFFICE_FLOORS, APARTMENT_FLOORS = (
+    sum(count for count, _, zone in PROGRAM if zone == name)
+    for name in ("mall", "office", "apartment"))
+LEVEL_BASE = REFUGE_MALL[1]
+LEVEL_APARTMENT = REFUGE_APARTMENT[0]
+LEVEL_ROOF = STOREY_LEVELS[-1]
 # The glazed crown runs on above the top plate; it is the one height that is not
 # a storey count, so the deck sits two-and-a-bit apartment storeys below the top.
 # The 1.2 m frame cap is extra height on top of the glass (client direction).
+CROWN_FLOORS = 6
 CROWN_H = 2.7 * APARTMENT_H
+CROWN_BASE = LEVEL_ROOF - CROWN_FLOORS * APARTMENT_H
 GLASS_TOP = LEVEL_ROOF + CROWN_H
 HEIGHT = GLASS_TOP + FRAME_SQUARE
 
@@ -122,7 +156,7 @@ def facades_z_lines():
     frame beams."""
     lines = [0.0]
     lines.extend(float(deck) for deck in REFUGE_DECK_LEVELS)
-    lines.append(float(LEVEL_APARTMENT + 30 * APARTMENT_H))
+    lines.append(float(CROWN_BASE))
     return lines
 
 
@@ -163,29 +197,28 @@ SPINE_CROSS_X, SPINE_CROSS_Y = 6.0, 3.4   # crisscross rectangle half-extents
 # refuge and on up toward the crown, with its edges on floor lines. The frames
 # themselves stay as jambs. The lower vent brackets the apartment refuge, the
 # upper rises over the mid refuge.
-REFUGE_MID_OPEN = (LEVEL_APARTMENT + 15 * APARTMENT_H,
-                   LEVEL_APARTMENT + 17 * APARTMENT_H)          # 204-212
+REFUGE_MID_OPEN = REFUGE_APARTMENT_MID                          # 198-204
 
 _VOID_IN = FRAME_SQUARE / 2
 _VOID_OUT = FRAME_SQUARE / 2 + FRAME_SPAN
 VOIDS = (
-    (-_VOID_OUT, -_VOID_IN, LEVEL_APARTMENT,
+    (-_VOID_OUT, -_VOID_IN, REFUGE_APARTMENT[0],
      REFUGE_MID_OPEN[0]),
     (_VOID_IN, _VOID_OUT, REFUGE_MID_OPEN[0],
-     LEVEL_APARTMENT + 30 * APARTMENT_H),                       # 144-204-264
+     CROWN_BASE),                                              # 140-198-256
 )
 
 # Abeno Harukas-style perimeter chevron trusses, used for the belt band of every
 # refuge: complete upward chevrons with both feet on the lower chord, boundary
 # posts and top/bottom chords, one chevron per facade-cage bay so the truss
 # posts line up with the facade prongs and the six wide-face groups read
-# one-to-one. The truss spans the refuge's full two storeys, so each face reads
-# as one tall claw.
+# one-to-one. The truss spans the refuge band's full 6 m, so each face reads
+# as one claw.
 CHEVRON_POST_W = 2.20           # chunky, like the Abeno reference
 CHEVRON_DIAG_W = 1.20
 CHEVRON_CHORD_W = 1.10
-# The refuge belt truss is set back behind the glass so it never pierces it and
-# reads through the continuous glazing.
+# The refuge belt truss is set back inside the envelope, so it never pierces the
+# glass above and below its open band.
 TRUSS_INSET = 1.25
 
 # The mall is a stack of retail floors around a central escalator atrium; the
@@ -251,56 +284,35 @@ LAMP_HEAD_R = 0.18
 LAMP_SPACING = 9.0
 LAMP_INSET = 0.3
 
-# Refuge garden trees grow up through the truss toward the ceiling two storeys
-# above the deck; each refuge caps its trees just under its own ceiling.
+# Refuge garden trees grow up through the truss toward the band's ceiling; each
+# refuge caps its trees just under its own ceiling.
 TREE_MAX_H = 8.5
 
 
 def storey_levels():
-    """Every floor level from the ground up, one entry per storey."""
-    levels, z = [], 0.0
-    for floors, height in ((MALL_FLOORS, MALL_H), (OFFICE_FLOORS, OFFICE_H),
-                           (APARTMENT_FLOORS, APARTMENT_H)):
-        for _ in range(floors):
-            z += height
-            levels.append(round(z, 3))
-    return levels
+    """Every floor level from the ground up, one entry per storey, including a
+    refuge band's ceiling."""
+    return list(STOREY_LEVELS)
 
 
-# Every sky-garden plaza is now one two-storey volume: a planted garden deck at
-# the bottom, with the chunky chevron belt truss spanning both storeys above it.
-# The plate between the two storeys is dropped, so the garden opens straight up
-# into the truss. The apartment zone carries a fourth refuge between the two
-# vents.
+# Every sky-garden plaza is one open 6 m band: a planted garden deck at the
+# bottom, with the chunky chevron belt truss spanning the band above it. There is
+# no intermediate storey at all, so the garden opens straight up into the truss.
+# The apartment zone carries a fourth refuge between the two vents.
 #
-# Each refuge is two storeys tall; the deck is its bottom plate and the ceiling
-# its top plate, both of which stay, so the truss and the garden read through the
-# continuous glass as one tall planted room. The refuge truss band is the
-# horizontal separator of the facade; it carries no facade frame.
-REFUGE_MALL = (LEVEL_BASE - 2 * MALL_H, LEVEL_BASE)                      # 40-48
-REFUGE_OFFICE = (LEVEL_BASE + 11 * OFFICE_H, LEVEL_BASE + 13 * OFFICE_H)  # 92-100
-REFUGE_APARTMENT = (LEVEL_APARTMENT, LEVEL_APARTMENT + 2 * APARTMENT_H)  # 144-152
-REFUGE_APARTMENT_MID = REFUGE_MID_OPEN                                   # 204-212
-REFUGES = (REFUGE_MALL, REFUGE_OFFICE, REFUGE_APARTMENT,
-           REFUGE_APARTMENT_MID)
-# One storey height per refuge, and two storeys per refuge.
-REFUGE_HEIGHTS = (MALL_H, OFFICE_H, APARTMENT_H, APARTMENT_H)
-REFUGE_STOREY_H = tuple(2 * h for h in REFUGE_HEIGHTS)
+# The deck is the band's bottom plate and the ceiling its top plate, both of
+# which stay, so the truss and the garden read as one planted room. The refuge
+# band is the horizontal separator of the facade; it carries no facade frame and
+# no glazing, so the truss stands in open air.
 REFUGE_OPEN_H = 0.0
-# The garden deck sits on the bottom plate; the belt truss rises from it to the
-# ceiling plate. From the bottom up: deck, truss, ceiling.
 REFUGE_DECK_LEVELS = tuple(z0 for z0, _ in REFUGES)
 REFUGE_CEILING_LEVELS = tuple(z1 for _, z1 in REFUGES)
 REFUGE_FLOOR_LEVELS = REFUGE_DECK_LEVELS
-# The deck and the ceiling keep their plate; the storey line between them is
-# omitted, so the garden and the truss read as one two-storey volume.
-REFUGE_DROP_LEVELS = tuple(z0 + h
-                           for (z0, _), h in zip(REFUGES, REFUGE_HEIGHTS))
 REFUGE_COMPONENT_SPANS = tuple(zip(REFUGE_DECK_LEVELS, REFUGE_CEILING_LEVELS))
 
-# Zones left completely open — no glass and no curtain-wall frame: every
-# two-storey refuge truss band (the belt trusses stand exposed in open air) and
-# the mall's bottom two storeys (the open entrance podium).
+# Zones left completely open — no glass and no curtain-wall frame: every refuge
+# truss band (the belt trusses stand exposed in open air) and the mall's bottom
+# two storeys (the open entrance podium).
 OPEN_ZONES = ((0.0, 2 * MALL_H),) + REFUGE_COMPONENT_SPANS
 
 # The envelope is one continuous glass skin from the ground hall to the top of
@@ -711,8 +723,7 @@ def mall_escalators(mats):
     beside the opening, never across it, so the route is always inside the room
     rather than over the draughty void."""
     levels = [z for z in storey_levels()
-              if LEVEL_MALL_FIRST <= z <= REFUGE_MALL[0]
-              and z not in REFUGE_DROP_LEVELS]
+              if LEVEL_MALL_FIRST <= z <= REFUGE_MALL[0]]
     half = MALL_H / math.tan(math.radians(FLIGHT_ANGLE)) / 2.0
     legs = (
         ((-half, -MALL_HELIX_Y), (half, -MALL_HELIX_Y)),
@@ -801,11 +812,9 @@ def room_ceiling_lights(mats):
         y += ROOM_LIGHT_PITCH
     boxes = {"daylight": [], "warm": [], "off": []}
     for floor_index, zc in enumerate(storey_levels(), start=1):
+        # The refuge ceiling is skipped too: its plate is there, but the space
+        # under it is the open garden, so it takes no panel grid.
         if zc <= LEVEL_BASE or is_refuge(zc):
-            continue
-        # A dropped refuge plate is no ceiling: the storey below it is part of
-        # the open refuge, so it takes no panel grid (no floating fixtures).
-        if zc in REFUGE_DROP_LEVELS:
             continue
         z = zc - 0.15 - ROOM_LIGHT_H / 2
         for i, px in enumerate(xs):
@@ -846,8 +855,6 @@ def mall_ceiling_lights(mats):
         if zc >= LEVEL_BASE:
             break
         if zc < LEVEL_MALL_FIRST:
-            continue
-        if zc in REFUGE_DROP_LEVELS:
             continue
         z = zc - 0.15 - ROOM_LIGHT_H / 2
         for sx in (-1, 1):
@@ -1018,11 +1025,12 @@ def chevron_face(face, u0, u1, z0, z1, mats, prefix, outer, corner_start=False):
 
 
 def refuge_belt_trusses(mats):
-    """An Abeno Harukas-style chevron belt truss spanning a refuge's full two
-    storeys, its feet on the garden deck and its apex on the ceiling, so each
-    face reads as one chunky claw. Wrapped on all four faces and recessed behind
-    the glass, so the truss reads through it. Every refuge is the same two 4 m
-    storeys, so the mall and office bands match the apartment ones exactly."""
+    """An Abeno Harukas-style chevron belt truss spanning a refuge band's full
+    6 m, its feet on the garden deck and its apex on the ceiling, so each face
+    reads as one chunky claw. Wrapped on all four faces and recessed inside the
+    envelope, so it never pierces the glass above and below. Every refuge is the
+    same 6 m band, so the mall and office bands match the apartment ones
+    exactly."""
     for deck, top in zip(REFUGE_DECK_LEVELS, REFUGE_CEILING_LEVELS):
         for face in FACES:
             span = WIDTH if face in ("N", "S") else DEPTH
@@ -1076,9 +1084,10 @@ def sky_garden(name, z, mats, plates, trees, tree_max_h=TREE_MAX_H):
             continue
         if not any(x0 < px < x1 and y0 < py < y1 for x0, x1, y0, y1 in plates):
             continue
-        # A tall tree: it grows up through the truss toward the ceiling two
-        # storeys above, stopping under that refuge's own ceiling.
-        height = rng.uniform(min(6.0, tree_max_h), tree_max_h)
+        # A tall tree: it grows up through the truss toward the band's ceiling,
+        # stopping under that refuge's own ceiling (the roof garden, which has
+        # no truss, keeps the default taller cap).
+        height = rng.uniform(0.7 * tree_max_h, tree_max_h)
         r = rng.uniform(1.4, 1.8)
         trunk_top = z + height - 1.7 * r
         beam(f"{name}_Trunk", (px, py, z - 0.25), (px, py, trunk_top),
@@ -1098,7 +1107,7 @@ def refuge_gardens(mats):
     vx, vy = MALL_VOID_X + 0.02, MALL_VOID_Y + 0.02
     mall_ring = ((vx, hx, -hy, hy), (-hx, -vx, -hy, hy),
                  (-vx, vx, vy, hy), (-vx, vx, -hy, -vy))
-    caps = tuple(h - 1.5 for h in REFUGE_STOREY_H)
+    caps = tuple(REFUGE_H - 1.5 for _ in REFUGES)
     sky_garden("Stack_Refuge_Mall_Garden", REFUGE_DECK_LEVELS[0] + 0.14, mats,
                mall_ring, trees=12, tree_max_h=caps[0])
     sky_garden("Stack_Refuge_Office_Garden", REFUGE_DECK_LEVELS[1] + 0.14, mats,
@@ -1305,7 +1314,7 @@ def outrigger_trusses(mats):
     x0 = CORE_X + CORE_WIDTH / 2        # core outer face
     x1 = OUTRIGGER_COL_X                # ring column centre
     for level in OUTRIGGER_LEVELS:
-        truss_h = APARTMENT_H if level >= LEVEL_APARTMENT else OFFICE_H
+        truss_h = REFUGE_H
         for sx in (-1, 1):
             for sy in (-1, 1):
                 ax, ay = sx * x0, sy * OUTRIGGER_COL_Y
@@ -1376,8 +1385,6 @@ def add_interior(mats):
             break
         if zc < LEVEL_MALL_FIRST:
             continue
-        if zc in REFUGE_DROP_LEVELS:
-            continue
         for sx in (-1, 1):
             cube("Stack_Mall_Slab",
                  (sx * (MALL_VOID_X + slab_half) / 2, 0, zc),
@@ -1389,12 +1396,10 @@ def add_interior(mats):
                  (2 * MALL_VOID_X, slab_half_y - MALL_VOID_Y, 0.28),
                  mats["slab"])
     # Office and apartment plates, cut around the public shaft and the two
-    # apartment voids. The storey line inside each refuge is dropped, so its
-    # garden deck and its truss read as one two-storey volume.
+    # apartment voids. A refuge band carries no intermediate plate, so its
+    # garden deck and its truss read as one 6 m open volume.
     for zc in storey_levels():
         if zc < REFUGE_MALL[1]:
-            continue
-        if zc in REFUGE_DROP_LEVELS:
             continue
         plate_with_holes("Stack_Floor_Slab", -slab_half, slab_half,
                          -slab_half_y, slab_half_y, zc, plate_holes(zc),
@@ -1623,7 +1628,7 @@ def setup_scene(args, mats):
     scene["model_height_m"] = HEIGHT
     scene["crown_height_m"] = CROWN_H
     scene["published_levels"] = 77
-    scene["floor_count"] = MALL_FLOORS + OFFICE_FLOORS + APARTMENT_FLOORS
+    scene["floor_count"] = len(STOREY_LEVELS)
     scene["refuge_open_height_m"] = REFUGE_OPEN_H
     scene["mall_floors"] = MALL_FLOORS
     scene["mall_ground_height_m"] = LEVEL_MALL_FIRST
@@ -1633,14 +1638,16 @@ def setup_scene(args, mats):
     scene["office_floors"] = OFFICE_FLOORS
     scene["apartment_floors"] = APARTMENT_FLOORS
     scene["storey_heights_m"] = (f"mall {MALL_H}, office {OFFICE_H}, "
-                                 f"apartment {APARTMENT_H}")
+                                 f"apartment {APARTMENT_H}, "
+                                 f"refuge {REFUGE_H}")
     scene["estimated_width_m"] = WIDTH
     scene["estimated_depth_m"] = DEPTH
     scene["elevation_width_pixels"] = 321
     scene["elevation_depth_pixels"] = 94
     scene["elevation_height_pixels"] = 992
     scene["facade_bands"] = ",".join(band for _, _, band in BANDS)
-    scene["refuge_floors"] = 2
+    scene["refuge_floors"] = 1
+    scene["refuge_height_m"] = REFUGE_H
     scene["refuges"] = len(REFUGES)
     scene["refuge_layers"] = "garden,truss"
     scene["refuge_levels_m"] = ", ".join(
@@ -1665,14 +1672,13 @@ def setup_scene(args, mats):
     scene["spine_shaft_m"] = f"{2 * SPINE_HALF_X:g}x{2 * SPINE_HALF_Y:g}"
     scene["public_route_runs"] = (
         sum(1 for z in storey_levels()
-            if LEVEL_MALL_FIRST <= z <= REFUGE_MALL[0]
-            and z not in REFUGE_DROP_LEVELS) - 1
+            if LEVEL_MALL_FIRST <= z <= REFUGE_MALL[0]) - 1
         + sum(1 for z in storey_levels() if z >= REFUGE_MALL[1]) - 1)
     scene["structural_scheme"] = (
         "Two service cores on the long axis, X-braced on their inner faces, "
-        "with one public escalator shaft and four two-storey planted refuge "
-        "gardens, each under a chevron belt truss behind a single continuous "
-        "glass envelope in a ~20 m square-frame cage.")
+        "with one public escalator shaft and four 6 m planted refuge bands, "
+        "each under a chevron belt truss behind a single continuous glass "
+        "envelope in a ~20 m square-frame cage.")
     scene["core_bracing"] = CORE_BRACE_COUNT
     scene["facade_cage_m"] = f"span {FRAME_SPAN:g}, section {FRAME_SQUARE:g}"
     scene["approximation_note"] = (
