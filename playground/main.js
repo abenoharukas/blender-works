@@ -164,11 +164,19 @@ buildStreet(scene);
 const VIEWS = {
   street: {
     position: new THREE.Vector3(0.9, 1.75, 412),
-    target: new THREE.Vector3(-11, 128, 0),
+    target: new THREE.Vector3(-4, 118, 0),
+  },
+  shotengai: {
+    position: new THREE.Vector3(3.6, 8.8, 366),
+    target: new THREE.Vector3(-12, 4.6, 308),
+  },
+  ikkodate: {
+    position: new THREE.Vector3(38, 3.5, 386.8),
+    target: new THREE.Vector3(106, 3.1, 385.8),
   },
   overview: {
-    position: new THREE.Vector3(610, 430, 820),
-    target: new THREE.Vector3(0, 100, -240),
+    position: new THREE.Vector3(560, 410, 790),
+    target: new THREE.Vector3(0, 95, -210),
   },
 };
 
@@ -436,8 +444,11 @@ window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement) return;
   const index = Number(event.key);
   if (index >= 1 && index <= MODELS.length) addModel(MODELS[index - 1].id);
-  if (event.key.toLowerCase() === 's') applyView('street');
-  if (event.key.toLowerCase() === 'o') applyView('overview');
+  const key = event.key.toLowerCase();
+  if (key === 's') applyView('street');
+  if (key === 'm') applyView('shotengai');
+  if (key === 'h') applyView('ikkodate');
+  if (key === 'o') applyView('overview');
 });
 
 // ------------------------------------------------------------------ loop
