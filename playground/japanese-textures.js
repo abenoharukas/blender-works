@@ -230,6 +230,104 @@ export function createCommercialUpperTexture({ baseHex, frameColor = '#282c30', 
   });
 }
 
+function seededRand(seed) {
+  let a = (seed >>> 0) || 1;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const ROOM_LIGHT_PALETTE = [
+  ['#fff4d9', '#ffd796'], // Warm-white living room
+  ['#ffe1a6', '#f2b866'], // Cozy amber room
+  ['#eaf4ff', '#bfdcf7'], // Cool daylight fluorescent
+  ['#fff8eb', '#ffe6ba'], // Soft bright LED
+];
+
+/**
+ * Matching multi-bay emissiveMap for residential walls so ~56% of house windows
+ * glow randomly at night while unlit windows and wall siding stay dark.
+ */
+export function createHouseWallEmissiveMap({ windowType = 'sliding', seed = 1, cols = 4, rows = 2 } = {}) {
+  const tex = makeCanvasTexture(cols * 256, rows * 256, (g, w, h) => {
+    g.fillStyle = '#000000';
+    g.fillRect(0, 0, w, h);
+    if (windowType === 'none') return;
+
+    const rnd = seededRand(seed);
+    const wx = windowType === 'slit' ? 38 : 48;
+    const wy = windowType === 'slit' ? 58 : 54;
+    const ww = windowType === 'slit' ? 180 : 160;
+    const wh = windowType === 'slit' ? 54 : 118;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (rnd() > 0.56) continue;
+        const ox = c * 256;
+        const oy = r * 256;
+        const [topCol, botCol] = ROOM_LIGHT_PALETTE[Math.floor(rnd() * ROOM_LIGHT_PALETTE.length)];
+        const grad = g.createLinearGradient(0, oy + wy, 0, oy + wy + wh);
+        grad.addColorStop(0, topCol);
+        grad.addColorStop(1, botCol);
+        g.fillStyle = grad;
+        g.fillRect(ox + wx, oy + wy, ww, wh);
+
+        // Keep mullions / koshido lattice dark
+        g.fillStyle = '#000000';
+        g.fillRect(ox + wx + ww / 2 - 3, oy + wy, 6, wh);
+        if (windowType === 'koshido') {
+          for (let x = wx + 8; x < wx + ww - 4; x += 14) {
+            g.fillRect(ox + x, oy + wy, 4, wh);
+          }
+          g.fillRect(ox + wx, oy + wy + wh * 0.5, ww, 4);
+        }
+      }
+    }
+  });
+  tex.repeat.set(1 / cols, 1 / rows);
+  return tex;
+}
+
+/**
+ * Matching multi-bay emissiveMap for commercial upper-storey facades.
+ */
+export function createCommercialUpperEmissiveMap({ seed = 101, cols = 4, rows = 2 } = {}) {
+  const tex = makeCanvasTexture(cols * 256, rows * 256, (g, w, h) => {
+    g.fillStyle = '#000000';
+    g.fillRect(0, 0, w, h);
+
+    const rnd = seededRand(seed);
+    const wx = 26;
+    const wy = 44;
+    const ww = 204;
+    const wh = 142;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (rnd() > 0.58) continue;
+        const ox = c * 256;
+        const oy = r * 256;
+        const [topCol, botCol] = ROOM_LIGHT_PALETTE[Math.floor(rnd() * ROOM_LIGHT_PALETTE.length)];
+        const grad = g.createLinearGradient(0, oy + wy, 0, oy + wy + wh);
+        grad.addColorStop(0, topCol);
+        grad.addColorStop(1, botCol);
+        g.fillStyle = grad;
+        g.fillRect(ox + wx, oy + wy, ww, wh);
+
+        g.fillStyle = '#000000';
+        g.fillRect(ox + wx + Math.floor(ww / 3) - 2, oy + wy, 4, wh);
+        g.fillRect(ox + wx + Math.floor((ww * 2) / 3) - 2, oy + wy, 4, wh);
+        g.fillRect(ox + wx, oy + wy + 42, ww, 4);
+      }
+    }
+  });
+  tex.repeat.set(1 / cols, 1 / rows);
+  return tex;
+}
+
 /**
  * Ground-floor Japanese storefront textures (1 bay = 3.2 m wide x 3.8 m tall, non-repeating Y).
  * Variants: 'izakaya', 'ramen', 'kissaten', 'konbini_lawson', 'konbini_famima', 'pharmacy', 'bookstore'

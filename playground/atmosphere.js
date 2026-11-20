@@ -26,24 +26,24 @@ const TIME_KEYFRAMES = [
     zenith: '#050914',
     horizon: '#0d1629',
     sunColor: '#9ab4e8',
-    hemiSky: '#1c2b48',
-    hemiGround: '#0e1118',
-    hemiIntensity: 0.32,
+    hemiSky: '#263a61',
+    hemiGround: '#141822',
+    hemiIntensity: 0.54,
     fogColor: '#0c1424',
-    exposure: 0.78,
-    envIntensity: 0.35,
+    exposure: 1.04,
+    envIntensity: 0.42,
   },
   {
     hour: 4.5,
     zenith: '#091124',
     horizon: '#1e2742',
     sunColor: '#ff9666',
-    hemiSky: '#2a385c',
-    hemiGround: '#16171d',
-    hemiIntensity: 0.36,
+    hemiSky: '#2e4069',
+    hemiGround: '#181a22',
+    hemiIntensity: 0.52,
     fogColor: '#1a2238',
-    exposure: 0.76,
-    envIntensity: 0.4,
+    exposure: 0.96,
+    envIntensity: 0.44,
   },
   {
     hour: 5.75, // Sunrise / Dawn (朝阳)
@@ -134,24 +134,24 @@ const TIME_KEYFRAMES = [
     zenith: '#060c1a',
     horizon: '#121d33',
     sunColor: '#9ab4e8',
-    hemiSky: '#1e2e4f',
-    hemiGround: '#0e1118',
-    hemiIntensity: 0.34,
+    hemiSky: '#263a61',
+    hemiGround: '#141822',
+    hemiIntensity: 0.54,
     fogColor: '#0e1728',
-    exposure: 0.78,
-    envIntensity: 0.36,
+    exposure: 1.04,
+    envIntensity: 0.42,
   },
   {
     hour: 24.0,
     zenith: '#050914',
     horizon: '#0d1629',
     sunColor: '#9ab4e8',
-    hemiSky: '#1c2b48',
-    hemiGround: '#0e1118',
-    hemiIntensity: 0.32,
+    hemiSky: '#263a61',
+    hemiGround: '#141822',
+    hemiIntensity: 0.54,
     fogColor: '#0c1424',
-    exposure: 0.78,
-    envIntensity: 0.35,
+    exposure: 1.04,
+    envIntensity: 0.42,
   },
 ];
 
@@ -223,7 +223,24 @@ function createSnowflakeTexture() {
   return tex;
 }
 
-export function createAtmosphereSystem({ scene, renderer, camera, placed }) {
+function createLampPoolTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 62);
+  g.addColorStop(0.0, 'rgba(255, 214, 148, 0.95)');
+  g.addColorStop(0.35, 'rgba(255, 186, 102, 0.45)');
+  g.addColorStop(0.75, 'rgba(255, 168, 82, 0.10)');
+  g.addColorStop(1.0, 'rgba(255, 160, 72, 0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createAtmosphereSystem({ scene, renderer, camera, controls, placed }) {
   // ------------------------------------------------------------------ sky dome
   const skyMaterial = new THREE.ShaderMaterial({
     uniforms: {
@@ -365,26 +382,83 @@ export function createAtmosphereSystem({ scene, renderer, camera, placed }) {
   const hemisphere = new THREE.HemisphereLight(0xdcebff, 0x6b675f, 0.75);
   scene.add(hemisphere);
 
-  // Warm streetlamps & plaza accent PointLights (active at dusk / night)
+  // Dynamic 28-light PointLight pool: always snaps to the 28 nearest streetlamps
+  // around the camera/target so every residential lane & bar street is lit!
   const nightLights = [];
-  const lampSpots = [
-    [-5.2, 4.6, 396],
-    [5.2, 4.6, 366],
-    [-5.2, 4.6, 336],
-    [5.2, 4.6, 298],
-    [-5.2, 4.6, 258],
-    [5.2, 4.6, 214],
-    [-5.2, 4.6, 174],
-    [0, 6.5, 134],
-    [-42, 6.0, 72],
-    [42, 6.0, 72],
-  ];
-  for (const [x, y, z] of lampSpots) {
-    const pt = new THREE.PointLight(0xffb969, 0, 48, 1.55);
-    pt.position.set(x, y, z);
+  for (let i = 0; i < 28; i++) {
+    const pt = new THREE.PointLight(0xffb969, 0, 68, 1.35);
     pt.visible = false;
     scene.add(pt);
     nightLights.push(pt);
+  }
+
+  let allLampSpots = [];
+  let lampPoolMesh = null;
+  let lastPoolSortPos = new THREE.Vector3(1e9, 1e9, 1e9);
+  let currentGlowFactor = 0;
+
+  function registerLampSpots(spots) {
+    allLampSpots = Array.isArray(spots) ? spots : [];
+    if (lampPoolMesh) {
+      scene.remove(lampPoolMesh);
+      lampPoolMesh.geometry.dispose();
+      lampPoolMesh.material.dispose();
+      lampPoolMesh = null;
+    }
+    if (!allLampSpots.length) return;
+    const geo = new THREE.PlaneGeometry(1, 1);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      map: createLampPoolTexture(),
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+    });
+    lampPoolMesh = new THREE.InstancedMesh(geo, mat, allLampSpots.length);
+    lampPoolMesh.frustumCulled = false;
+    lampPoolMesh.visible = false;
+    const dummy = new THREE.Object3D();
+    allLampSpots.forEach((spot, idx) => {
+      dummy.position.set(spot.x, 0.24, spot.z);
+      dummy.scale.set(spot.radius ?? 18, 1, spot.radius ?? 18);
+      dummy.updateMatrix();
+      lampPoolMesh.setMatrixAt(idx, dummy.matrix);
+    });
+    lampPoolMesh.instanceMatrix.needsUpdate = true;
+    scene.add(lampPoolMesh);
+    lastPoolSortPos.set(1e9, 1e9, 1e9);
+  }
+
+  function updateNearestLampLights(force = false) {
+    if (!allLampSpots.length || currentGlowFactor <= 0.04) return;
+    const focus = controls?.target
+      ? camera.position.clone().lerp(controls.target, 0.35)
+      : camera.position;
+    if (!force && focus.distanceToSquared(lastPoolSortPos) < 64) return;
+    lastPoolSortPos.copy(focus);
+
+    const ranked = allLampSpots
+      .map((spot) => {
+        const dx = spot.x - focus.x;
+        const dz = spot.z - focus.z;
+        return { spot, d2: dx * dx + dz * dz };
+      })
+      .sort((a, b) => a.d2 - b.d2);
+
+    for (let i = 0; i < nightLights.length; i++) {
+      const item = ranked[i];
+      const pt = nightLights[i];
+      if (!item) {
+        pt.visible = false;
+        continue;
+      }
+      pt.position.set(item.spot.x, item.spot.y, item.spot.z);
+      pt.intensity = currentGlowFactor * 220.0;
+      pt.visible = true;
+    }
   }
 
   scene.fog = new THREE.Fog(0xb9cbe0, 900, 4200);
@@ -511,9 +585,9 @@ export function createAtmosphereSystem({ scene, renderer, camera, placed }) {
     const h = ((state.hour % 24) + 24) % 24;
     const kf = sampleTimeKeyframes(h);
 
-    // Solar angle: 06:00 sunrise (east, +X), 12:30 peak (high), 18:30 sunset (west, -X)
-    // Shift azimuth slightly (+42 deg) so midday shadows still sculpt building facades nicely
-    const dayProgress = (h - 6.0) / 12.5; // 0 at 06:00, 1 at 18:30
+    // Solar angle: 05:45 sunrise (east, +X), 11:52 peak (high), 18:00 sunset (west, -X)
+    // Symmetric so Dawn (06:00) and Dusk (17:45) both sit at ~4 deg golden-hour elevation.
+    const dayProgress = (h - 5.75) / 12.25; // 0 at 05:45, 1 at 18:00
     const sunElevDeg = Math.sin(dayProgress * Math.PI) * 64; // -64 .. +64
     const sunAzimDeg = 92 - dayProgress * 142; // East (+92) -> South-ish (+21) -> West (-50)
 
@@ -635,11 +709,22 @@ export function createAtmosphereSystem({ scene, renderer, camera, placed }) {
     renderer.toneMappingExposure = kf.exposure * exposureBoost;
     scene.environmentIntensity = kf.envIntensity * (w === 'rain' ? 1.15 : 1.0);
 
-    // Night illumination (lamps + signs + tower windows)
-    const glowFactor = Math.max(nightFactor, (w === 'rain' || w === 'fog') ? 0.38 * inten : 0);
-    for (const pt of nightLights) {
-      pt.intensity = glowFactor * 16.0;
-      pt.visible = glowFactor > 0.04;
+    // Realistic urban lighting schedule:
+    // - Morning (05:00 -> 06:00): night lights fade out as people wake & sun rises (0 at 06:00 Dawn)
+    // - Evening (16:45 -> 18:30): streetlamps, bars, shops & homes turn on (~0.65 at 17:45 Dusk, 1.0 by 18:30)
+    const morningFade = h < 6.5 ? 1.0 - THREE.MathUtils.smoothstep(h, 5.0, 6.0) : 0.0;
+    const eveningRamp = h >= 16.5 ? THREE.MathUtils.smoothstep(h, 16.75, 18.5) : 0.0;
+    const urbanSchedule = Math.max(morningFade, eveningRamp);
+    const glowFactor = Math.max(urbanSchedule, (w === 'rain' || w === 'fog') ? 0.38 * inten : 0);
+    currentGlowFactor = glowFactor;
+    if (glowFactor <= 0.04) {
+      for (const pt of nightLights) pt.visible = false;
+    } else {
+      updateNearestLampLights(true);
+    }
+    if (lampPoolMesh) {
+      lampPoolMesh.visible = glowFactor > 0.04;
+      lampPoolMesh.material.opacity = glowFactor * 0.68;
     }
 
     // Update street materials for night emissives, wet rain reflections, and snow dusting
@@ -653,14 +738,30 @@ export function createAtmosphereSystem({ scene, renderer, camera, placed }) {
           m.emissiveIntensity = THREE.MathUtils.lerp(base.emissiveIntensity * baseMult, nightMult, glowFactor);
         }
       };
-      boostEmissive(streetMats.warmLamp, 0.8, 3.6);
-      boostEmissive(streetMats.lanternRed, 0.7, 2.8);
-      boostEmissive(streetMats.lanternWarm, 0.7, 2.6);
-      boostEmissive(streetMats.vendFace, 0.75, 2.4);
-      boostEmissive(streetMats.sleeveSigns, 0.8, 1.5);
-      boostEmissive(streetMats.shotengaiBanner, 0.8, 1.4);
-      boostEmissive(streetMats.konbiniSignBlue, 0.8, 1.8);
-      boostEmissive(streetMats.konbiniSignGreen, 0.8, 1.7);
+      boostEmissive(streetMats.warmLamp, 0.8, 12.0);
+      boostEmissive(streetMats.lanternRed, 0.7, 8.5);
+      boostEmissive(streetMats.lanternWarm, 0.7, 8.5);
+      boostEmissive(streetMats.vendFace, 0.75, 6.5);
+      boostEmissive(streetMats.sleeveSigns, 0.8, 3.2);
+      boostEmissive(streetMats.shotengaiBanner, 0.8, 3.0);
+      boostEmissive(streetMats.konbiniSignBlue, 0.8, 4.2);
+      boostEmissive(streetMats.konbiniSignGreen, 0.8, 4.0);
+      // Randomly lit residential windows & commercial storefronts at night
+      boostEmissive(streetMats.houseLightWalls, 0, 2.8);
+      boostEmissive(streetMats.houseSlitWalls, 0, 2.8);
+      boostEmissive(streetMats.houseDarkWalls, 0, 2.8);
+      boostEmissive(streetMats.houseTileWalls, 0, 2.6);
+      boostEmissive(streetMats.woodAccentWall, 0, 2.6);
+      boostEmissive(streetMats.washikiLower, 0, 2.6);
+      boostEmissive(streetMats.shikkuiWall, 0, 2.6);
+      boostEmissive(streetMats.commUppers, 0, 3.4);
+      boostEmissive(streetMats.shopIzakaya, 0, 1.8);
+      boostEmissive(streetMats.shopRamen, 0, 1.8);
+      boostEmissive(streetMats.shopKissaten, 0, 1.6);
+      boostEmissive(streetMats.shopPharmacy, 0, 1.8);
+      boostEmissive(streetMats.shopBookstore, 0, 1.5);
+      boostEmissive(streetMats.shopKonbiniLawson, 0, 2.4);
+      boostEmissive(streetMats.shopKonbiniFamima, 0, 2.4);
 
       // Wet roads & plazas in rain
       for (const key of ['road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder']) {
@@ -698,15 +799,61 @@ export function createAtmosphereSystem({ scene, renderer, camera, placed }) {
       }
     }
 
-    // Update placed glTF tower interior emissives
-    const towerEmissive = THREE.MathUtils.lerp(0.65, 2.35, glowFactor);
+    // Update placed glTF tower glass translucency, fluorescent emissives & interior fill lights
+    const towerEmissive = THREE.MathUtils.lerp(0.45, 36.0, glowFactor);
+    const glassShouldBeTranslucent = glowFactor >= 0.15;
+    const glassOpacity = glassShouldBeTranslucent ? THREE.MathUtils.lerp(0.82, 0.14, glowFactor) : 1.0;
+    const glassEnvIntensity = THREE.MathUtils.lerp(2.0, 0.32, glowFactor);
+    const frostOpacity = glassShouldBeTranslucent ? THREE.MathUtils.lerp(0.88, 0.38, glowFactor) : 1.0;
+
     for (const entry of placed) {
+      if (!entry.interiorLights) {
+        const box = new THREE.Box3().setFromObject(entry.group, true);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const radius = Math.max(size.x, size.z, 40) * 2.2;
+        entry.interiorLights = [
+          { ratio: 0.2, color: 0xffe4bc },
+          { ratio: 0.5, color: 0xdcebff },
+          { ratio: 0.78, color: 0xfff0d6 },
+        ].map(({ ratio, color }) => {
+          const pt = new THREE.PointLight(color, 0, radius, 1.35);
+          pt.position.set(center.x, box.min.y + size.y * ratio, center.z);
+          pt.visible = false;
+          scene.add(pt);
+          return pt;
+        });
+      }
+      for (const pt of entry.interiorLights) {
+        pt.intensity = glowFactor * 2200;
+        pt.visible = !entry.hidden && glowFactor > 0.08;
+      }
+
       entry.group.traverse((obj) => {
         if (!obj.isMesh) return;
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         for (const mat of mats) {
-          if (!mat || !mat.emissive) continue;
-          if (mat.emissive.r + mat.emissive.g + mat.emissive.b > 0.05) {
+          if (!mat) continue;
+          if (mat.userData?.isPlaygroundGlass) {
+            const wantTransparent = glassShouldBeTranslucent;
+            if (mat.transparent !== wantTransparent) {
+              mat.transparent = wantTransparent;
+              mat.depthWrite = !wantTransparent;
+              mat.needsUpdate = true;
+            }
+            mat.opacity = glassOpacity;
+            mat.envMapIntensity = glassEnvIntensity;
+          } else if (mat.userData?.isPlaygroundFrost) {
+            const wantTransparent = glassShouldBeTranslucent;
+            if (mat.transparent !== wantTransparent) {
+              mat.transparent = wantTransparent;
+              mat.depthWrite = !wantTransparent;
+              mat.needsUpdate = true;
+            }
+            mat.opacity = frostOpacity;
+          } else if (mat.userData?.isTowerEmissive) {
+            mat.emissiveIntensity = towerEmissive;
+          } else if (mat.emissive && (mat.emissive.r + mat.emissive.g + mat.emissive.b > 0.05)) {
             mat.emissiveIntensity = towerEmissive;
           }
         }
@@ -741,6 +888,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, placed }) {
       state.hour = (state.hour + dt * 0.32 * state.speed) % 24;
       applyAtmosphere();
     }
+    updateNearestLampLights(false);
 
     const cx = camera.position.x;
     const cy = camera.position.y;
@@ -789,6 +937,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, placed }) {
   return {
     state,
     registerStreetMaterials,
+    registerLampSpots,
     applyAtmosphere,
     update,
     setTime(hour, { forceEnv = true } = {}) {

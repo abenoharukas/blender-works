@@ -9,7 +9,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PLOTS } from './models.js';
 import {
   createHouseWallTexture,
+  createHouseWallEmissiveMap,
   createCommercialUpperTexture,
+  createCommercialUpperEmissiveMap,
   createShopfrontTexture,
   createSleeveSignTexture,
   createNorenTexture,
@@ -169,6 +171,9 @@ function createMaterialLibrary() {
   ];
   const houseLightWalls = lightDefs.map((d, i) => std(`house_light_${i}`, {
     map: createHouseWallTexture({ baseHex: d.hex, style: d.style, frameColor: d.frame, windowType: 'sliding' }),
+    emissive: 0xffffff,
+    emissiveMap: createHouseWallEmissiveMap({ windowType: 'sliding', seed: 11 + i * 37 }),
+    emissiveIntensity: 0,
     roughness: 0.85,
   }));
   const houseLightBlanks = lightDefs.map((d, i) => std(`house_light_blank_${i}`, {
@@ -179,6 +184,9 @@ function createMaterialLibrary() {
   // Slit-window contemporary walls
   const houseSlitWalls = [0xf0ece4, 0xd8d2c7].map((hex, i) => std(`house_slit_${i}`, {
     map: createHouseWallTexture({ baseHex: hex, style: 'plaster', windowType: 'slit' }),
+    emissive: 0xffffff,
+    emissiveMap: createHouseWallEmissiveMap({ windowType: 'slit', seed: 211 + i * 53 }),
+    emissiveIntensity: 0,
     roughness: 0.84,
   }));
 
@@ -190,6 +198,9 @@ function createMaterialLibrary() {
   ];
   const houseDarkWalls = darkDefs.map((d, i) => std(`house_dark_${i}`, {
     map: createHouseWallTexture({ baseHex: d.hex, style: d.style, frameColor: d.frame, windowType: 'sliding' }),
+    emissive: 0xffffff,
+    emissiveMap: createHouseWallEmissiveMap({ windowType: 'sliding', seed: 401 + i * 71 }),
+    emissiveIntensity: 0,
     roughness: 0.76, metalness: 0.08,
   }));
   const houseDarkBlanks = darkDefs.map((d, i) => std(`house_dark_blank_${i}`, {
@@ -200,18 +211,30 @@ function createMaterialLibrary() {
   // Ceramic tile base walls & traditional Japanese cedar/washiki walls
   const houseTileWalls = [0xb59b84, 0x9c826e].map((hex, i) => std(`house_tile_${i}`, {
     map: createHouseWallTexture({ baseHex: hex, style: 'tile', windowType: 'sliding' }),
+    emissive: 0xffffff,
+    emissiveMap: createHouseWallEmissiveMap({ windowType: 'sliding', seed: 607 + i * 43 }),
+    emissiveIntensity: 0,
     roughness: 0.8,
   }));
   const woodAccentWall = std('wood_accent_wall', {
     map: createHouseWallTexture({ baseHex: 0x8f5e3b, style: 'wood_warm', frameColor: '#261c14', windowType: 'slit' }),
+    emissive: 0xffffff,
+    emissiveMap: createHouseWallEmissiveMap({ windowType: 'slit', seed: 733 }),
+    emissiveIntensity: 0,
     roughness: 0.82,
   });
   const washikiLower = std('washiki_lower', {
     map: createHouseWallTexture({ baseHex: 0x5c3e28, style: 'wood_warm', frameColor: '#3b2617', windowType: 'koshido' }),
+    emissive: 0xffffff,
+    emissiveMap: createHouseWallEmissiveMap({ windowType: 'koshido', seed: 829 }),
+    emissiveIntensity: 0,
     roughness: 0.86,
   });
   const shikkuiWall = std('shikkui_wall', {
     map: createHouseWallTexture({ baseHex: 0xf1ece1, style: 'plaster', frameColor: '#4c3422', windowType: 'koshido' }),
+    emissive: 0xffffff,
+    emissiveMap: createHouseWallEmissiveMap({ windowType: 'koshido', seed: 941 }),
+    emissiveIntensity: 0,
     roughness: 0.88,
   });
   const shikkuiBlank = std('shikkui_blank', {
@@ -229,17 +252,24 @@ function createMaterialLibrary() {
   ];
   const commUppers = commPalette.map((p, i) => std(`comm_upper_${i}`, {
     map: createCommercialUpperTexture(p),
+    emissive: 0xffffff,
+    emissiveMap: createCommercialUpperEmissiveMap({ seed: 1009 + i * 97 }),
+    emissiveIntensity: 0,
     roughness: 0.72,
   }));
 
   // Ground-floor Japanese storefronts
-  const shopIzakaya = std('shop_izakaya', { map: createShopfrontTexture('izakaya'), roughness: 0.65 });
-  const shopRamen = std('shop_ramen', { map: createShopfrontTexture('ramen'), roughness: 0.65 });
-  const shopKissaten = std('shop_kissaten', { map: createShopfrontTexture('kissaten'), roughness: 0.58 });
-  const shopPharmacy = std('shop_pharmacy', { map: createShopfrontTexture('pharmacy'), roughness: 0.55 });
-  const shopBookstore = std('shop_bookstore', { map: createShopfrontTexture('bookstore'), roughness: 0.58 });
-  const shopKonbiniLawson = std('shop_konbini_lawson', { map: createShopfrontTexture('konbini_lawson'), roughness: 0.48 });
-  const shopKonbiniFamima = std('shop_konbini_famima', { map: createShopfrontTexture('konbini_famima'), roughness: 0.48 });
+  const makeLitShop = (name, variant, roughness) => {
+    const tex = createShopfrontTexture(variant);
+    return std(name, { map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0, roughness });
+  };
+  const shopIzakaya = makeLitShop('shop_izakaya', 'izakaya', 0.65);
+  const shopRamen = makeLitShop('shop_ramen', 'ramen', 0.65);
+  const shopKissaten = makeLitShop('shop_kissaten', 'kissaten', 0.58);
+  const shopPharmacy = makeLitShop('shop_pharmacy', 'pharmacy', 0.55);
+  const shopBookstore = makeLitShop('shop_bookstore', 'bookstore', 0.58);
+  const shopKonbiniLawson = makeLitShop('shop_konbini_lawson', 'konbini_lawson', 0.48);
+  const shopKonbiniFamima = makeLitShop('shop_konbini_famima', 'konbini_famima', 0.48);
 
   // Vertical projecting sleeve signs (袖看板)
   const signConfigs = [
@@ -454,7 +484,7 @@ function addResidentialLaneEW(mats, z, x0, x1) {
  * `axis` is 'z' (frontage runs along Z, facing yaw) or 'x' (frontage runs along X, facing yaw).
  */
 function populateCommercialStrip(mats, rnd, {
-  axis = 'z', fixedCoord, from, to, yaw, crossCoords = [], detail = true, allowSuper = false,
+  axis = 'z', fixedCoord, from, to, yaw, crossCoords = [], detail = true, allowSuper = false, mode = 'retail',
 }) {
   let cursor = from;
   const depth = 11.4;
@@ -480,7 +510,18 @@ function populateCommercialStrip(mats, rnd, {
     let lotW;
     let builderType;
 
-    if (allowSuper && distToNextCross >= 17.5 && rnd() < 0.18) {
+    if (mode === 'yokocho') {
+      if (atCorner && distToNextCross >= 9.2 && rnd() < 0.55) {
+        lotW = Math.min(9.4, distToNextCross);
+        builderType = 'kissaten';
+      } else if (rnd() < 0.54) {
+        lotW = Math.min(6.4 + rnd() * 2.0, distToNextCross);
+        builderType = 'machiya';
+      } else {
+        lotW = Math.min(6.8 + rnd() * 2.4, distToNextCross);
+        builderType = 'shotengai';
+      }
+    } else if (allowSuper && distToNextCross >= 17.5 && rnd() < 0.18) {
       lotW = 16.8;
       builderType = 'super';
     } else if (atCorner && distToNextCross >= 13.0 && rnd() < 0.55) {
@@ -518,6 +559,18 @@ function populateCommercialStrip(mats, rnd, {
         const storeys = rnd() < 0.28 ? 2 : (rnd() < 0.72 ? 3 : 4);
         buildShotengaiBuilding(lot, mats, rnd, { w: lotW - 0.25, d: depth, storeys, detail });
       }
+      if (mode === 'yokocho') {
+        // Glowing red & warm paper lanterns (提灯) + bar sleeve signs along yokocho eaves
+        const frontZ = depth * 0.5 + 0.35;
+        for (let lx = -lotW * 0.34; lx <= lotW * 0.34; lx += 1.45) {
+          const lanternBucket = rnd() < 0.58 ? mats.lanternRed : mats.lanternWarm;
+          lot.addBox(lanternBucket, 0.28, 0.44, 0.28, lx, 3.05, frontZ);
+        }
+        if (rnd() < 0.7) {
+          const signBucket = mats.sleeveSigns[Math.floor(rnd() * mats.sleeveSigns.length)];
+          lot.addBox(signBucket, 0.24, 1.8, 0.56, lotW * 0.38, 4.4, frontZ + 0.35);
+        }
+      }
     }
 
     // Authentic tight Japanese urban narrow gap between shophouses (25–55 cm maintenance gap!)
@@ -529,7 +582,7 @@ function populateCommercialStrip(mats, rnd, {
  * Subdivides a rectangular residential superblock [x0..x1] x [z0..z1] into
  * East-West local residential lanes (生活道路) and double-loaded rows of Japanese 一戸建て!
  */
-function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1 }) {
+function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1, lampSpots = null }) {
   const widthX = x1 - x0;
   const depthZ = z1 - z0;
   if (widthX < 10 || depthZ < 12) return;
@@ -549,6 +602,17 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1 }) {
       // and place two rows of Ikkodate facing EACH OTHER across this lane!
       if (!insideAnyPlotPlaza((x0 + x1) * 0.5, laneZ, 2)) {
         addResidentialLaneEW(mats, laneZ, x0 + 0.5, x1 - 0.5);
+        // Residential streetlamps (防犯灯) along local lanes
+        let lampIdx = 0;
+        for (let lx = x0 + 14; lx < x1 - 12; lx += 28) {
+          if (insideAnyPlotPlaza(lx, laneZ, 4)) continue;
+          const side = (lampIdx++ % 2 === 0) ? 1 : -1;
+          const lz = laneZ + side * 2.22;
+          mats.darkMetal.add(box(0.09, 4.1, 0.09), lx, 2.05, lz);
+          mats.darkMetal.add(box(0.08, 0.08, 0.65), lx, 4.05, lz - side * 0.32);
+          mats.warmLamp.add(box(0.24, 0.14, 0.36), lx, 3.98, lz - side * 0.58);
+          if (lampSpots) lampSpots.push({ x: lx, y: 4.0, z: lz - side * 0.5, radius: 17 });
+        }
       }
 
       const lotD = Math.min(13.2, (stripDepth - 4.8) * 0.5);
@@ -603,6 +667,11 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1 }) {
 export function buildStreet(scene) {
   const rnd = mulberry32(0x5a7c19);
   const mats = createMaterialLibrary();
+  const lampSpots = [
+    { x: 0, y: 6.5, z: 134, radius: 28 },
+    { x: -42, y: 6.0, z: 72, radius: 28 },
+    { x: 42, y: 6.0, z: 72, radius: 28 },
+  ];
 
   // 1. Subtle urban ground plane (slightly below y = 0 so road & plaza slabs never z-fight)
   const ground = new THREE.Mesh(
@@ -687,8 +756,9 @@ export function buildStreet(scene) {
     archLot.addBox(mats.shotengaiBanner, 5.4, 1.0, 0.5, 0, 5.52, 0);
   }
 
-  // 4. COMMERCIAL DISTRICTS (小商圈 & 駅前商店街)
+  // 4. COMMERCIAL DISTRICTS & BAR/YOKOCHO STREETS (多条商店街 & 酒吧风情街)
   const mainFrontX = FRONT + 5.85;
+  const allCrossZs = [...northEwZs, ...ewCrossZs].sort((a, b) => a - b);
 
   // (a) Main Ekimae Shotengai (both West & East frontages along x = 0, z = 152..588)
   populateCommercialStrip(mats, rnd, {
@@ -700,39 +770,109 @@ export function buildStreet(scene) {
     crossCoords: ewCrossZs, detail: true, allowSuper: false,
   });
 
-  // (b) Cross-Street Commercial Sub-Centers (東西小商圈 along z = 324 and z = 232 out to x = ±174)
-  for (const cz of [232, 324]) {
-    for (const dir of [-1, 1]) {
-      const xStart = dir > 0 ? 21 : -173;
-      const xEnd = dir > 0 ? 173 : -21;
+  // (b) Cross-Street Commercial & Bar Districts (东西向商店街 + 酒吧风情街)
+  // z = 232: Central retail sub-center (|x| < 174)
+  for (const dir of [-1, 1]) {
+    const xStart = dir > 0 ? 21 : -173;
+    const xEnd = dir > 0 ? 173 : -21;
+    populateCommercialStrip(mats, rnd, {
+      axis: 'x', fixedCoord: 232 - 11.8, from: xStart, to: xEnd, yaw: 0,
+      crossCoords: [], detail: true, allowSuper: true,
+    });
+    populateCommercialStrip(mats, rnd, {
+      axis: 'x', fixedCoord: 232 + 11.8, from: xStart, to: xEnd, yaw: Math.PI,
+      crossCoords: [], detail: true, allowSuper: true,
+    });
+  }
+  // z = 324 (Cross-Town Shotengai) & z = 436 (South Lantern Bar Yokocho / 酒吧风情街)
+  for (const [cz, mode] of [[324, 'retail'], [436, 'yokocho']]) {
+    for (const [xStart, xEnd] of [[-448, -192], [-173, -21], [21, 173], [192, 448]]) {
       populateCommercialStrip(mats, rnd, {
         axis: 'x', fixedCoord: cz - 11.8, from: xStart, to: xEnd, yaw: 0,
-        crossCoords: [], detail: true, allowSuper: true,
+        crossCoords: [], detail: true, allowSuper: mode === 'retail', mode,
       });
       populateCommercialStrip(mats, rnd, {
         axis: 'x', fixedCoord: cz + 11.8, from: xStart, to: xEnd, yaw: Math.PI,
-        crossCoords: [], detail: true, allowSuper: true,
+        crossCoords: [], detail: true, allowSuper: mode === 'retail', mode,
+      });
+    }
+  }
+  // z = 526: Station-South Izakaya & Bar Yokocho (|x| < 174)
+  for (const dir of [-1, 1]) {
+    const xStart = dir > 0 ? 21 : -173;
+    const xEnd = dir > 0 ? 173 : -21;
+    populateCommercialStrip(mats, rnd, {
+      axis: 'x', fixedCoord: 526 - 11.8, from: xStart, to: xEnd, yaw: 0,
+      crossCoords: [], detail: true, mode: 'yokocho',
+    });
+    populateCommercialStrip(mats, rnd, {
+      axis: 'x', fixedCoord: 526 + 11.8, from: xStart, to: xEnd, yaw: Math.PI,
+      crossCoords: [], detail: true, mode: 'yokocho',
+    });
+  }
+
+  // (c) North-South Bar & Commercial Avenues: x = -182 (West Bar Yokocho / 酒吧街) & x = +182 (East Shotengai)
+  for (const [ax, mode] of [[-182, 'yokocho'], [182, 'retail']]) {
+    populateCommercialStrip(mats, rnd, {
+      axis: 'z', fixedCoord: ax - 11.9, from: -350, to: 586, yaw: Math.PI * 0.5,
+      crossCoords: allCrossZs, detail: true, allowSuper: mode === 'retail', mode,
+    });
+    populateCommercialStrip(mats, rnd, {
+      axis: 'z', fixedCoord: ax + 11.9, from: -350, to: 586, yaw: -Math.PI * 0.5,
+      crossCoords: allCrossZs, detail: true, allowSuper: mode === 'retail', mode,
+    });
+  }
+
+  // (d) Outer Neighborhood Shopping Streets along x = -460 & x = +460 (z = 150..520)
+  for (const ax of [-460, 460]) {
+    populateCommercialStrip(mats, rnd, {
+      axis: 'z', fixedCoord: ax - 11.9, from: 150, to: 520, yaw: Math.PI * 0.5,
+      crossCoords: ewCrossZs, detail: false, allowSuper: true, mode: ax < 0 ? 'yokocho' : 'retail',
+    });
+    populateCommercialStrip(mats, rnd, {
+      axis: 'z', fixedCoord: ax + 11.9, from: 150, to: 520, yaw: -Math.PI * 0.5,
+      crossCoords: ewCrossZs, detail: false, allowSuper: true, mode: ax < 0 ? 'yokocho' : 'retail',
+    });
+  }
+
+  // (e) North Inter-Plot Commercial & Bar Strips (z = -122, -198, -362)
+  for (const [nz, mode] of [[-122, 'retail'], [-198, 'yokocho'], [-362, 'retail']]) {
+    for (const [xStart, xEnd] of [[-448, -192], [-172, 172], [192, 448]]) {
+      populateCommercialStrip(mats, rnd, {
+        axis: 'x', fixedCoord: nz - 11.8, from: xStart, to: xEnd, yaw: 0,
+        crossCoords: [], detail: false, allowSuper: mode === 'retail', mode,
       });
     }
   }
 
-  // (c) Neighborhood Sub-Centers along x = ±182 avenues & North Inter-Plot Avenues (z = -122, -362)
-  for (const ax of [-182, 182]) {
-    populateCommercialStrip(mats, rnd, {
-      axis: 'z', fixedCoord: ax - 11.9, from: 150, to: 400, yaw: Math.PI * 0.5,
-      crossCoords: ewCrossZs, detail: true, allowSuper: true,
-    });
-    populateCommercialStrip(mats, rnd, {
-      axis: 'z', fixedCoord: ax + 11.9, from: 150, to: 400, yaw: -Math.PI * 0.5,
-      crossCoords: ewCrossZs, detail: true, allowSuper: true,
-    });
+  // Extra Bar & Yokocho entrance arches at x = -182 and z = 436
+  for (const [ax, az, rot] of [[-182, 420, 0], [-182, 248, 0], [-12.8, 436, Math.PI * 0.5], [12.8, 436, Math.PI * 0.5]]) {
+    const archLot = new LotContext(ax, az, rot, 0);
+    archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, -4.8, 2.8, 0);
+    archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, 4.8, 2.8, 0);
+    archLot.addBox(mats.accentRed, 10.2, 0.55, 0.42, 0, 5.4, 0);
+    archLot.addBox(mats.shotengaiBanner, 5.4, 1.0, 0.5, 0, 5.52, 0);
   }
-  for (const nz of [-122, -362]) {
-    for (const [xStart, xEnd] of [[-448, -192], [-172, 172], [192, 448]]) {
-      populateCommercialStrip(mats, rnd, {
-        axis: 'x', fixedCoord: nz - 11.8, from: xStart, to: xEnd, yaw: 0,
-        crossCoords: [], detail: false, allowSuper: true,
-      });
+
+  // Streetlamps & light spots along ALL major N-S & E-W avenues across the whole city!
+  for (const ax of nsAvenueXs) {
+    for (let z = -690; z <= 580; z += 34) {
+      if (allCrossZs.some((cz) => Math.abs(z - cz) < 8) || insideAnyPlotPlaza(ax, z, 6)) continue;
+      const side = (Math.floor(z / 34) % 2 === 0) ? 1 : -1;
+      const lx = ax + side * 4.8;
+      mats.darkMetal.add(box(0.11, 5.0, 0.11), lx, 2.5, z);
+      mats.warmLamp.add(box(0.32, 0.18, 0.46), lx - side * 0.4, 4.95, z);
+      lampSpots.push({ x: lx - side * 0.3, y: 4.9, z, radius: 24 });
+    }
+  }
+  for (const az of [...ewCrossZs, ...northEwZs]) {
+    for (let x = -580; x <= 580; x += 36) {
+      if (nsAvenueXs.some((ax) => Math.abs(x - ax) < 9) || Math.abs(x) < 10 || insideAnyPlotPlaza(x, az, 6)) continue;
+      const side = (Math.floor(x / 36) % 2 === 0) ? 1 : -1;
+      const lz = az + side * 4.6;
+      mats.darkMetal.add(box(0.11, 5.0, 0.11), x, 2.5, lz);
+      mats.warmLamp.add(box(0.46, 0.18, 0.32), x, 4.95, lz - side * 0.4);
+      lampSpots.push({ x, y: 4.9, z: lz - side * 0.3, radius: 24 });
     }
   }
 
@@ -759,20 +899,29 @@ export function buildStreet(scene) {
       let rz0 = bz0;
       let rz1 = bz1;
 
-      // Buffer behind x = ±182 commercial strips (for z in 142..408)
-      if (bz0 < 405) {
-        if (Math.abs(bx1 - (-190)) < 2) rx1 -= 12.5;
-        if (Math.abs(bx0 - (-174)) < 2) rx0 += 12.5;
-        if (Math.abs(bx1 - 174) < 2) rx1 -= 12.5;
-        if (Math.abs(bx0 - 190) < 2) rx0 += 12.5;
+      // Buffer behind x = ±182 commercial/bar strips
+      if (Math.abs(bx1 - (-190)) < 2) rx1 -= 12.5;
+      if (Math.abs(bx0 - (-174)) < 2) rx0 += 12.5;
+      if (Math.abs(bx1 - 174) < 2) rx1 -= 12.5;
+      if (Math.abs(bx0 - 190) < 2) rx0 += 12.5;
+      // Buffer behind x = ±460 commercial strips
+      if (bz0 < 524) {
+        if (Math.abs(bx1 - (-468)) < 2) rx1 -= 12.5;
+        if (Math.abs(bx0 - (-452)) < 2) rx0 += 12.5;
+        if (Math.abs(bx1 - 452) < 2) rx1 -= 12.5;
+        if (Math.abs(bx0 - 468) < 2) rx0 += 12.5;
       }
-      // Buffer behind z = 232 and z = 324 commercial cross-strips (for |x| < 175)
-      if (Math.abs(bx0) < 176 && Math.abs(bx1) < 176) {
-        if (ewCrossZs[zi] === 232 || ewCrossZs[zi] === 324) rz0 += 12.5;
-        if (ewCrossZs[zi + 1] === 232 || ewCrossZs[zi + 1] === 324) rz1 -= 12.5;
+      // Buffer behind z = 232, 324, 436, 526 commercial/bar cross-strips
+      const innerX = Math.abs(bx0) < 176 && Math.abs(bx1) < 176;
+      const midX = Math.abs(bx0) < 455 && Math.abs(bx1) < 455;
+      if ((innerX && (ewCrossZs[zi] === 232 || ewCrossZs[zi] === 526)) || (midX && (ewCrossZs[zi] === 324 || ewCrossZs[zi] === 436))) {
+        rz0 += 12.5;
+      }
+      if ((innerX && (ewCrossZs[zi + 1] === 232 || ewCrossZs[zi + 1] === 526)) || (midX && (ewCrossZs[zi + 1] === 324 || ewCrossZs[zi + 1] === 436))) {
+        rz1 -= 12.5;
       }
 
-      populateIkkodateBlock(mats, rnd, { x0: rx0, x1: rx1, z0: rz0, z1: rz1 });
+      populateIkkodateBlock(mats, rnd, { x0: rx0, x1: rx1, z0: rz0, z1: rz1, lampSpots });
     }
   }
 
@@ -787,7 +936,7 @@ export function buildStreet(scene) {
   ];
   for (const [bz0, bz1] of northZBands) {
     for (const [bx0, bx1] of xBands) {
-      populateIkkodateBlock(mats, rnd, { x0: bx0, x1: bx1, z0: bz0, z1: bz1 });
+      populateIkkodateBlock(mats, rnd, { x0: bx0, x1: bx1, z0: bz0, z1: bz1, lampSpots });
     }
   }
 
@@ -797,7 +946,9 @@ export function buildStreet(scene) {
     const banner = mats.sleeveSigns[side < 0 ? 0 : 4];
     for (let z = STREET.from + 14; z < STREET.to - 8; z += 26) {
       if (ewCrossZs.some((cz) => Math.abs(z - cz) < 8.5)) continue;
-      addShotengaiLamp(mats, side * (STREET.road + 0.55), z, side, banner);
+      const lx = side * (STREET.road + 0.55);
+      addShotengaiLamp(mats, lx, z, side, banner);
+      lampSpots.push({ x: lx, y: 4.6, z, radius: 22 });
     }
   }
 
@@ -894,5 +1045,6 @@ export function buildStreet(scene) {
   }
 
   group.userData.mats = mats;
+  group.userData.lampSpots = lampSpots;
   return group;
 }
