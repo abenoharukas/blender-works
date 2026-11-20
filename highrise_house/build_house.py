@@ -2081,7 +2081,7 @@ def build(reset=True, mats=None, add_trusses=False,
 
     # --- roof garden ---------------------------------------------------
     structure.append(box("RoofSlab", (0.0, 0.0, TOP_Z + 0.11),
-                         (W, D, 0.22), concrete))
+                         (W - 0.06, D - 0.06, 0.22), concrete))
     if ROOF_GARDEN:
         # Reuse the refuge level's slim, dense fins so the two sky gardens read
         # as one consistent facade language, while the roof stays uncovered.

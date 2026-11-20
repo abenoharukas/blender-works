@@ -933,7 +933,7 @@ def build_ceiling_lights(materials_by_state):
             rows.append(y)
             y += LIGHT_ROW_PITCH
         for top in floor_levels(name, height):
-            z = top - SLAB_T - LIGHT_STRIP_H / 2.0
+            z = top - SLAB_T - 0.015 - LIGHT_STRIP_H / 2.0
             openings = core_openings(points, height, z)
             for y in rows:
                 span = line_span_in_quad(points, y)
