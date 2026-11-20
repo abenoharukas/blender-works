@@ -609,6 +609,7 @@ export function buildStreet(scene) {
     new THREE.PlaneGeometry(24000, 24000),
     new THREE.MeshStandardMaterial({ name: 'ground', color: 0x5c5b55, roughness: 0.96 }),
   );
+  ground.name = 'ground';
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.05;
   ground.receiveShadow = true;
@@ -892,5 +893,6 @@ export function buildStreet(scene) {
     buildAll(val, { castShadow: true, receiveShadow: true });
   }
 
+  group.userData.mats = mats;
   return group;
 }

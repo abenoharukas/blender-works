@@ -46,6 +46,37 @@
         </footer>
       </aside>
 
+      <aside class="env-panel" aria-label="Time of day and weather controls">
+        <section class="block">
+          <div class="section-head">
+            <span>Time · 24H</span>
+            <span id="time-phase" class="hint">Midday · 白天</span>
+          </div>
+          <div class="time-readout-row">
+            <span id="time-clock" class="time-clock">12:30</span>
+            <div class="time-transport">
+              <button id="time-play" class="mini-btn" title="Play / Pause cycle (P)">▶</button>
+              <button id="time-speed" class="mini-btn" title="Cycle speed">1×</button>
+            </div>
+          </div>
+          <input id="time-slider" class="time-slider" type="range" min="0" max="24" step="0.05" value="12.5" aria-label="Hour of day" />
+          <div id="time-presets" class="preset-grid"></div>
+        </section>
+
+        <section class="block">
+          <div class="section-head">
+            <span>Weather · 天气</span>
+            <span id="weather-label" class="hint">Clear · 晴朗</span>
+          </div>
+          <div id="weather-buttons" class="weather-grid"></div>
+          <div class="intensity-row">
+            <label for="weather-intensity" class="hint">Intensity</label>
+            <input id="weather-intensity" class="intensity-slider" type="range" min="0.15" max="1" step="0.05" value="0.75" />
+            <span id="weather-intensity-val" class="hint">75%</span>
+          </div>
+        </section>
+      </aside>
+
       <div id="toast" class="toast"></div>
       <div id="loading" class="loading">
         <span class="spinner"></span>

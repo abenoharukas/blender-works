@@ -7,6 +7,13 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { buildStreet } from './street.js';
 import { MODELS, PLOTS, groundHeightAt } from './models.js';
+import {
+  createAtmosphereSystem,
+  TIME_PRESETS,
+  WEATHER_MODES,
+  formatHour,
+  phaseLabel,
+} from './atmosphere.js';
 
 const viewer = document.querySelector('#viewer');
 const status = document.querySelector('#status');
@@ -16,6 +23,17 @@ const placedCount = document.querySelector('#placed-count');
 const toast = document.querySelector('#toast');
 const loadingCard = document.querySelector('#loading');
 const viewButtons = [...document.querySelectorAll('[data-view]')];
+const timeSlider = document.querySelector('#time-slider');
+const timeClock = document.querySelector('#time-clock');
+const timePhase = document.querySelector('#time-phase');
+const timePlayBtn = document.querySelector('#time-play');
+const timeSpeedBtn = document.querySelector('#time-speed');
+const timePresetsEl = document.querySelector('#time-presets');
+const weatherButtonsEl = document.querySelector('#weather-buttons');
+const weatherLabel = document.querySelector('#weather-label');
+const weatherIntensityEl = document.querySelector('#weather-intensity');
+const weatherIntensityVal = document.querySelector('#weather-intensity-val');
+const intensityRow = document.querySelector('.intensity-row');
 
 // ------------------------------------------------------------------ renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -28,7 +46,6 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 viewer.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xb9cbe0, 900, 4200);
 
 // Tighter near/far keeps ~5 cm facade-frame steps well above 24-bit depth
 // quantization across street (350 m) and overview (900 m) viewing distances.
@@ -40,127 +57,9 @@ controls.dampingFactor = 0.07;
 controls.minDistance = 4;
 controls.maxDistance = 2600;
 
-// ------------------------------------------------------------------ sky
-const SUN = { elevation: 62, azimuth: 42 };
-const sunDirection = new THREE.Vector3().setFromSphericalCoords(
-  1,
-  THREE.MathUtils.degToRad(90 - SUN.elevation),
-  THREE.MathUtils.degToRad(SUN.azimuth),
-);
-
-// A clear midday dome: deep blue overhead washing to a pale horizon, with a
-// deck of cumulus — the sky the ThreeRT study renders, kept as a small shader
-// so its colours do not depend on the scene exposure.
-const skyMaterial = new THREE.ShaderMaterial({
-  uniforms: {
-    uZenith: { value: new THREE.Color('#4d84c4') },
-    uHorizon: { value: new THREE.Color('#dfe6ec') },
-    uSunColor: { value: new THREE.Color('#fff6e2') },
-    uSunDirection: { value: sunDirection.clone() },
-  },
-  vertexShader: /* glsl */ `
-    varying vec3 vWorldPosition;
-    void main() {
-      vec4 world = modelMatrix * vec4(position, 1.0);
-      vWorldPosition = world.xyz;
-      gl_Position = projectionMatrix * viewMatrix * world;
-    }
-  `,
-  fragmentShader: /* glsl */ `
-    uniform vec3 uZenith;
-    uniform vec3 uHorizon;
-    uniform vec3 uSunColor;
-    uniform vec3 uSunDirection;
-    varying vec3 vWorldPosition;
-
-    float hash(vec2 p) {
-      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-    }
-    float noise(vec2 p) {
-      vec2 i = floor(p);
-      vec2 f = fract(p);
-      f = f * f * (3.0 - 2.0 * f);
-      float a = hash(i);
-      float b = hash(i + vec2(1.0, 0.0));
-      float c = hash(i + vec2(0.0, 1.0));
-      float d = hash(i + vec2(1.0, 1.0));
-      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-    }
-    float fbm(vec2 p) {
-      float value = 0.0;
-      float amplitude = 0.5;
-      for (int i = 0; i < 5; i++) {
-        value += amplitude * noise(p);
-        p *= 2.03;
-        amplitude *= 0.5;
-      }
-      return value;
-    }
-
-    void main() {
-      vec3 direction = normalize(vWorldPosition - cameraPosition);
-      float up = clamp(direction.y, 0.0, 1.0);
-      vec3 color = mix(uHorizon, uZenith, pow(up, 0.55));
-
-      float sun = max(dot(direction, normalize(uSunDirection)), 0.0);
-      color += uSunColor * (pow(sun, 2200.0) * 10.0 + pow(sun, 22.0) * 0.16);
-
-      if (up > 0.015) {
-        vec2 uv = direction.xz / (up + 0.12) * 0.6 + vec2(7.3, 2.1);
-        float pattern = fbm(uv * 1.35);
-        float coverage = smoothstep(0.54, 0.74, pattern) * smoothstep(0.02, 0.2, up);
-        vec3 cloud = vec3(0.96, 0.97, 0.99) * (0.82 + 0.18 * pattern);
-        color = mix(color, cloud, coverage * 0.88);
-      }
-
-      gl_FragColor = vec4(color, 1.0);
-      #include <colorspace_fragment>
-    }
-  `,
-  side: THREE.BackSide,
-  depthWrite: false,
-  toneMapped: false,
-});
-
-const sky = new THREE.Mesh(new THREE.SphereGeometry(12000, 48, 24), skyMaterial);
-sky.name = 'sky';
-sky.frustumCulled = false;
-scene.add(sky);
-
-const sun = new THREE.DirectionalLight(0xfff2de, 3.1);
-sun.position.copy(sunDirection).multiplyScalar(1800);
-sun.target.position.set(0, 0, 100);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -760;
-sun.shadow.camera.right = 760;
-sun.shadow.camera.top = 760;
-sun.shadow.camera.bottom = -760;
-sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 5000;
-sun.shadow.bias = -0.0008;
-sun.shadow.normalBias = 0.6;
-scene.add(sun);
-scene.add(sun.target);
-
-const hemisphere = new THREE.HemisphereLight(0xdcebff, 0x6b675f, 0.75);
-scene.add(hemisphere);
-
-// The models' glass needs something to reflect: bake the sky into an
-// environment map once. Shadows and the street are static, so the shadow map
-// is rendered once too, and again only when a model arrives or leaves.
-{
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const environmentScene = new THREE.Scene();
-  environmentScene.add(sky.clone());
-  scene.environment = pmrem.fromScene(environmentScene, 0, 1, 20000).texture;
-  scene.environmentIntensity = 0.7;
-  pmrem.dispose();
-}
-renderer.shadowMap.autoUpdate = false;
-
 // ------------------------------------------------------------------ the street
-buildStreet(scene);
+const streetGroup = buildStreet(scene);
+renderer.shadowMap.autoUpdate = false;
 
 // ------------------------------------------------------------------ views
 const VIEWS = {
@@ -200,14 +99,16 @@ function applyView(name) {
   flyTo(view.position, view.target);
 }
 
-// ------------------------------------------------------------------ models
+// ------------------------------------------------------------------ models & atmosphere
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
 
 const assetCache = new Map();
 const placed = [];
 const reservedPlots = new Set();
-window.__playground = { THREE, scene, camera, controls, renderer, placed };
+const atmosphere = createAtmosphereSystem({ scene, renderer, camera, placed });
+atmosphere.registerStreetMaterials(streetGroup.userData.mats);
+window.__playground = { THREE, scene, camera, controls, renderer, placed, atmosphere };
 let nextTicket = 1;
 let loadDepth = 0;
 
@@ -385,6 +286,7 @@ async function addModel(id, { focus = true } = {}) {
       hidden: false,
     };
     placed.push(entry);
+    atmosphere.applyAtmosphere();
     renderPlaced();
     renderPalette();
     renderer.shadowMap.needsUpdate = true;
@@ -483,6 +385,96 @@ window.addEventListener('keydown', (event) => {
   if (key === 'm') applyView('shotengai');
   if (key === 'h') applyView('ikkodate');
   if (key === 'o') applyView('overview');
+  if (key === 'p') togglePlay();
+  if (event.key === '[') {
+    atmosphere.setTime(atmosphere.state.hour - 1);
+    syncEnvUI();
+  }
+  if (event.key === ']') {
+    atmosphere.setTime(atmosphere.state.hour + 1);
+    syncEnvUI();
+  }
+});
+
+// ------------------------------------------------------------------ environment UI
+const SPEEDS = [1, 4, 12];
+let speedIdx = 0;
+
+function renderEnvControls() {
+  timePresetsEl.innerHTML = TIME_PRESETS.map((p) => `
+    <button class="preset-btn" data-hour="${p.hour}" data-preset="${p.id}">
+      <span>${p.zh}</span>
+      <small>${formatHour(p.hour)}</small>
+    </button>
+  `).join('');
+
+  weatherButtonsEl.innerHTML = WEATHER_MODES.map((w) => `
+    <button class="weather-btn" data-weather="${w.id}">
+      <span>${w.zh}</span>
+      <small>${w.label}</small>
+    </button>
+  `).join('');
+}
+
+function syncEnvUI() {
+  const { hour, weather, intensity, playing } = atmosphere.state;
+  timeClock.textContent = formatHour(hour);
+  timePhase.textContent = phaseLabel(hour);
+  timeSlider.value = hour.toFixed(2);
+  timePlayBtn.textContent = playing ? '⏸' : '▶';
+  timePlayBtn.classList.toggle('is-active', playing);
+
+  timePresetsEl.querySelectorAll('[data-hour]').forEach((btn) => {
+    const target = Number(btn.dataset.hour);
+    btn.classList.toggle('is-active', Math.abs(hour - target) < 0.35);
+  });
+
+  const wObj = WEATHER_MODES.find((w) => w.id === weather);
+  weatherLabel.textContent = wObj ? `${wObj.label} · ${wObj.zh}` : weather;
+  weatherButtonsEl.querySelectorAll('[data-weather]').forEach((btn) => {
+    btn.classList.toggle('is-active', btn.dataset.weather === weather);
+  });
+
+  weatherIntensityEl.value = String(intensity);
+  weatherIntensityVal.textContent = `${Math.round(intensity * 100)}%`;
+  intensityRow.classList.toggle('is-disabled', weather === 'clear');
+}
+
+function togglePlay() {
+  atmosphere.setPlaying(!atmosphere.state.playing);
+  syncEnvUI();
+}
+
+timeSlider.addEventListener('input', () => {
+  atmosphere.setTime(Number(timeSlider.value), { forceEnv: false });
+  syncEnvUI();
+});
+timeSlider.addEventListener('change', () => {
+  atmosphere.setTime(Number(timeSlider.value), { forceEnv: true });
+  syncEnvUI();
+});
+timePresetsEl.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-hour]');
+  if (!btn) return;
+  atmosphere.setPlaying(false);
+  atmosphere.setTime(Number(btn.dataset.hour), { forceEnv: true });
+  syncEnvUI();
+});
+weatherButtonsEl.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-weather]');
+  if (!btn) return;
+  atmosphere.setWeather(btn.dataset.weather, { forceEnv: true });
+  syncEnvUI();
+});
+weatherIntensityEl.addEventListener('input', () => {
+  atmosphere.setIntensity(Number(weatherIntensityEl.value));
+  syncEnvUI();
+});
+timePlayBtn.addEventListener('click', togglePlay);
+timeSpeedBtn.addEventListener('click', () => {
+  speedIdx = (speedIdx + 1) % SPEEDS.length;
+  atmosphere.setSpeed(SPEEDS[speedIdx]);
+  timeSpeedBtn.textContent = `${SPEEDS[speedIdx]}×`;
 });
 
 // ------------------------------------------------------------------ loop
@@ -506,6 +498,12 @@ function resize() {
 renderer.setAnimationLoop((now) => {
   updateTween(now);
   controls.update();
+  atmosphere.update(now);
+  if (atmosphere.state.playing) {
+    timeClock.textContent = formatHour(atmosphere.state.hour);
+    timePhase.textContent = phaseLabel(atmosphere.state.hour);
+    timeSlider.value = atmosphere.state.hour.toFixed(2);
+  }
   // A tall target puts the orbit above the horizon on purpose; keep the eye
   // itself off the ground.
   if (camera.position.y < 0.8) camera.position.y = 0.8;
@@ -516,6 +514,9 @@ window.addEventListener('resize', resize);
 
 // ------------------------------------------------------------------ start
 Object.assign(window.__playground, { addModel, removeEntry, applyView });
+renderEnvControls();
+atmosphere.applyAtmosphere({ forceEnv: true });
+syncEnvUI();
 renderer.shadowMap.needsUpdate = true;
 renderPalette();
 renderPlaced();
