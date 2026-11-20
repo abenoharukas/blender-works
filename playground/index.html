@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Playground: the blender-works models standing in a procedural street scene." />
+    <title>Playground / blender-works</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <div id="viewer" class="viewer"></div>
+
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">PG</span>
+          <span>Playground <em>/</em> blender-works</span>
+        </div>
+        <div class="topbar-right">
+          <span id="status" class="status">Loading</span>
+          <div class="view-switch">
+            <button data-view="street" class="is-active">Street <span>S</span></button>
+            <button data-view="overview">Overview <span>O</span></button>
+          </div>
+        </div>
+      </header>
+
+      <aside class="panel">
+        <section class="block">
+          <div class="section-head"><span>Models</span><span class="hint">click to place · keys 1–5</span></div>
+          <div id="palette" class="palette"></div>
+        </section>
+
+        <section class="block">
+          <div class="section-head"><span>In scene</span><span id="placed-count" class="hint">0 / 9</span></div>
+          <div id="placed" class="placed"></div>
+          <button id="clear-scene" class="clear">Clear scene</button>
+        </section>
+
+        <footer class="panel-footer">
+          <span>Nine plots · real scale</span>
+          <span>three.js / glTF</span>
+        </footer>
+      </aside>
+
+      <div id="toast" class="toast"></div>
+      <div id="loading" class="loading">
+        <span class="spinner"></span>
+        <span>Loading</span>
+      </div>
+    </main>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
