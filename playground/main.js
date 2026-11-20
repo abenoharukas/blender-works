@@ -30,7 +30,9 @@ viewer.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xb9cbe0, 900, 4200);
 
-const camera = new THREE.PerspectiveCamera(52, 1, 0.5, 60000);
+// Tighter near/far keeps ~5 cm facade-frame steps well above 24-bit depth
+// quantization across street (350 m) and overview (900 m) viewing distances.
+const camera = new THREE.PerspectiveCamera(52, 1, 1.5, 24000);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -120,7 +122,7 @@ const skyMaterial = new THREE.ShaderMaterial({
   toneMapped: false,
 });
 
-const sky = new THREE.Mesh(new THREE.SphereGeometry(18000, 48, 24), skyMaterial);
+const sky = new THREE.Mesh(new THREE.SphereGeometry(12000, 48, 24), skyMaterial);
 sky.name = 'sky';
 sky.frustumCulled = false;
 scene.add(sky);
@@ -151,7 +153,7 @@ scene.add(hemisphere);
   const pmrem = new THREE.PMREMGenerator(renderer);
   const environmentScene = new THREE.Scene();
   environmentScene.add(sky.clone());
-  scene.environment = pmrem.fromScene(environmentScene, 0, 1, 30000).texture;
+  scene.environment = pmrem.fromScene(environmentScene, 0, 1, 20000).texture;
   scene.environmentIntensity = 0.7;
   pmrem.dispose();
 }
@@ -248,17 +250,37 @@ function loadAsset(config) {
  * tuned for an outdoor scene.
  */
 function prepareMaterials(root) {
+  root.updateMatrixWorld(true);
   root.traverse((object) => {
     if (!object.isMesh) return;
+
+    // In the existing web export of The Stack, the cool curtain-wall glass sits
+    // ~4.9 cm outside the diagrid X-frame (20.304 m vs 20.255 m). Turning that
+    // glass opaque for outdoor daylight buries and z-fights the diagonal frame.
+    // Inset the horizontal glass envelope by 10 cm so the X-frame stands ~5 cm proud.
+    if (object.name === 'Web_Stack_Glass_Cool_Web') {
+      const bounds = new THREE.Box3().setFromObject(object);
+      if (bounds.max.z > 20.28) {
+        object.scale.x *= (57.804 - 0.10) / 57.804;
+        object.scale.z *= (20.304 - 0.10) / 20.304;
+        object.updateMatrixWorld(true);
+      }
+    }
+
+    const isFrostMesh = /frost/i.test(object.name ?? '');
+    const isGlassMesh = /glass/i.test(object.name ?? '') && !isFrostMesh;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
       if (!material) continue;
       const namedGlass = /glass/i.test(material.name ?? '') && !/frost/i.test(material.name ?? '');
-      if ((material.transmission ?? 0) > 0.01 || namedGlass) {
+      if ((material.transmission ?? 0) > 0.4 || namedGlass || isGlassMesh) {
         material.transmission = 0;
         material.transparent = false;
         material.opacity = 1;
         material.depthWrite = true;
+        material.polygonOffset = true;
+        material.polygonOffsetFactor = 2;
+        material.polygonOffsetUnits = 2;
         material.color.setHex(0x3d505b);
         material.metalness = 0.35;
         material.roughness = 0.12;
@@ -267,6 +289,18 @@ function prepareMaterials(root) {
         material.envMapIntensity = 2.0;
         material.clearcoat = 0;
         material.specularIntensity = 0.4;
+        material.needsUpdate = true;
+      } else if (isFrostMesh) {
+        material.transmission = 0;
+        material.transparent = false;
+        material.opacity = 1;
+        material.depthWrite = true;
+        material.polygonOffset = true;
+        material.polygonOffsetFactor = 2;
+        material.polygonOffsetUnits = 2;
+        material.color.setHex(0x697880);
+        material.roughness = 0.35;
+        material.metalness = 0.15;
         material.needsUpdate = true;
       }
       // The glTF carries the Blender interior fills as emissive materials in
