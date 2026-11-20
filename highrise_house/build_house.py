@@ -686,6 +686,19 @@ def box(name, center, dims, mat, rot=None):
     return Part(name, verts, _BOX_FACES, mat, center, rot)
 
 
+def panel(name, center, dims, mat):
+    """Flat downward-facing recessed ceiling fixture (one quad).
+
+    The light panels sit flush under the slab and are only ever seen from the
+    room below, so the five hidden faces of the old box shell were pure file
+    size: ~25 000 fixtures carried ~150 000 invisible faces.
+    """
+    sx, sy = dims[0], dims[1]
+    verts = [(-sx / 2.0, -sy / 2.0, 0.0), (-sx / 2.0, sy / 2.0, 0.0),
+             (sx / 2.0, sy / 2.0, 0.0), (sx / 2.0, -sy / 2.0, 0.0)]
+    return Part(name, verts, [(0, 1, 2, 3)], mat, center)
+
+
 def beam_between(name, start, end, width, mat):
     """Make a square structural member between two world-space points."""
     start, end = Vector(start), Vector(end)
@@ -698,38 +711,34 @@ def beam_between(name, start, end, width, mat):
                (width, width, length), mat, rot=rotation)
 
 
-def spheres_mesh(name, centers, radius, mat, segments=10, latitudes=5):
-    """Create many low-poly, genuinely round light globes as one part."""
+def lamp_mesh(name, centers, radius, mat):
+    """Create the small emissive ceiling lamps as one low-poly part.
+
+    Each lamp is a six-vertex octahedron instead of the old 42-vertex, 50-face
+    UV sphere. The globes are 0.14 m across and sit on a 4 m ceiling, so from
+    the facade and from the podium floor their facets stay well under a pixel,
+    while the sphere cost 0.5 M vertices and 0.5 M faces in the saved scene and
+    over half of the exported GLB.
+    """
     if not centers:
         return None
     vertices, faces = [], []
-    for center in centers:
+    for x, y, z in centers:
         base = len(vertices)
-        x, y, z = center
-        vertices.append((x, y, z + radius))
-        for latitude in range(1, latitudes):
-            theta = math.pi * latitude / latitudes
-            ring_z = z + radius * math.cos(theta)
-            ring_r = radius * math.sin(theta)
-            for segment in range(segments):
-                phi = 2.0 * math.pi * segment / segments
-                vertices.append((x + ring_r * math.cos(phi),
-                                 y + ring_r * math.sin(phi), ring_z))
-        bottom = len(vertices)
-        vertices.append((x, y, z - radius))
-        first_ring = base + 1
-        last_ring = first_ring + (latitudes - 2) * segments
-        for segment in range(segments):
-            nxt = (segment + 1) % segments
-            faces.append((base, first_ring + nxt, first_ring + segment))
-            faces.append((bottom, last_ring + segment, last_ring + nxt))
-        for latitude in range(latitudes - 2):
-            lower = first_ring + latitude * segments
-            upper = lower + segments
-            for segment in range(segments):
-                nxt = (segment + 1) % segments
-                faces.append((lower + segment, lower + nxt,
-                              upper + nxt, upper + segment))
+        vertices.extend((
+            (x, y, z + radius),
+            (x + radius, y, z),
+            (x, y + radius, z),
+            (x - radius, y, z),
+            (x, y - radius, z),
+            (x, y, z - radius),
+        ))
+        faces.extend((
+            (base, base + 1, base + 2), (base, base + 2, base + 3),
+            (base, base + 3, base + 4), (base, base + 4, base + 1),
+            (base + 5, base + 2, base + 1), (base + 5, base + 3, base + 2),
+            (base + 5, base + 4, base + 3), (base + 5, base + 1, base + 4),
+        ))
     return Part(name, vertices, faces, mat)
 
 
@@ -1163,8 +1172,11 @@ def add_ceiling_light(parts, name, center, dims, floor_index, facade_index,
     """Install one panel unless a load-bearing perimeter column occupies it."""
     if ceiling_light_overlaps_column(center, dims):
         return
-    parts.append(box(
-        name, center, dims,
+    # The quad sits on the old box's visible underside, not on the slab plane,
+    # so it cannot z-fight with the floor plate above it.
+    parts.append(panel(
+        name, (center[0], center[1], center[2] - CEILING_LIGHT_H / 2.0),
+        dims,
         mats[ceiling_light_state(floor_index, facade_index, room_index,
                                  ring_index)]))
 
@@ -1782,12 +1794,12 @@ def pilotis_arcade_lights(mats):
     side(short_positions, W / 2.0, False, 1.0)
 
     bulbs = [
-        spheres_mesh("Pilotis_Arcade_LightCool", cool,
-                     PILOTIS_ARCADE_LIGHT_RADIUS,
-                     mats["podium_ceiling_light_cool"]),
-        spheres_mesh("Pilotis_Arcade_LightWarm", warm,
-                     PILOTIS_ARCADE_LIGHT_RADIUS,
-                     mats["podium_ceiling_light_warm"]),
+        lamp_mesh("Pilotis_Arcade_LightCool", cool,
+                  PILOTIS_ARCADE_LIGHT_RADIUS,
+                  mats["podium_ceiling_light_cool"]),
+        lamp_mesh("Pilotis_Arcade_LightWarm", warm,
+                  PILOTIS_ARCADE_LIGHT_RADIUS,
+                  mats["podium_ceiling_light_warm"]),
     ]
     bulbs_mesh = join(bulbs, "Pilotis_Arcade_Lights")
     return bulbs_mesh
@@ -2453,12 +2465,12 @@ def build_podium(mats, base_rectangles, diamond_grid_only=False):
             y += PODIUM_CEILING_LIGHT_PITCH
             row += 1
         ceiling_light_parts.extend((
-            spheres_mesh(f"Podium_CeilingLightCool_{floor_index}", cool,
-                         PODIUM_CEILING_LIGHT_RADIUS,
-                         mats["podium_ceiling_light_cool"]),
-            spheres_mesh(f"Podium_CeilingLightWarm_{floor_index}", warm,
-                         PODIUM_CEILING_LIGHT_RADIUS,
-                         mats["podium_ceiling_light_warm"]),
+            lamp_mesh(f"Podium_CeilingLightCool_{floor_index}", cool,
+                      PODIUM_CEILING_LIGHT_RADIUS,
+                      mats["podium_ceiling_light_cool"]),
+            lamp_mesh(f"Podium_CeilingLightWarm_{floor_index}", warm,
+                      PODIUM_CEILING_LIGHT_RADIUS,
+                      mats["podium_ceiling_light_warm"]),
         ))
 
     def add_guardrail(ring, floor_index, deck_z):
@@ -2820,6 +2832,85 @@ def rectangle_corners(center, width, depth, rotation_deg):
     ]
 
 
+# ---------------------------------------------------------------------------
+# glTF export
+# ---------------------------------------------------------------------------
+
+# Opacity written for glass in the GLB. Low enough to read as glass in a
+# block-oriented importer, high enough that the panes still read as a facade.
+GLB_GLASS_ALPHA = 0.4
+
+# Colour written for glass in the GLB: the average colour of the Minecraft ice
+# texture, #92B8FE. Block converters match voxels to blocks by nearest colour
+# and ignore alpha, so glass has to be tinted toward a transparent block to
+# survive the trip. The value is written straight into baseColorFactor, which
+# ObjToSchematic reads as sRGB; converting to linear here lands on
+# light_blue_concrete instead of ice.
+GLB_GLASS_COLOR = (0.5725, 0.7216, 0.9961)
+
+
+def is_preview_glass(material):
+    """The EEVEE glass mixes Transparent and a glossy lobe into the output."""
+    if not material.use_nodes:
+        return False
+    types = {node.type for node in material.node_tree.nodes}
+    return "BSDF_TRANSPARENT" in types and "MIX_SHADER" in types
+
+
+def gltf_glass(material):
+    """Principled stand-in for glTF, which cannot describe the shader mix.
+
+    Exported as-is the glass arrives opaque white. Alpha below 1 becomes
+    ``alphaMode: BLEND``, which ObjToSchematic and other block importers read
+    as a glass block.
+    """
+    base_color = GLB_GLASS_COLOR
+    glass = bpy.data.materials.new(f"{material.name}_glTF")
+    glass.use_nodes = True
+    nodes, links = glass.node_tree.nodes, glass.node_tree.links
+    nodes.clear()
+    output = nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    links.new(bsdf.outputs[0], output.inputs[0])
+    bsdf.inputs["Base Color"].default_value = (*base_color, 1.0)
+    bsdf.inputs["Metallic"].default_value = 0.0
+    bsdf.inputs["Roughness"].default_value = 0.0
+    bsdf.inputs["IOR"].default_value = 1.52
+    bsdf.inputs["Alpha"].default_value = GLB_GLASS_ALPHA
+    glass.diffuse_color = (*base_color[:3], GLB_GLASS_ALPHA)
+    glass.use_backface_culling = False
+    return glass
+
+
+def export_glb(path, compress=False):
+    """Export the GLB with glass expressed the way glTF can carry it.
+
+    The material swap is in memory only: the saved .blend keeps the EEVEE
+    glass, and the preview render after this call sees the original again.
+    """
+    swapped, cache = [], {}
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        for index, material in enumerate(obj.data.materials):
+            if material is None or not is_preview_glass(material):
+                continue
+            if material.name not in cache:
+                cache[material.name] = gltf_glass(material)
+            swapped.append((obj.data.materials, index, material))
+            obj.data.materials[index] = cache[material.name]
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=path,
+            export_format="GLB", use_selection=False,
+            export_draco_mesh_compression_enable=compress,
+            export_draco_mesh_compression_level=6)
+    finally:
+        for slots, index, material in swapped:
+            slots[index] = material
+    print(f"glTF glass: {len(cache)} material(s) at alpha {GLB_GLASS_ALPHA}")
+
+
 def main():
     global SITE_WIDTH, SITE_CENTER_X, SITE_CENTER_Y, SITE_DEPTH, SITE_TOP_Z
     global NO_INTERIOR_LIGHTS
@@ -2912,13 +3003,20 @@ def main():
         "standing in for the thousands of discrete room fixtures; the emissive "
         "Ceiling_Lights field supplies their visible pattern")
     bpy.context.scene["interior_lighting_is_approximation"] = True
+    # out/ is a build directory; a second 7 MB ``.blend1`` backup there is only
+    # disk churn. The full scene is reproducible from this script.
+    bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=blend_path)
 
     if "--no-glb" not in sys.argv:
         bpy.ops.object.select_all(action="SELECT")
-        bpy.ops.export_scene.gltf(
-            filepath=os.path.join(OUT_DIR, "highrise_house.glb"),
-            export_format="GLB", use_selection=False)
+        # Uncompressed by default: Draco needs a decoder, and upload targets
+        # such as ObjToSchematic reject it with "bufferView: Missing data".
+        # Flat-shaded boxes and panels cannot share vertices, so the plain GLB
+        # is much larger (28 MB vs 1.8 MB); pass --draco when only decoders
+        # (Blender, three.js DRACOLoader) will read the file.
+        export_glb(os.path.join(OUT_DIR, "highrise_house.glb"),
+                   compress="--draco" in sys.argv)
 
     if "--no-render" not in sys.argv:
         bpy.context.scene.render.filepath = os.path.join(OUT_DIR, "preview.png")

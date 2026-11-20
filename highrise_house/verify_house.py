@@ -63,6 +63,8 @@ CEILING_LIGHT_COLUMN_CLEAR = 0.20
 CEILING_LIGHT_CORE_CLEAR = 0.20
 CEILING_LIGHT_CORNER_AXIS_COUNT = 2
 CEILING_LIGHT_Z = H - SLAB_T - CEILING_LIGHT_H / 2.0
+# The fixtures are single downward-facing quads on the old 0.06 m box underside.
+CEILING_PANEL_Z = H - SLAB_T - CEILING_LIGHT_H
 CEILING_LIGHT_ON_RATIO = 0.36
 SOLID_BASE_FLOORS = 2
 SOLID_TOP_FLOORS = 2
@@ -1368,25 +1370,24 @@ def main():
                   f"daylight={daylight:.1f}, warm={warm:.1f}, off={off:.1f}")
         light_z = z_clusters(lights)
         check("ceiling lights have one level per glazed floor",
-              len(light_z) == GLAZED_FLOORS * 2,
+              len(light_z) == GLAZED_FLOORS,
               f"{len(light_z)} levels for {GLAZED_FLOORS} glazed floors")
-        light_bands = list(zip(light_z[0::2], light_z[1::2]))
         floor_bases = [BASE_Z + f * H for f in sorted(GLAZED_SET)]
         check("ceiling lights mount beneath each room ceiling",
-              all(abs(hi - (base + H - SLAB_T)) < 0.02
-                  for (lo, hi), base in zip(light_bands, floor_bases)),
+              all(abs(z - (base + CEILING_PANEL_Z)) < 0.02
+                  for z, base in zip(light_z, floor_bases)),
               f"z={min(light_z):.2f}..{max(light_z):.2f}")
         light_bounds = piece_bounds(lights)
         check("every glazed floor has seven complete light rings",
               len(light_bounds) == GLAZED_FLOORS * CEILING_LIGHTS_PER_FLOOR,
               f"{len(light_bounds)} panels = {CEILING_LIGHTS_PER_FLOOR} per "
               f"glazed floor (ring counts={CEILING_LIGHTS_PER_RING_COUNTS})")
-        check("every House ceiling fixture is an independent 1.20 m square",
+        check("every House ceiling fixture is an independent 1.20 m panel",
               all(abs((hi[0] - lo[0]) - CEILING_LIGHT_W) < 0.02
                   and abs((hi[1] - lo[1]) - CEILING_LIGHT_D) < 0.02
-                  and abs((hi[2] - lo[2]) - CEILING_LIGHT_H) < 0.01
+                  and abs(hi[2] - lo[2]) < 1e-6
                   for lo, hi in light_bounds),
-              "all fixture components are 1.20 x 1.20 x 0.06 m")
+              "all fixtures are flat 1.20 x 1.20 m recessed panels")
         patterns = {}
         floor_pieces = {}
         for lo, hi in light_bounds:
@@ -1547,7 +1548,7 @@ def main():
             if 0 <= poly.material_index < len(lights.data.materials):
                 mat = lights.data.materials[poly.material_index]
                 state_faces[mat.name] = state_faces.get(mat.name, 0) + 1
-        state_pieces = {name: faces // 6 for name, faces in state_faces.items()}
+        state_pieces = {name: faces for name, faces in state_faces.items()}
         check("individual House lights retain lit and unlit random states",
               all(state_pieces.get(name, 0) > 0
                   for name in ("CeilingLight_Daylight", "CeilingLight_Warm",

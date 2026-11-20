@@ -343,8 +343,16 @@ blender --background --factory-startup --python highrise_house/build_house.py
 The build writes the following files to `highrise_house/out/`:
 
 - `highrise_house.blend`: the complete editable scene
-- `highrise_house.glb`: a glTF export for web and other DCC viewers
+- `highrise_house.glb`: an uncompressed glTF export for web and other DCC viewers
 - `preview.png`: the overall preview render
+
+The GLB carries no Draco or meshopt compression, so any importer can read its
+buffers; that costs size (about 27 MB uncompressed against 1.8 MB compressed).
+Glass is exported as a Principled stand-in at alpha 0.4 (`alphaMode: BLEND`),
+because glTF cannot describe the EEVEE transparent/glossy mix and the panes
+would otherwise arrive opaque white. The swap is in memory only: the saved
+`.blend` and the preview render keep the original EEVEE glass. Add `--draco` to
+compress the GLB for decoder-aware viewers.
 
 Append `--no-render` to generate the model without rendering the preview.
 
