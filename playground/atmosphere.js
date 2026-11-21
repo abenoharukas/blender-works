@@ -382,10 +382,13 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
   const hemisphere = new THREE.HemisphereLight(0xdcebff, 0x6b675f, 0.75);
   scene.add(hemisphere);
 
-  // Dynamic 28-light PointLight pool: always snaps to the 28 nearest streetlamps
-  // around the camera/target so every residential lane & bar street is lit!
+  // Dynamic 9-light PointLight pool: always snaps to the 9 nearest streetlamps
+  // around the camera/target so every residential lane & bar street is lit.
+  // Every lit fragment evaluates all of them, so this count is the night frame
+  // cost: the old 28 left the street at 15-30 fps; 9 street + 3 interior holds
+  // 60 fps, and the additive lamp pools below carry the light further out.
   const nightLights = [];
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < 9; i++) {
     const pt = new THREE.PointLight(0xffb969, 0, 68, 1.35);
     pt.visible = false;
     scene.add(pt);
@@ -423,7 +426,9 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
     const dummy = new THREE.Object3D();
     allLampSpots.forEach((spot, idx) => {
       dummy.position.set(spot.x, 0.24, spot.z);
-      dummy.scale.set(spot.radius ?? 18, 1, spot.radius ?? 18);
+      // Wider pools: with nine real point lights the additive ground glow is what
+      // carries the street beyond the nearest lamps.
+      dummy.scale.set((spot.radius ?? 18) * 1.3, 1, (spot.radius ?? 18) * 1.3);
       dummy.updateMatrix();
       lampPoolMesh.setMatrixAt(idx, dummy.matrix);
     });
@@ -458,6 +463,27 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       pt.position.set(item.spot.x, item.spot.y, item.spot.z);
       pt.intensity = currentGlowFactor * 220.0;
       pt.visible = true;
+    }
+  }
+
+  // With nine plots at dusk the towers' interior fills would add 27 point lights to the street pool. Keep only the
+  // nearest model's three on (the one whose interior is actually visible), so the whole scene stays at 12 lights.
+  function updateInteriorLights() {
+    let nearest = null;
+    let best = Infinity;
+    if (currentGlowFactor > 0.08) {
+      for (const entry of placed) {
+        if (!entry.interiorLights || entry.hidden) continue;
+        const d = camera.position.distanceToSquared(entry.group.position);
+        if (d < best) {
+          best = d;
+          nearest = entry;
+        }
+      }
+    }
+    for (const entry of placed) {
+      if (!entry.interiorLights) continue;
+      for (const pt of entry.interiorLights) pt.visible = entry === nearest;
     }
   }
 
@@ -724,7 +750,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
     }
     if (lampPoolMesh) {
       lampPoolMesh.visible = glowFactor > 0.04;
-      lampPoolMesh.material.opacity = glowFactor * 0.68;
+      lampPoolMesh.material.opacity = glowFactor * 0.9;
     }
 
     // Update street materials for night emissives, wet rain reflections, and snow dusting
@@ -824,10 +850,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
           return pt;
         });
       }
-      for (const pt of entry.interiorLights) {
-        pt.intensity = glowFactor * 2200;
-        pt.visible = !entry.hidden && glowFactor > 0.08;
-      }
+      for (const pt of entry.interiorLights) pt.intensity = glowFactor * 2200;
 
       entry.group.traverse((obj) => {
         if (!obj.isMesh) return;
@@ -872,6 +895,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       lastShadowHour = h;
     }
 
+    updateInteriorLights();
     bakeEnvironment(forceEnv);
   }
 
@@ -889,6 +913,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       applyAtmosphere();
     }
     updateNearestLampLights(false);
+    updateInteriorLights();
 
     const cx = camera.position.x;
     const cy = camera.position.y;

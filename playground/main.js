@@ -37,7 +37,9 @@ const intensityRow = document.querySelector('.intensity-row');
 
 // ------------------------------------------------------------------ renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+// 1.75 on a 2x display is 3.3 MP of a 1.7 MP frame. At dusk the street lamp
+// pool is the last fill-rate cost, so 1.5 keeps 60 fps while still supersampling.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.55;
@@ -218,6 +220,13 @@ function prepareMaterials(root) {
         material.roughness = 0.35;
         material.metalness = 0.15;
         material.userData.isPlaygroundFrost = true;
+        material.needsUpdate = true;
+      }
+      // Any leftover transmission makes WebGLRenderer render the whole scene a
+      // second time into the transmission target every frame. The Stack's
+      // foliage exports at 0.12; outdoors nothing should be refractive.
+      if ((material.transmission ?? 0) > 0) {
+        material.transmission = 0;
         material.needsUpdate = true;
       }
       // The glTF carries the Blender interior fills as emissive materials in
