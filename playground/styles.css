@@ -223,6 +223,42 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
 
+/* ---------------------------------------------------------------- walk hud */
+.walk-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: none;
+  pointer-events: none;
+}
+.walk-hud.is-visible { display: block; }
+.walk-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(233, 237, 226, 0.75);
+  box-shadow: 0 0 0 1px rgba(13, 17, 16, 0.55);
+}
+.walk-keys {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  backdrop-filter: blur(14px);
+  color: var(--muted);
+  font: 10px 'DM Mono', monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
 /* ---------------------------------------------------------------- env panel */
 .env-panel {
   position: absolute;

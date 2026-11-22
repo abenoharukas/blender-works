@@ -7,6 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { buildStreet } from './street.js';
 import { MODELS, PLOTS, groundHeightAt } from './models.js';
+import { createWalkController } from './walk.js';
 import {
   createAtmosphereSystem,
   TIME_PRESETS,
@@ -59,6 +60,29 @@ controls.dampingFactor = 0.07;
 controls.minDistance = 4;
 controls.maxDistance = 2600;
 
+// ------------------------------------------------------------------ walk mode
+const walkToggleBtn = document.querySelector('#walk-toggle');
+const walkHud = document.querySelector('#walk-hud');
+
+const walk = createWalkController({
+  camera,
+  controls,
+  domElement: renderer.domElement,
+  groundHeightAt,
+  onChange: (active) => {
+    walkToggleBtn.classList.toggle('is-active', active);
+    walkHud.classList.toggle('is-visible', active);
+    if (active) {
+      viewButtons.forEach((button) => button.classList.remove('is-active'));
+      // Enter mid-flight and the half-finished camera tween would drag the eye
+      // back out of the walk as soon as it ends.
+      tween = null;
+    }
+  },
+});
+
+walkToggleBtn.addEventListener('click', () => walk.toggle());
+
 // ------------------------------------------------------------------ the street
 const streetGroup = buildStreet(scene);
 renderer.shadowMap.autoUpdate = false;
@@ -85,6 +109,8 @@ const VIEWS = {
 
 let tween = null;
 function flyTo(position, target, duration = 950) {
+  // A library view or a framed model overrides the walk: hand control back.
+  walk.exit();
   tween = {
     fromPosition: camera.position.clone(),
     fromTarget: controls.target.clone(),
@@ -412,9 +438,17 @@ viewButtons.forEach((button) => button.addEventListener('click', () => applyView
 
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  const key = event.key.toLowerCase();
+  if (key === 'f') {
+    walk.toggle();
+    return;
+  }
+  // W/A/S/D are walking keys first, and S/M/H/O are the view shortcuts: those
+  // belong to the orbit camera, not to the stroll.
+  if (walk.active) return;
   const index = Number(event.key);
   if (index >= 1 && index <= MODELS.length) addModel(MODELS[index - 1].id);
-  const key = event.key.toLowerCase();
   if (key === 's') applyView('street');
   if (key === 'm') applyView('shotengai');
   if (key === 'h') applyView('ikkodate');
@@ -512,6 +546,8 @@ timeSpeedBtn.addEventListener('click', () => {
 });
 
 // ------------------------------------------------------------------ loop
+let lastFrame = 0;
+
 function updateTween(now) {
   if (!tween) return;
   const progress = Math.min((now - tween.started) / tween.duration, 1);
@@ -530,8 +566,16 @@ function resize() {
 }
 
 renderer.setAnimationLoop((now) => {
-  updateTween(now);
-  controls.update();
+  const dt = lastFrame ? Math.min((now - lastFrame) / 1000, 0.1) : 0;
+  lastFrame = now;
+  if (walk.active) {
+    // OrbitControls.update() re-aims the camera at its stale target, so it
+    // stays parked until the walk ends.
+    walk.update(dt);
+  } else {
+    updateTween(now);
+    controls.update();
+  }
   atmosphere.update(now);
   if (atmosphere.state.playing) {
     timeClock.textContent = formatHour(atmosphere.state.hour);
@@ -540,14 +584,14 @@ renderer.setAnimationLoop((now) => {
   }
   // A tall target puts the orbit above the horizon on purpose; keep the eye
   // itself off the ground.
-  if (camera.position.y < 0.8) camera.position.y = 0.8;
+  if (!walk.active && camera.position.y < 0.8) camera.position.y = 0.8;
   renderer.render(scene, camera);
 });
 
 window.addEventListener('resize', resize);
 
 // ------------------------------------------------------------------ start
-Object.assign(window.__playground, { addModel, removeEntry, applyView });
+Object.assign(window.__playground, { addModel, removeEntry, applyView, walk });
 renderEnvControls();
 atmosphere.applyAtmosphere({ forceEnv: true });
 syncEnvUI();

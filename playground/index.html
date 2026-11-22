@@ -25,6 +25,9 @@
             <button data-view="ikkodate">Ikkodate <span>H</span></button>
             <button data-view="overview">Overview <span>O</span></button>
           </div>
+          <div class="view-switch walk-switch">
+            <button id="walk-toggle" title="First-person walk (F)">Walk <span>F</span></button>
+          </div>
         </div>
       </header>
 
@@ -78,6 +81,11 @@
       </aside>
 
       <div id="toast" class="toast"></div>
+
+      <div id="walk-hud" class="walk-hud" aria-hidden="true">
+        <span class="walk-crosshair"></span>
+        <span class="walk-keys">WASD walk · Shift run · mouse look · Esc exit</span>
+      </div>
       <div id="loading" class="loading">
         <span class="spinner"></span>
         <span>Loading</span>

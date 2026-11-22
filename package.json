@@ -8,7 +8,11 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "optimize:web": "gltf-transform optimize"
+    "playground": "python3 -m http.server 8123",
+    "optimize:web": "gltf-transform optimize",
+    "rt:build": "bun /Users/raku/repos/others/ThreeRT/renderer/build.ts",
+    "rt:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts playground/threeRT/playground-street.ts -o playground/threeRT/out/playground-street.js",
+    "rt:play": "npm run rt:bundle && /Users/raku/repos/others/ThreeRT/renderer/target/release/threert-render play playground/threeRT/out/playground-street.js --assets /Users/raku/repos/others/ThreeRT"
   },
   "repository": {
     "type": "git",

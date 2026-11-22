@@ -19,7 +19,7 @@ gateposts, and kei-cars).
 Serve the repository root (or this folder) and open `/playground/`:
 
 ```bash
-python3 -m http.server 8123
+npm run playground          # python3 -m http.server 8123
 # http://localhost:8123/playground/
 ```
 
@@ -33,6 +33,7 @@ live, so the page works from either the repository root or this directory.
 | Palette | click a model (or press `1`–`5`) to place it on the next free plot |
 | In scene | click a row to frame that model; `●`/`○` hides it, `×` removes it |
 | Views | `Street` (`S`), `Shotengai` (`M`), `Ikkodate` (`H`), `Overview` (`O`) |
+| Walk | `Walk` (`F`): first-person at 1.7 m — `WASD` move, `Shift` run, mouse look, `Esc` back to orbit |
 | Clear scene | removes every placed model |
 
 The street network, commercial hubs, residential lots, and overhead utility
