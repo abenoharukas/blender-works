@@ -12,7 +12,10 @@
     "optimize:web": "gltf-transform optimize",
     "rt:build": "bun /Users/raku/repos/others/ThreeRT/renderer/build.ts",
     "rt:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts playground/threeRT/playground-street.ts -o playground/threeRT/out/playground-street.js",
-    "rt:play": "npm run rt:bundle && /Users/raku/repos/others/ThreeRT/renderer/target/release/threert-render play playground/threeRT/out/playground-street.js --assets /Users/raku/repos/others/ThreeRT"
+    "rt:play": "npm run rt:bundle && /Users/raku/repos/others/ThreeRT/renderer/target/release/threert-render play playground/threeRT/out/playground-street.js --assets /Users/raku/repos/others/ThreeRT",
+    "rt:diamond:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts playground/threeRT/diamond-optics.ts -o playground/threeRT/out/diamond-optics.js",
+    "rt:diamond": "node playground/threeRT/render-diamond.mjs",
+    "rt:diamond:render": "node playground/threeRT/render-diamond.mjs"
   },
   "repository": {
     "type": "git",
