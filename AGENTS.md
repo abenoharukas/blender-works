@@ -4,7 +4,7 @@ This repository contains independent procedural Blender scenes. Keep changes to 
 
 ## Layout
 
-Each work lives in its own top-level directory: `highrise_house/`, `office_tower/`, `centre_pompidou/`, `abeno_harukas/`, `the_stack/`, `the_stack2/`, `the_stack3/`, `ship/`. A work directory holds its build/verify scripts, `PROGRESS.md`, reference `images/`, and a Git-ignored `out/` for its build products. Shared code (`materials.py`, `open_in_blender.py`, `check_stack_zfight.py`) lives in `shared/`; generators add it to `sys.path`. The web viewer stays in `web/`. Commands below are run from the repository root. Do not put new scripts, images or outputs at the top level.
+Each work lives in its own top-level directory: `highrise_house/`, `office_tower/`, `centre_pompidou/`, `abeno_harukas/`, `the_stack/`, `the_stack2/`, `the_stack3/`, `ship/`. A work directory holds its build/verify scripts, `PROGRESS.md`, reference `images/`, and a Git-ignored `out/` for its build products. Shared code (`materials.py`, `open_in_blender.py`, `check_stack_zfight.py`) lives in `shared/`; generators add it to `sys.path`. The web viewer stays in `model_viewer/`. Commands below are run from the repository root. Do not put new scripts, images or outputs at the top level.
 
 ## Abeno Harukas
 

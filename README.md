@@ -1,6 +1,6 @@
 # Blender Works
 
-Independent procedural Blender studies, one directory per work. Shared materials and helpers live in `shared/`, the Three.js viewer in `web/`; the commands in each section run from the repository root.
+Independent procedural Blender studies, one directory per work. Shared materials and helpers live in `shared/`, the Three.js viewer in `model_viewer/`; the commands in each section run from the repository root.
 
 ## Highrise House
 
@@ -100,15 +100,15 @@ blender --background --factory-startup --python-exit-code 1 \
   --compression meshopt \
   --report the_stack/out/the_stack_web_report.json \
   --source the_stack/out/the_stack.blend \
-  --output web/assets/the_stack.glb
+  --output model_viewer/assets/the_stack.glb
 
 npm run optimize:web -- \
-  web/assets/the_stack.glb \
-  web/assets/the_stack.optimized.glb \
+  model_viewer/assets/the_stack.glb \
+  model_viewer/assets/the_stack.optimized.glb \
   --compress meshopt
 ```
 
-The browser loads `web/assets/the_stack.optimized.glb`. Material merging is enabled by default because browser performance is more sensitive to draw calls than to this model's triangle count. It preserves the geometry, floor slabs, and triangle count; it only reduces the number of independent mesh primitives. Blender EEVEE glass node graphs are translated on the in-memory export copy to glTF transmission/IOR/specular/clearcoat properties so the browser keeps the source glass's transparency and reflection semantics. The `.blend` file is never saved by the exporter. To export without this web optimization:
+The browser loads `model_viewer/assets/the_stack.optimized.glb`. Material merging is enabled by default because browser performance is more sensitive to draw calls than to this model's triangle count. It preserves the geometry, floor slabs, and triangle count; it only reduces the number of independent mesh primitives. Blender EEVEE glass node graphs are translated on the in-memory export copy to glTF transmission/IOR/specular/clearcoat properties so the browser keeps the source glass's transparency and reflection semantics. The `.blend` file is never saved by the exporter. To export without this web optimization:
 
 ```bash
 blender --background --factory-startup --python the_stack/export_the_stack.py -- \
@@ -133,48 +133,33 @@ glass arrives in the browser opaque or wrong.
 
 `translate_glass_materials()` therefore rewrites the glass on the in-memory export
 copy only. It detects a glass-like shader by structure (`_is_glass_like`) and rebuilds
-a single `Principled BSDF` (`_make_web_glass`) with transmission 0 and alpha
-`WEB_GLASS_ALPHA` (0.25; frosted panes keep their own alpha). The exporter writes it as
-core glTF `alphaMode: BLEND`, with no transmission extension. Real-time viewers support
-`KHR_materials_transmission` unevenly (Filament may draw it opaque, Three.js turns it
-into a mirror at grazing angles), while alpha blending renders the same in Three.js,
-Filament and Bevy. The result is an approximation of the EEVEE preview's
-transparent/reflection mix, not true refraction, and alpha-blended panes depend on
-correct transparency sorting. With `--preserve-materials` the graph is left untouched and the
-browser loses the glass semantics. The exporter never writes back to the source `.blend`.
+a single transmissive `Principled BSDF` (`_make_web_glass` with
+`--transmissive-glass`): transmission 1.0 and IOR 1.52, written as
+`KHR_materials_transmission` plus `KHR_materials_ior` with `alphaMode: OPAQUE`.
+Blender only emits the IOR extension for a material that also carries transmission or
+volume, so the two have to travel together. No thickness is written — the panes are
+centimetre-scale sheet glass, not solid volumes — so viewers treat them as thin
+glass. Frosted panes keep their own alpha and stay on the alpha-blended path. With
+`--preserve-materials` the graph is left untouched and the browser loses the glass
+semantics. The exporter never writes back to the source `.blend`.
 
 #### Ceiling lights in the viewer
 
 The ceiling fixtures travel in the GLB as emissive panels (`Stack_Room_Lights_Warm`,
-`Stack_Room_Lights_Daylight`, and the mall strips). glTF emissive only makes the panel
-itself glow. It does not light the floor, the ceiling soffit, or anything else, and
-this viewer does not instance one real-time point light per fixture: there are 6277
-of them, which will not fit in a shader's light list.
+`Stack_Room_Lights_Daylight`, and the mall strips), because they are modelled
+geometry. glTF emissive only makes the panel itself glow; it does not light the floor
+or the soffit. The works drive those panels at emissive strengths between 2 and 360,
+and anything past a couple of units tone-maps to a flat white that transmission then
+smears across the whole facade, so the exporter rewrites the panel materials with the
+render's colour and a fixed strength of 2 (`WEB_FIXTURE_EMISSIVE`). Panels switched
+off in the scene stay off.
 
-`web/ceiling-glow.js` treats each fixture as a source anyway. It keeps the downward
-face of every lit panel, merges the two faces of one panel, then groups the panels
-by storey. For each floor vertex it sums the fixtures on the ceiling directly above
-that storey. The contribution is inverse-square with a Lambert term from the drop
-between fixture and floor, clamped so one nearby panel cannot blow out. The same
-fixtures also mark the soffit immediately around themselves. Warm and daylight
-fixtures keep their own colours. The sum is stored on the floor mesh as `roomLight`
-and shown through a node material, so the plate itself reads as lit when seen through
-the glass.
-
-Two practical limits forced extra geometry work. The exported floor plates are a few
-huge triangles, so a per-vertex colour turns into a long smear. Horizontal triangles
-are split until an edge is about four metres, and floor vertices are snapped onto the
-nearest lit storey so a plate reads as a layer from above instead of as a thin edge.
-The shared GLB palette also bakes the glass to metalness 1 and roughness 1, and a
-physical transmission shader becomes a mirror at a steep downward view, which hides
-the rooms. On load, `web/main.js` replaces that glass with a thin transparent pane
-(`opacity` 0.08, no transmission) so the lit floors stay visible from the street and
-from above. The **Ceiling glow** button turns the contribution on and off.
-
-This is not CUDA and not a path tracer. The machine this was built on is an Apple
-M4 with no NVIDIA GPU and no `nvcc`. Walls are not lit, and a floor still shows the
-contribution as patches rather than a smooth room wash. The Blender scene is
-unchanged: the lighting exists only in the viewer.
+The viewer does not add light sources of its own. An earlier revision scanned the
+fixtures and injected up to twelve `RectAreaLight`s into the building; area lights are
+evaluated per pixel in WebGPU, so twelve of them took a 5 ms frame to about 170 ms and
+pinned the GPU. Only the AREA lamp rig from the Blender scene is dropped at export
+time — it exists for the Blender render and has no geometry — while the modelled
+panels stay, lit, in the asset.
 
 The current The Stack web assets are approximately:
 
@@ -185,7 +170,7 @@ Triangles:           198,860
 Meshopt:             EXT_meshopt_compression
 ```
 
-The original editable scene remains `the_stack/out/the_stack.blend`. The web asset is loaded by `web/index.html` through Three.js's `GLTFLoader` with `MeshoptDecoder`. The exporter supports `--profile static`, `--profile animated`, and `--profile architectural`; animated exports do not merge meshes. It also accepts `--compression draco`, `--compression meshopt`, `--compression none`, `--report`, `--no-merge-materials`, and `--preserve-materials`. Compression is feature-detected against the bundled glTF exporter: this Blender (5.1) ships no meshopt properties, so a `meshopt` request warns once and exports uncompressed, and the report records the compression actually used. LOD is intentionally not applied automatically because generic geometric decimation can damage glass, floors, instances, and animation semantics; runtime resolution and on-demand rendering are enabled in the viewer instead.
+The original editable scene remains `the_stack/out/the_stack.blend`. The web asset is loaded by `model_viewer/index.html` through Three.js's `GLTFLoader` with `MeshoptDecoder`. The exporter supports `--profile static`, `--profile animated`, and `--profile architectural`; animated exports do not merge meshes. It also accepts `--compression draco`, `--compression meshopt`, `--compression none`, `--report`, `--no-merge-materials`, and `--preserve-materials`. Compression is feature-detected against the bundled glTF exporter: this Blender (5.1) ships no meshopt properties, so a `meshopt` request warns once and exports uncompressed, and the report records the compression actually used. LOD is intentionally not applied automatically because generic geometric decimation can damage glass, floors, instances, and animation semantics; runtime resolution and on-demand rendering are enabled in the viewer instead.
 
 ## The Stack 2
 
@@ -326,7 +311,7 @@ the_stack2/       # The Stack, second generation
 the_stack3/       # The Stack, third generation (stacked bands)
 ship/             # Purple liner imported from longtest 25.skp
 shared/           # materials.py, open_in_blender.py, check_stack_zfight.py
-web/              # Three.js viewer and web assets
+model_viewer/     # Three.js viewer and web assets
 package.json      # glTF Transform post-processing command
 ```
 
