@@ -12,9 +12,11 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 # Opacity of clear web glass: low enough to read the lit rooms behind the
 # facade, high enough that the tint and sky reflection still show.
 WEB_GLASS_ALPHA = 0.25
-# Emissive fixture meshes that only stand in for lit rooms; left out of a
-# physically based export so the viewer lights the model, not a baked glow.
+# Emissive fixtures that stand in for lit rooms. The panels are modelled
+# geometry and stay; only their render-time strength (100-360) is scaled down,
+# because that value tone-maps to a flat white in a PBR viewer.
 FIXTURE_MATERIAL_PREFIXES = ("CeilingLight", "PodiumCeilingLight")
+WEB_FIXTURE_EMISSIVE = 2.0
 
 
 def _input_value(bsdf, name, fallback):
@@ -145,17 +147,18 @@ def fake_light_objects():
     return lamps + rigs
 
 
-def _make_unlit_fixture(material):
-    """The same modelled lamp panel with its light-emitting role removed.
+def _make_fixture_panel(material):
+    """Export the modelled lamp panel as a lit fixture.
 
-    Emissive strength 100-360 does not light anything in a PBR viewer; it bakes
-    a blown-out glow into the asset, which transmission then smears across the
-    facade. The warm / cool base colour is kept, so the ceiling still reads as a
-    field of differentiated fixtures.
+    The render drives these materials at emissive strength 100-360, which does
+    not light anything in a PBR viewer — it bakes a blown-out white that
+    transmission smears across the facade. The warm / cool tone is kept in both
+    base and emission colour; only the strength is scaled down.
     """
     source_bsdf = material.node_tree.nodes.get("Principled BSDF")
     color = _input_value(source_bsdf, "Base Color", (0.8, 0.8, 0.78, 1.0))
-    panel = bpy.data.materials.new(f"{material.name}_Unlit")
+    lit = float(_input_value(source_bsdf, "Emission Strength", 0.0)) > 0.0
+    panel = bpy.data.materials.new(f"{material.name}_Web")
     panel.use_nodes = True
     nodes = panel.node_tree.nodes
     links = panel.node_tree.links
@@ -166,13 +169,15 @@ def _make_unlit_fixture(material):
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Metallic"].default_value = 0.0
     bsdf.inputs["Roughness"].default_value = 0.45
-    bsdf.inputs["Emission Strength"].default_value = 0.0
+    bsdf.inputs["Emission Color"].default_value = color
+    bsdf.inputs["Emission Strength"].default_value = (
+        WEB_FIXTURE_EMISSIVE if lit else 0.0)
     panel.diffuse_color = color
     return panel
 
 
-def unlit_fixture_materials():
-    """Swap lamp panel materials for unlit copies on the export scene only."""
+def fixture_panel_materials():
+    """Swap lamp panel materials for export copies on the export scene only."""
     cache = {}
     for obj in bpy.context.scene.objects:
         if obj.type not in ("MESH", "CURVE"):
@@ -182,9 +187,9 @@ def unlit_fixture_materials():
             if not material or not material.name.startswith(FIXTURE_MATERIAL_PREFIXES):
                 continue
             if material.name not in cache:
-                cache[material.name] = _make_unlit_fixture(material)
+                cache[material.name] = _make_fixture_panel(material)
             materials[index] = cache[material.name]
-    print(f"Fixture panels kept, emission off: {len(cache)} material(s)")
+    print(f"Fixture panels exported lit: {len(cache)} material(s)")
     return cache
 
 
@@ -306,8 +311,9 @@ def main():
         "--no-fake-lights",
         action="store_true",
         help="Leave Blender's AREA lamp objects and their rig empties out of the "
-             "GLB, and switch the modelled lamp panels' emission off. They "
-             "approximate interior lighting for a Blender render.",
+             "GLB and scale the modelled lamp panels' emission down to a "
+             "viewable strength. The lamps approximate interior lighting for a "
+             "Blender render; the panels themselves stay.",
     )
     parser.add_argument(
         "--report",
@@ -335,7 +341,7 @@ def main():
         merged = merge_meshes_by_material()
     detached_lights = []
     if args.no_fake_lights:
-        unlit_fixture_materials()
+        fixture_panel_materials()
         detached_lights = detach_fake_lights()
 
     export_options = {

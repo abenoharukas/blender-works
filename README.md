@@ -351,12 +351,12 @@ buffers; that costs size (about 27 MB uncompressed against 1.8 MB compressed).
 Glass is exported as a physically transmissive Principled stand-in —
 `KHR_materials_transmission` at IOR 1.52, so PBR viewers refract and reflect the
 facade — because glTF cannot describe the EEVEE transparent/glossy mix and the
-panes would otherwise arrive opaque white. Blender's fake lighting is left
-out — the AREA lamp rig, plus the modelled lamp panels' emission, which would
-otherwise bake a blown-out glow into the asset — while the panels themselves
-stay as geometry. The swap is in memory only: the saved `.blend` and the
-preview render keep the original EEVEE glass, lights and lit panels. Add
-`--draco` to compress the GLB for decoder-aware viewers.
+panes would otherwise arrive opaque white. Blender's virtual lighting is left
+out — the AREA lamp rig and the viewer's former client-side area-light grid —
+while the modelled lamp panels stay and keep glowing at an export-safe
+strength instead of the render's 100-360. The swap is in memory only: the saved
+`.blend` and the preview render keep the original EEVEE glass, lights and
+panels. Add `--draco` to compress the GLB for decoder-aware viewers.
 
 Append `--no-render` to generate the model without rendering the preview.
 

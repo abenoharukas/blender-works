@@ -2894,13 +2894,24 @@ def is_fake_fixture(material):
     return material.name.startswith(FIXTURE_MATERIAL_PREFIXES)
 
 
-def gltf_fixture(material):
-    """The same panel with its light-emitting role removed.
+# Emission written for the modelled lamp panels. The render drives them at
+# 100-360, which a PBR viewer tone-maps to a flat white that transmissive glass
+# then smears across the whole facade; this keeps them reading as lit fixtures.
+GLB_FIXTURE_EMISSIVE = 2.0
 
-    The warm / cool tone the render uses for per-room variety is kept as base
-    colour, so the ceiling still reads as a field of differentiated fixtures.
+
+def gltf_fixture(material):
+    """The modelled lamp panel, exported as a lit fixture.
+
+    Base colour and emission colour keep the warm / cool tone the render uses
+    for per-room variety, and the strength is scaled down from the render value
+    above. A panel whose render strength is 0 stays switched off.
     """
     source = material.node_tree.nodes.get("Principled BSDF")
+    color = (tuple(source.inputs["Base Color"].default_value)
+             if source else (0.8, 0.8, 0.78, 1.0))
+    lit = source is not None and float(
+        source.inputs["Emission Strength"].default_value) > 0.0
     panel = bpy.data.materials.new(f"{material.name}_glTF")
     panel.use_nodes = True
     nodes, links = panel.node_tree.nodes, panel.node_tree.links
@@ -2908,12 +2919,12 @@ def gltf_fixture(material):
     output = nodes.new("ShaderNodeOutputMaterial")
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
     links.new(bsdf.outputs[0], output.inputs[0])
-    color = (tuple(source.inputs["Base Color"].default_value)
-             if source else (0.8, 0.8, 0.78, 1.0))
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Metallic"].default_value = 0.0
     bsdf.inputs["Roughness"].default_value = 0.45
-    bsdf.inputs["Emission Strength"].default_value = 0.0
+    bsdf.inputs["Emission Color"].default_value = color
+    bsdf.inputs["Emission Strength"].default_value = (
+        GLB_FIXTURE_EMISSIVE if lit else 0.0)
     panel.diffuse_color = color
     return panel
 
@@ -2981,8 +2992,9 @@ def export_glb(path, compress=False):
             collection.objects.link(obj)
     print(f"glTF glass: {len(glass)} material(s) at transmission 1.0, "
           f"IOR {GLB_GLASS_IOR}")
-    print(f"glTF fixtures: {len(fixtures)} panel material(s) kept, emission off; "
-          f"{len(detached)} fake light object(s) left out")
+    print(f"glTF fixtures: {len(fixtures)} panel material(s) lit at "
+          f"emissive {GLB_FIXTURE_EMISSIVE}; {len(detached)} fake light object(s) "
+          f"left out")
 
 
 def main():
