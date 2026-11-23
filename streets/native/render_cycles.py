@@ -251,10 +251,20 @@ def configure_render(samples, width, height):
             print(f"[cycles] GPU setup skipped: {exc}")
 
 
+def base_is_fresh():
+    if not os.path.exists(BASE_BLEND):
+        return False
+    base_mtime = os.path.getmtime(BASE_BLEND)
+    for src in (STREET_GLB, TOWER_GLB, SCENE_JSON):
+        if os.path.exists(src) and os.path.getmtime(src) > base_mtime:
+            return False
+    return True
+
+
 def main():
     opts = argv()
     os.makedirs(OUT, exist_ok=True)
-    if os.path.exists(BASE_BLEND):
+    if base_is_fresh():
         bpy.ops.wm.open_mainfile(filepath=BASE_BLEND)
     else:
         import_base()

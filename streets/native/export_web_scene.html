@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>export playground street</title>
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+</script>
+<script type="module">
+  import * as THREE from 'three';
+  import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+  import { buildStreet } from '../web/street.js';
+
+  const log = (msg) =>
+    fetch('/__log', { method: 'POST', body: String(msg) }).catch(() => {});
+
+  window.__exportDone = false;
+  window.__exportError = null;
+  try {
+    const scene = new THREE.Scene();
+    const street = buildStreet(scene);
+
+    // The offline scene is rendered with night emissives baked in: ThreeRT does
+    // not run the web page's time-of-day boost, so carry the strengths over.
+    const table = await (await fetch('./offline_emissive.json')).json();
+    let applied = 0;
+    scene.traverse((object) => {
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
+        if (!material || table[material.name] === undefined) continue;
+        material.emissiveIntensity = table[material.name];
+        material.needsUpdate = true;
+        applied += 1;
+      }
+    });
+    await log(`built ${street.children.length} meshes, ${applied} emissive overrides`);
+
+    const glb = await new GLTFExporter().parseAsync(scene, { binary: true });
+    await log(`glb ${glb.byteLength} bytes`);
+
+    const saved = await fetch('/__save?name=playground_street_rt.glb', {
+      method: 'POST',
+      body: glb,
+    });
+    document.title = saved.ok ? 'DONE' : 'SAVE-FAILED';
+    await log(`save ${saved.status}`);
+    window.__exportDone = true;
+  } catch (error) {
+    document.title = 'ERROR';
+    window.__exportError = String(error && error.stack ? error.stack : error);
+    await log(window.__exportError);
+    window.__exportDone = true;
+  }
+</script>
