@@ -44,6 +44,7 @@ TARGETS = {
         "build": ["highrise_house/build_house.py", "--", "--no-render", "--no-glb"],
         "blend": "highrise_house/out/highrise_house.blend",
         "verifiers": [],
+        "export_args": ["--transmissive-glass", "--no-fake-lights"],
     },
     "office_tower": {
         "build": ["office_tower/build_office.py", "--no-render"],
@@ -110,6 +111,7 @@ def main():
                 spec["blend"],
                 "--output",
                 raw_glb,
+                *spec.get("export_args", []),
             ],
             f"export:{name}",
         )

@@ -348,11 +348,15 @@ The build writes the following files to `highrise_house/out/`:
 
 The GLB carries no Draco or meshopt compression, so any importer can read its
 buffers; that costs size (about 27 MB uncompressed against 1.8 MB compressed).
-Glass is exported as a Principled stand-in at alpha 0.4 (`alphaMode: BLEND`),
-because glTF cannot describe the EEVEE transparent/glossy mix and the panes
-would otherwise arrive opaque white. The swap is in memory only: the saved
-`.blend` and the preview render keep the original EEVEE glass. Add `--draco` to
-compress the GLB for decoder-aware viewers.
+Glass is exported as a physically transmissive Principled stand-in —
+`KHR_materials_transmission` at IOR 1.52, so PBR viewers refract and reflect the
+facade — because glTF cannot describe the EEVEE transparent/glossy mix and the
+panes would otherwise arrive opaque white. Blender's fake lighting is left
+out — the AREA lamp rig, plus the modelled lamp panels' emission, which would
+otherwise bake a blown-out glow into the asset — while the panels themselves
+stay as geometry. The swap is in memory only: the saved `.blend` and the
+preview render keep the original EEVEE glass, lights and lit panels. Add
+`--draco` to compress the GLB for decoder-aware viewers.
 
 Append `--no-render` to generate the model without rendering the preview.
 

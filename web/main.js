@@ -4,14 +4,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { addCeilingGlow, removeCeilingGlow } from './ceiling-glow.js';
 
 const viewer = document.querySelector('#viewer');
 const status = document.querySelector('#load-status');
 const loadingCard = document.querySelector('#loading-card');
 const viewButtons = [...document.querySelectorAll('.view-button')];
 const resetButton = document.querySelector('#reset-view');
-const ceilingGlowButton = document.querySelector('#ceiling-glow');
 const modelList = document.querySelector('#model-list');
 const modelEyebrow = document.querySelector('#model-eyebrow');
 const modelTitle = document.querySelector('#model-title');
@@ -210,8 +208,6 @@ const models = {
   },
 };
 let model;
-let ceilingGlow;
-let ceilingGlowOn = true;
 let activeModelId = 'stack';
 let modelBounds;
 let defaultView;
@@ -282,11 +278,6 @@ const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
 let loadToken = 0;
 
-function clearCeilingGlow() {
-  if (ceilingGlow) removeCeilingGlow({ ...ceilingGlow, root: model });
-  ceilingGlow = null;
-}
-
 function disposeModel(root) {
   root.traverse((object) => {
     if (!object.isMesh) return;
@@ -323,7 +314,6 @@ function loadModel(id) {
   activeModelId = id;
   updateModelMeta(config);
   renderModelList();
-  clearCeilingGlow();
   if (model) {
     disposeModel(model);
     model = null;
@@ -336,7 +326,7 @@ function loadModel(id) {
   const token = ++loadToken;
   loader.load(
     config.asset,
-    async (gltf) => {
+    (gltf) => {
       if (token !== loadToken) {
         disposeModel(gltf.scene);
         return;
@@ -356,19 +346,22 @@ function loadModel(id) {
           const namedGlass = /glass/i.test(material?.name ?? '')
             && !/frost/i.test(material?.name ?? '');
           if ((material?.transmission ?? 0) > 0.5) {
-            // Grazing views turn physical glass into a mirror, which hides every
-            // lit room from above. Keep it a thin tinted pane instead.
-            material.transmission = 0;
-            material.transparent = true;
-            material.opacity = 0.08;
-            material.depthWrite = false;
+            // Physical glass (KHR_materials_transmission + ior): keep the
+            // transmission so the pane actually refracts what is behind it,
+            // but soften the reflection lobe. Grazing views otherwise turn the
+            // facade into a mirror that hides every lit room from above.
+            material.transmission = 1;
+            material.thickness = 0;
+            material.transparent = false;
+            material.opacity = 1;
+            material.depthWrite = true;
             material.metalness = 0;
-            material.roughness = 0.08;
+            material.roughness = 0.05;
             material.metalnessMap = null;
             material.roughnessMap = null;
-            material.envMapIntensity = 0.04;
+            material.envMapIntensity = 0.3;
             material.clearcoat = 0;
-            material.specularIntensity = 0.04;
+            material.specularIntensity = 0.5;
             material.needsUpdate = true;
           } else if (glassName || namedGlass || palettizedVision) {
             material.transparent = true;
@@ -378,20 +371,6 @@ function loadModel(id) {
           }
         }
       });
-      if (ceilingGlowOn) {
-        const started = performance.now();
-        const glow = await addCeilingGlow(model);
-        if (token !== loadToken) {
-          removeCeilingGlow(glow);
-          return;
-        }
-        if (glow) {
-          ceilingGlow = glow;
-          console.info(
-            `Ceiling glow: ${glow.panels} fixtures, ${glow.floors} floors, ${Math.round(performance.now() - started)} ms`,
-          );
-        }
-      }
       requestRender();
       status.textContent = 'Model ready';
       loadingCard.classList.add('is-hidden');
@@ -411,16 +390,6 @@ function loadModel(id) {
 }
 
 viewButtons.forEach((button) => button.addEventListener('click', () => applyView(button.dataset.view)));
-async function setCeilingGlow(enabled) {
-  ceilingGlowOn = enabled;
-  ceilingGlowButton.classList.toggle('is-active', ceilingGlowOn);
-  ceilingGlowButton.querySelector('span').textContent = ceilingGlowOn ? 'on' : 'off';
-  clearCeilingGlow();
-  if (ceilingGlowOn && model) ceilingGlow = await addCeilingGlow(model);
-  requestRender();
-}
-
-ceilingGlowButton.addEventListener('click', () => setCeilingGlow(!ceilingGlowOn));
 resetButton.addEventListener('click', () => {
   if (defaultView) {
     camera.position.copy(defaultView.position);

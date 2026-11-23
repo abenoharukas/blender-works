@@ -2838,17 +2838,11 @@ def rectangle_corners(center, width, depth, rotation_deg):
 # glTF export
 # ---------------------------------------------------------------------------
 
-# Opacity written for glass in the GLB. Low enough to read as glass in a
-# block-oriented importer, high enough that the panes still read as a facade.
-GLB_GLASS_ALPHA = 0.4
-
-# Colour written for glass in the GLB: the average colour of the Minecraft ice
-# texture, #92B8FE. Block converters match voxels to blocks by nearest colour
-# and ignore alpha, so glass has to be tinted toward a transparent block to
-# survive the trip. The value is written straight into baseColorFactor, which
-# ObjToSchematic reads as sRGB; converting to linear here lands on
-# light_blue_concrete instead of ice.
-GLB_GLASS_COLOR = (0.5725, 0.7216, 0.9961)
+# Physical glass in the GLB. Transmission 1.0 plus this IOR export as
+# KHR_materials_transmission + KHR_materials_ior; the exporter only writes the
+# IOR extension for materials that also carry transmission (or volume), so the
+# value alone would be dropped. Float glass, matching the render glass.
+GLB_GLASS_IOR = 1.52
 
 
 def is_preview_glass(material):
@@ -2862,11 +2856,14 @@ def is_preview_glass(material):
 def gltf_glass(material):
     """Principled stand-in for glTF, which cannot describe the shader mix.
 
-    Exported as-is the glass arrives opaque white. Alpha below 1 becomes
-    ``alphaMode: BLEND``, which ObjToSchematic and other block importers read
-    as a glass block.
+    Exported as-is the glass arrives opaque white. The substitute is one
+    transmissive BSDF: transmission 1.0 at IOR 1.52 becomes a physically
+    transmissive pane that a PBR viewer refracts and reflects through Fresnel.
+    Alpha stays 1.0 (``alphaMode: OPAQUE``) — glTF does not define blending and
+    transmission on the same material — and no thickness is written (no
+    ``KHR_materials_volume``): these are 3 cm panes of sheet glass, not solid
+    volumes.
     """
-    base_color = GLB_GLASS_COLOR
     glass = bpy.data.materials.new(f"{material.name}_glTF")
     glass.use_nodes = True
     nodes, links = glass.node_tree.nodes, glass.node_tree.links
@@ -2874,33 +2871,103 @@ def gltf_glass(material):
     output = nodes.new("ShaderNodeOutputMaterial")
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
     links.new(bsdf.outputs[0], output.inputs[0])
-    bsdf.inputs["Base Color"].default_value = (*base_color, 1.0)
+    bsdf.inputs["Base Color"].default_value = (*GLASS_TINT, 1.0)
     bsdf.inputs["Metallic"].default_value = 0.0
     bsdf.inputs["Roughness"].default_value = 0.0
-    bsdf.inputs["IOR"].default_value = 1.52
-    bsdf.inputs["Alpha"].default_value = GLB_GLASS_ALPHA
-    glass.diffuse_color = (*base_color[:3], GLB_GLASS_ALPHA)
+    bsdf.inputs["IOR"].default_value = GLB_GLASS_IOR
+    bsdf.inputs["Transmission Weight"].default_value = 1.0
+    bsdf.inputs["Alpha"].default_value = 1.0
+    glass.diffuse_color = (*GLASS_TINT, 1.0)
     glass.use_backface_culling = False
     return glass
+
+
+# Modelled ceiling / arcade fixture panels. They stay in the export — they are
+# geometry — but their emission is switched off: in a physically based viewer an
+# emissive strength of 100-360 bakes a blown-out glow into the glass instead of
+# lighting anything.
+FIXTURE_MATERIAL_PREFIXES = ("CeilingLight", "PodiumCeilingLight")
+
+
+def is_fake_fixture(material):
+    """A lamp panel material, matched by name because it is built in shared/."""
+    return material.name.startswith(FIXTURE_MATERIAL_PREFIXES)
+
+
+def gltf_fixture(material):
+    """The same panel with its light-emitting role removed.
+
+    The warm / cool tone the render uses for per-room variety is kept as base
+    colour, so the ceiling still reads as a field of differentiated fixtures.
+    """
+    source = material.node_tree.nodes.get("Principled BSDF")
+    panel = bpy.data.materials.new(f"{material.name}_glTF")
+    panel.use_nodes = True
+    nodes, links = panel.node_tree.nodes, panel.node_tree.links
+    nodes.clear()
+    output = nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    links.new(bsdf.outputs[0], output.inputs[0])
+    color = (tuple(source.inputs["Base Color"].default_value)
+             if source else (0.8, 0.8, 0.78, 1.0))
+    bsdf.inputs["Base Color"].default_value = color
+    bsdf.inputs["Metallic"].default_value = 0.0
+    bsdf.inputs["Roughness"].default_value = 0.45
+    bsdf.inputs["Emission Strength"].default_value = 0.0
+    panel.diffuse_color = color
+    return panel
+
+
+def fake_light_objects():
+    """The render-time light rig: the AREA lamps and the empties grouping them.
+
+    Fixture panels are modelled geometry and stay; only the lamps go, because
+    they exist solely to approximate interior lighting for a Blender render.
+    """
+    scene_objects = bpy.context.scene.objects
+    lamps = [obj for obj in scene_objects if obj.type == "LIGHT"]
+    rigs = [obj for obj in scene_objects
+            if obj.type == "EMPTY" and obj.children
+            and all(child.type in {"LIGHT", "EMPTY"} for child in obj.children)]
+    return lamps + rigs
+
+
+def detach_fake_lights():
+    """Unlink the light rig for the export; returns what to relink afterwards."""
+    removed = []
+    for obj in fake_light_objects():
+        for collection in list(obj.users_collection):
+            collection.objects.unlink(obj)
+            removed.append((collection, obj))
+    return removed
 
 
 def export_glb(path, compress=False):
     """Export the GLB with glass expressed the way glTF can carry it.
 
-    The material swap is in memory only: the saved .blend keeps the EEVEE
-    glass, and the preview render after this call sees the original again.
+    The material swap and the light-rig detach are in memory only: the saved
+    .blend keeps the EEVEE glass and the fake lights, and the preview render
+    after this call sees the original scene again.
     """
     swapped, cache = [], {}
+    glass, fixtures = {}, {}
     for obj in bpy.context.scene.objects:
         if obj.type != "MESH":
             continue
         for index, material in enumerate(obj.data.materials):
-            if material is None or not is_preview_glass(material):
+            if material is None:
                 continue
-            if material.name not in cache:
-                cache[material.name] = gltf_glass(material)
+            if is_preview_glass(material):
+                store, factory = glass, gltf_glass
+            elif is_fake_fixture(material):
+                store, factory = fixtures, gltf_fixture
+            else:
+                continue
+            if material.name not in store:
+                store[material.name] = factory(material)
             swapped.append((obj.data.materials, index, material))
-            obj.data.materials[index] = cache[material.name]
+            obj.data.materials[index] = store[material.name]
+    detached = detach_fake_lights()
     try:
         bpy.ops.export_scene.gltf(
             filepath=path,
@@ -2910,7 +2977,12 @@ def export_glb(path, compress=False):
     finally:
         for slots, index, material in swapped:
             slots[index] = material
-    print(f"glTF glass: {len(cache)} material(s) at alpha {GLB_GLASS_ALPHA}")
+        for collection, obj in detached:
+            collection.objects.link(obj)
+    print(f"glTF glass: {len(glass)} material(s) at transmission 1.0, "
+          f"IOR {GLB_GLASS_IOR}")
+    print(f"glTF fixtures: {len(fixtures)} panel material(s) kept, emission off; "
+          f"{len(detached)} fake light object(s) left out")
 
 
 def main():
