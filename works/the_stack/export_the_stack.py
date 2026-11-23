@@ -6,11 +6,11 @@ import os
 import sys
 
 import bpy
+import bmesh
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-# Opacity of clear web glass: low enough to read the lit rooms behind the
-# facade, high enough that the tint and sky reflection still show.
+# Opacity of clear web glass when exported on the non-transmissive fallback path.
 WEB_GLASS_ALPHA = 0.25
 # Modelled lamp panels that stand in for lit rooms. They are geometry and stay;
 # only their render-time emissive strength (2 to 360 across the works) is scaled
@@ -57,9 +57,7 @@ def _make_web_glass(material, transmissive=False):
         _input_value(source_bsdf, "Transmission Weight", 0.0)
     )
     frosted = source_alpha < 0.98 and source_transmission < 0.1
-    # Frosted panes are meant to hide what is behind them, so they stay on the
-    # alpha-blended path even when the clear glass is exported physically.
-    physical = transmissive and not frosted
+    physical = transmissive
     web_material = bpy.data.materials.new(f"{material.name}_Web")
     web_material.use_nodes = True
     nodes = web_material.node_tree.nodes
@@ -74,9 +72,9 @@ def _make_web_glass(material, transmissive=False):
     )
     bsdf.inputs["Base Color"].default_value = base_color
     bsdf.inputs["Metallic"].default_value = 0.0
-    source_roughness = float(_input_value(source_bsdf, "Roughness", 0.03))
+    source_roughness = float(_input_value(source_bsdf, "Roughness", 0.0))
     bsdf.inputs["Roughness"].default_value = (
-        source_roughness if frosted else min(source_roughness, 0.05)
+        0.0 if physical else (source_roughness if frosted else min(source_roughness, 0.05))
     )
     bsdf.inputs["IOR"].default_value = float(
         _input_value(source_bsdf, "IOR", 1.52)
@@ -84,19 +82,14 @@ def _make_web_glass(material, transmissive=False):
     if "Specular IOR Level" in bsdf.inputs:
         bsdf.inputs["Specular IOR Level"].default_value = 0.5
     if physical:
-        # Physically transmissive pane: KHR_materials_transmission plus the
-        # KHR_materials_ior the exporter writes alongside it. Alpha has to stay
-        # 1.0, since glTF does not define blending and transmission together.
+        # Physically transmissive clear glazing: KHR_materials_transmission +
+        # KHR_materials_ior with single-sided outward normals so WebGLRenderer
+        # never runs a two-pass BackSide absorption square or frosted blur.
         if "Transmission Weight" in bsdf.inputs:
             bsdf.inputs["Transmission Weight"].default_value = 1.0
         if "Alpha" in bsdf.inputs:
             bsdf.inputs["Alpha"].default_value = 1.0
     else:
-        # Real-time viewers (three.js, Filament, Bevy) support KHR_materials_
-        # transmission unevenly: some draw it opaque, three.js turns it into a
-        # mirror at grazing angles. Plain alpha blending (glTF alphaMode BLEND)
-        # renders the same everywhere, so this copy expresses glass that way
-        # and mirrors the EEVEE preview's transparent/reflection mix.
         if "Transmission Weight" in bsdf.inputs:
             bsdf.inputs["Transmission Weight"].default_value = 0.0
         if "Alpha" in bsdf.inputs:
@@ -108,27 +101,96 @@ def _make_web_glass(material, transmissive=False):
     web_material.diffuse_color = (*base_color[:3], alpha)
     if hasattr(web_material, "surface_render_method"):
         web_material.surface_render_method = "DITHERED" if physical else "BLENDED"
-    web_material.use_backface_culling = False
+    web_material.use_backface_culling = bool(physical)
     return web_material
 
 
 def translate_glass_materials(transmissive=False):
-    """Translate unsupported Blender glass nodes on the export copy only."""
+    """Translate unsupported Blender glass nodes and strip stray foliage transmission."""
     cache = {}
+    opaque_cache = {}
     translated = 0
     for obj in bpy.context.scene.objects:
         if obj.type not in ("MESH", "CURVE"):
             continue
         materials = obj.data.materials
         for index, material in enumerate(materials):
-            if not material or not _is_glass_like(material):
+            if not material:
                 continue
-            if material.name not in cache:
-                cache[material.name] = _make_web_glass(material, transmissive)
-                translated += 1
-            materials[index] = cache[material.name]
+            if _is_glass_like(material):
+                if material.name not in cache:
+                    cache[material.name] = _make_web_glass(material, transmissive)
+                    translated += 1
+                materials[index] = cache[material.name]
+            elif material.use_nodes:
+                bsdf = material.node_tree.nodes.get("Principled BSDF")
+                trans = float(_input_value(bsdf, "Transmission Weight", 0.0))
+                if 0.0 < trans < 0.5:
+                    if material.name not in opaque_cache:
+                        copy_mat = material.copy()
+                        copy_mat.name = f"{material.name}_Web"
+                        copy_bsdf = copy_mat.node_tree.nodes.get("Principled BSDF")
+                        if copy_bsdf and "Transmission Weight" in copy_bsdf.inputs:
+                            copy_bsdf.inputs["Transmission Weight"].default_value = 0.0
+                        opaque_cache[material.name] = copy_mat
+                    materials[index] = opaque_cache[material.name]
     print(f"Translated Blender glass materials for glTF: {translated}")
     return translated
+
+
+def fix_inverted_closed_meshes():
+    """Ensure every closed manifold mesh island exports with outward-pointing normals."""
+    flipped_islands = 0
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH" or not obj.data or len(obj.data.polygons) < 4:
+            continue
+        det_sign = -1.0 if obj.matrix_world.to_3x3().determinant() < 0.0 else 1.0
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        visited = set()
+        to_flip = []
+        for seed in bm.faces:
+            if seed in visited:
+                continue
+            stack = [seed]
+            visited.add(seed)
+            island = []
+            closed = True
+            while stack:
+                face = stack.pop()
+                island.append(face)
+                for edge in face.edges:
+                    linked = edge.link_faces
+                    if len(linked) != 2:
+                        closed = False
+                    for nb in linked:
+                        if nb not in visited:
+                            visited.add(nb)
+                            stack.append(nb)
+            if not closed or len(island) < 4:
+                continue
+            origin = island[0].verts[0].co
+            vol6 = 0.0
+            for face in island:
+                verts = face.verts
+                v0 = verts[0].co - origin
+                for k in range(1, len(verts) - 1):
+                    v1 = verts[k].co - origin
+                    v2 = verts[k + 1].co - origin
+                    vol6 += v0.dot(v1.cross(v2))
+            if vol6 * det_sign < -1e-9:
+                to_flip.extend(island)
+                flipped_islands += 1
+        if to_flip:
+            bmesh.ops.reverse_faces(bm, faces=to_flip)
+            bm.normal_update()
+            bm.to_mesh(obj.data)
+            obj.data.update()
+        bm.free()
+    if flipped_islands:
+        print(f"Fixed inward face normals on {flipped_islands} closed mesh island(s)")
+    return flipped_islands
 
 
 def fake_light_objects():
@@ -345,6 +407,7 @@ def main():
               "after": len([obj for obj in bpy.context.scene.objects if obj.type == "MESH"])}
     if args.profile != "animated" and not args.no_merge_materials:
         merged = merge_meshes_by_material()
+    fix_inverted_closed_meshes()
     detached_lights = []
     if args.no_fake_lights:
         fixture_panel_materials()

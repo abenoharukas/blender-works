@@ -125,6 +125,8 @@ def main():
                 opt_glb,
                 "--compress",
                 "meshopt",
+                "--palette",
+                "false",
             ],
             f"optimize:{name}",
         )

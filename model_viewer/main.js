@@ -428,43 +428,6 @@ function loadModel(id) {
       model = gltf.scene;
       scene.add(model);
       frameModel(model);
-      model.traverse((object) => {
-        if (!object.isMesh) return;
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        const glassName = /glass/i.test(object.name)
-          && !/frost/i.test(object.name);
-        // Palettized dark vision glass on The Stack was merged into the
-        // apartment frame mesh and lost the Glass name.
-        const palettizedVision = object.name === 'Web_Stack_Apartment_Frame';
-        for (const material of materials) {
-          const namedGlass = /glass/i.test(material?.name ?? '')
-            && !/frost/i.test(material?.name ?? '');
-          if ((material?.transmission ?? 0) > 0.5) {
-            // Physical glass (KHR_materials_transmission + ior): keep the
-            // transmission so the pane actually refracts what is behind it,
-            // but soften the reflection lobe. Grazing views otherwise turn the
-            // facade into a mirror that hides every lit room from above.
-            material.transmission = 1;
-            material.thickness = 0;
-            material.transparent = false;
-            material.opacity = 1;
-            material.depthWrite = true;
-            material.metalness = 0;
-            material.roughness = 0.05;
-            material.metalnessMap = null;
-            material.roughnessMap = null;
-            material.envMapIntensity = 0.3;
-            material.clearcoat = 0;
-            material.specularIntensity = 0.5;
-            material.needsUpdate = true;
-          } else if (glassName || namedGlass || palettizedVision) {
-            material.transparent = true;
-            material.opacity = 0.35;
-            material.depthWrite = false;
-            material.needsUpdate = true;
-          }
-        }
-      });
       collectLampMaterials();
       setSunHour(sunHour, true);
       requestRender();

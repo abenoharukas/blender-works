@@ -33,6 +33,11 @@ Each work lives in its own top-level directory: `highrise_house/`, `office_tower
 - Use integer indices in generated object names instead of raw floating-point elevations. In this local Blender setup, a name ending in `.94444444444446` triggered a fatal `std::out_of_range: stoi`; indexed names allow construction and reload to complete.
 - The generator stores reference URLs and approximation limits in scene custom properties. Geometry checks validate the chosen model constraints, not exact correspondence to the real building; also inspect multiple rendered views.
 
+## Street renders
+
+- **No wide angle.** Street review images are shot at a 50 mm focal length on a 36 mm sensor (horizontal FOV ~39.6°). The scene's own 52° vertical FOV preset is a wide-angle lens: do not use it for stills; it visibly distorts the buildings. Pass the 50 mm camera explicitly to both Cycles and ThreeRT.
+- Name review images `<engine>-<weather>-<time>-<view>.png` (`cycles-clear-day-street.png`, `threert-clear-night-street.png`). Side-by-side comparisons must be full resolution, never downscaled.
+
 ## Progress logs
 
 - Each work has its own `PROGRESS.md` in its directory (there is no shared top-level `progress.md` any more). Record a work's special handling and non-obvious decisions there, never in another work's log.

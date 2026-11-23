@@ -14,12 +14,14 @@ import {
   createCommercialUpperEmissiveMap,
   createShopfrontTexture,
   createSleeveSignTexture,
+  createHorizontalSignTexture,
   createNorenTexture,
   createRoofTexture,
   createBlockWallTexture,
 } from './japanese-textures.js';
 import {
   box,
+  signBox,
   LotContext,
   buildRandomIkkodate,
   buildKonbini,
@@ -299,8 +301,13 @@ function createMaterialLibrary() {
     map: createNorenTexture(cfg), roughness: 0.92,
   }));
 
-  // Shotengai arch / lamp banner sign
-  const shotengaiBannerTex = createSleeveSignTexture({ bg: '#b82923', fg: '#fff7e2', text: 'すずらん通', border: '#d9b45b' });
+  // Horizontal Shotengai entrance arch banner sign (商店街アーチ横看板)
+  const shotengaiBannerTex = createHorizontalSignTexture({
+    bg: '#b82923',
+    fg: '#fff7e2',
+    text: 'すずらん通り',
+    border: '#d9b45b',
+  });
   const shotengaiBanner = std('shotengai_banner', {
     map: shotengaiBannerTex, emissive: 0xffffff, emissiveMap: shotengaiBannerTex, emissiveIntensity: 0.22, roughness: 0.5,
   });
@@ -568,7 +575,7 @@ function populateCommercialStrip(mats, rnd, {
         }
         if (rnd() < 0.7) {
           const signBucket = mats.sleeveSigns[Math.floor(rnd() * mats.sleeveSigns.length)];
-          lot.addBox(signBucket, 0.24, 1.8, 0.56, lotW * 0.38, 4.4, frontZ + 0.35);
+          lot.add(signBucket, signBox(0.56, 1.8, 0.24), lotW * 0.38, 4.4, frontZ + 0.35, 0, Math.PI / 2, 0);
         }
       }
     }
@@ -753,7 +760,7 @@ export function buildStreet(scene) {
     archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, -4.8, 2.8, 0);
     archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, 4.8, 2.8, 0);
     archLot.addBox(mats.accentRed, 10.2, 0.55, 0.42, 0, 5.4, 0);
-    archLot.addBox(mats.shotengaiBanner, 5.4, 1.0, 0.5, 0, 5.52, 0);
+    archLot.add(mats.shotengaiBanner, signBox(5.4, 1.0, 0.5), 0, 5.52, 0);
   }
 
   // 4. COMMERCIAL DISTRICTS & BAR/YOKOCHO STREETS (多条商店街 & 酒吧风情街)
@@ -851,7 +858,7 @@ export function buildStreet(scene) {
     archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, -4.8, 2.8, 0);
     archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, 4.8, 2.8, 0);
     archLot.addBox(mats.accentRed, 10.2, 0.55, 0.42, 0, 5.4, 0);
-    archLot.addBox(mats.shotengaiBanner, 5.4, 1.0, 0.5, 0, 5.52, 0);
+    archLot.add(mats.shotengaiBanner, signBox(5.4, 1.0, 0.5), 0, 5.52, 0);
   }
 
   // Streetlamps & light spots along ALL major N-S & E-W avenues across the whole city!

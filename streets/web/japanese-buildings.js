@@ -71,6 +71,23 @@ export function box(w, h, d, tileW = 0, tileH = 0) {
 }
 
 /**
+ * Signboard box whose front (+Z) and back (-Z) broad faces map [0..1] UV,
+ * while the 4 narrow edge faces (+X, -X, +Y, -Y) sample the solid border pixel
+ * so text never wraps or squashes onto thin edges.
+ */
+export function signBox(w, h, d, edgeU = 0.005, edgeV = 0.005) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  const uv = g.attributes.uv;
+  for (let face = 0; face < 4; face++) {
+    for (let corner = 0; corner < 4; corner++) {
+      uv.setXY(face * 4 + corner, edgeU, edgeV);
+    }
+  }
+  uv.needsUpdate = true;
+  return toNonIndexedClean(g);
+}
+
+/**
  * Watertight triangular gable wall prism (妻壁):
  * Base x in [-w/2, +w/2] at y = 0, apex at (0, rise), extruded z in [-d/2, +d/2].
  */
@@ -839,7 +856,7 @@ function addSleeveSign(lot, mats, rnd, { x, y, z }) {
   const sh = 2.25;
   lot.addBox(mats.darkMetal, 0.06, 0.06, 0.56, x, y + sh * 0.34, z + 0.28);
   lot.addBox(mats.darkMetal, 0.06, 0.06, 0.56, x, y - sh * 0.34, z + 0.28);
-  lot.addBox(signBucket, sw, sh, 0.16, x, y, z + 0.22 + sw * 0.5, 0, Math.PI / 2, 0);
+  lot.add(signBucket, signBox(sw, sh, 0.16), x, y, z + 0.22 + sw * 0.5, 0, Math.PI / 2, 0);
 }
 
 function addChochinRow(lot, mats, { x0, x1, y, z, count = 3, red = true }) {
@@ -904,9 +921,11 @@ export function buildMachiyaShop(lot, mats, rnd, { w = 7.4, d = 10.5, detail = t
   const bd = d - 0.8;
   const bz = -0.2;
 
-  const shopTileW = bw - 0.2 > 6.2 ? (bw - 0.2) * 0.5 : bw - 0.2;
+  const shopFrontW = bw - 0.2;
+  const shopBays = Math.max(1, Math.round(shopFrontW / 3.2));
+  const shopTileW = shopFrontW / shopBays;
   lot.add(mats.woodDark, box(bw, h1, bd, 3.0, 3.0), 0, h1 * 0.5, bz);
-  lot.add(shopMat, box(bw - 0.2, h1 - 0.15, 0.16, shopTileW, h1 - 0.15), 0, (h1 - 0.15) * 0.5, bz + bd * 0.5 + 0.05);
+  lot.add(shopMat, box(shopFrontW, h1 - 0.15, 0.16, shopTileW, h1 - 0.15), 0, (h1 - 0.15) * 0.5, bz + bd * 0.5 + 0.05);
   lot.add(rnd() < 0.55 ? mats.washikiLower : mats.shikkuiWall, box(bw - 0.2, h2, bd - 0.4, 3.0, 2.95), 0, h1 + h2 * 0.5, bz - 0.15);
 
   const eaveZ = bz + bd * 0.5;
@@ -916,7 +935,7 @@ export function buildMachiyaShop(lot, mats, rnd, { w = 7.4, d = 10.5, detail = t
   });
 
   const norenMat = mats.norens[Math.floor(rnd() * mats.norens.length)];
-  lot.addBox(norenMat, Math.min(bw * 0.58, 3.4), 0.78, 0.04, -bw * 0.08, 2.48, eaveZ + 0.38);
+  lot.add(norenMat, signBox(Math.min(bw * 0.58, 3.4), 0.78, 0.04), -bw * 0.08, 2.48, eaveZ + 0.38);
 
   if (detail) {
     addChochinRow(lot, mats, {
@@ -957,8 +976,8 @@ export function buildShotengaiBuilding(lot, mats, rnd, { w = 8.2, d = 11.5, stor
   lot.add(shopMat, box(bw - 0.3, h1 - 0.1, 0.18, 3.2, h1 - 0.1), 0, (h1 - 0.1) * 0.5, bz + bd * 0.5 + 0.06);
 
   const eaveZ = bz + bd * 0.5;
-  lot.addBox(awningMat, bw - 0.2, 0.08, 1.25, 0, 3.18, eaveZ + 0.62, 0.26, 0, 0);
-  lot.addBox(awningMat, bw - 0.2, 0.26, 0.06, 0, 2.94, eaveZ + 1.21);
+  lot.addBox(awningMat, bw - 0.2, 0.08, 1.25, 0, 2.74, eaveZ + 0.62, 0.26, 0, 0);
+  lot.addBox(awningMat, bw - 0.2, 0.24, 0.06, 0, 2.50, eaveZ + 1.21);
 
   const pt = 0.24;
   lot.addBox(mats.roofConcrete, bw + 0.16, 0.22, bd + 0.16, 0, totalH + 0.11, bz);
@@ -1014,8 +1033,8 @@ export function buildKissatenCorner(lot, mats, rnd, { w = 9.2, d = 10.2, detail 
   lot.add(mats.shopKissaten, box(bw - 0.3, h1 - 0.15, 0.16, 3.2, h1 - 0.15), 0, (h1 - 0.15) * 0.5, bd * 0.5 + 0.06);
   lot.add(mats.shopKissaten, box(0.16, h1 - 0.15, bd * 0.68, 3.2, h1 - 0.15), bw * 0.5 + 0.06, (h1 - 0.15) * 0.5, bd * 0.1);
 
-  lot.addBox(awning, bw - 0.2, 0.08, 1.15, 0, 3.1, bd * 0.5 + 0.58, 0.25, 0, 0);
-  lot.addBox(awning, 1.15, 0.08, bd * 0.66, bw * 0.5 + 0.58, 3.1, bd * 0.1, 0, 0, -0.25);
+  lot.addBox(awning, bw - 0.2, 0.08, 1.15, 0, 2.72, bd * 0.5 + 0.58, 0.25, 0, 0);
+  lot.addBox(awning, 1.15, 0.08, bd * 0.66, bw * 0.5 + 0.58, 2.72, bd * 0.1, 0, 0, -0.25);
 
   lot.add(wall2F, box(bw - 0.25, h2, bd - 0.25, 3.2, 3.05), 0, h1 + h2 * 0.5, 0);
   lot.add(mats.kawaraBrown, hippedRoofGeometry(bw + 0.65, 1.35, bd + 0.65, 0.15), 0, h1 + h2 + 0.06, 0);
@@ -1092,7 +1111,7 @@ export function addShotengaiLamp(mats, x, z, side = 1, bannerBucket = null) {
   if (bannerBucket) {
     lot.addBox(mats.silverMetal, 0.52, 0.04, 0.04, -side * 0.28, 3.68, 0);
     lot.addBox(mats.silverMetal, 0.52, 0.04, 0.04, -side * 0.28, 2.62, 0);
-    lot.addBox(bannerBucket, 0.44, 1.02, 0.03, -side * 0.3, 3.15, 0);
+    lot.add(bannerBucket, signBox(0.44, 1.02, 0.03), -side * 0.3, 3.15, 0);
   }
 }
 
@@ -1103,7 +1122,7 @@ export function addShotengaiArch(mats, z, halfSpan = 6.3) {
     lot.addProto(mats.darkMetal, PROTO_CYL8, s * halfSpan, 0.23, 0, 0.29, 0.45, 0.29);
   }
   lot.addBox(mats.accentRed, halfSpan * 2 + 0.6, 0.72, 0.52, 0, 6.35, 0);
-  lot.addBox(mats.shotengaiBanner, 6.8, 1.25, 0.64, 0, 6.52, 0);
+  lot.add(mats.shotengaiBanner, signBox(6.8, 1.25, 0.64), 0, 6.52, 0);
   for (const lx of [-4.2, -2.1, 2.1, 4.2]) {
     lot.addProto(mats.warmLamp, PROTO_SPHERE, lx, 5.78, 0, 0.18, 0.18, 0.18);
   }

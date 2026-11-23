@@ -333,7 +333,10 @@ export function createCommercialUpperEmissiveMap({ seed = 101, cols = 4, rows = 
  * Variants: 'izakaya', 'ramen', 'kissaten', 'konbini_lawson', 'konbini_famima', 'pharmacy', 'bookstore'
  */
 export function createShopfrontTexture(variant) {
-  return makeCanvasTexture(256, 300, (g, w, h) => {
+  return makeCanvasTexture(512, 600, (g) => {
+    g.scale(2, 2);
+    const w = 256;
+    const h = 300;
     if (variant === 'konbini_lawson' || variant === 'konbini_famima') {
       // Crisp Japanese convenience store fascia + bright glass front
       g.fillStyle = '#f2f0ea';
@@ -404,7 +407,7 @@ export function createShopfrontTexture(variant) {
       g.lineWidth = 2;
       g.strokeRect(14, 16, w - 28, 42);
 
-      //Stylized Japanese kanji blocks on sign
+      // Stylized Japanese kanji blocks on sign
       g.fillStyle = variant === 'izakaya' ? '#f4ead5' : '#fff5e0';
       g.font = 'bold 28px "Hiragino Mincho ProN", "Yu Mincho", serif';
       g.textAlign = 'center';
@@ -484,18 +487,18 @@ export function createShopfrontTexture(variant) {
  * Vertical projecting sleeve sign (袖看板) texture, clamped.
  */
 export function createSleeveSignTexture({ bg, fg, text, border = '#2b2d30' }) {
-  return makeCanvasTexture(96, 256, (g, w, h) => {
+  return makeCanvasTexture(192, 512, (g, w, h) => {
     g.fillStyle = border;
     g.fillRect(0, 0, w, h);
     g.fillStyle = bg;
-    g.fillRect(6, 6, w - 12, h - 12);
+    g.fillRect(12, 12, w - 24, h - 24);
 
     g.fillStyle = fg;
-    g.font = 'bold 34px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif';
+    g.font = 'bold 68px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     const chars = [...text];
-    const step = Math.min(46, (h - 44) / Math.max(chars.length, 1));
+    const step = Math.min(92, (h - 88) / Math.max(chars.length, 1));
     const startY = h / 2 - ((chars.length - 1) * step) / 2;
     chars.forEach((ch, idx) => {
       g.fillText(ch, w / 2, startY + idx * step);
@@ -504,35 +507,82 @@ export function createSleeveSignTexture({ bg, fg, text, border = '#2b2d30' }) {
 }
 
 /**
+ * Horizontal fascia / Shotengai arch sign (横看板 / 商店街アーチ看板) texture, clamped.
+ * Aspect ratio 768x144 (5.33:1) matches 5.4m x 1.0m and 6.8m x 1.25m horizontal arches.
+ */
+export function createHorizontalSignTexture({
+  bg,
+  fg,
+  text,
+  border = '#d9b45b',
+  innerBorder = 'rgba(255, 247, 226, 0.45)',
+  width = 768,
+  height = 144,
+}) {
+  return makeCanvasTexture(width, height, (g, w, h) => {
+    g.fillStyle = border;
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = bg;
+    g.fillRect(10, 10, w - 20, h - 20);
+
+    if (innerBorder) {
+      g.strokeStyle = innerBorder;
+      g.lineWidth = 3;
+      g.strokeRect(18, 18, w - 36, h - 36);
+    }
+
+    const chars = [...text];
+    const padX = 56;
+    const availW = w - padX * 2;
+    const fontSize = Math.min(Math.round(h * 0.56), Math.floor(availW / Math.max(chars.length * 1.15, 1)));
+    g.fillStyle = fg;
+    g.font = `bold ${fontSize}px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+
+    if (chars.length <= 1) {
+      g.fillText(text, w / 2, h / 2 + 2);
+      return;
+    }
+    const step = Math.min(fontSize * 1.45, availW / chars.length);
+    const startX = w / 2 - ((chars.length - 1) * step) / 2;
+    chars.forEach((ch, idx) => {
+      g.fillText(ch, startX + idx * step, h / 2 + 2);
+    });
+  }, { repeat: false });
+}
+
+/**
  * Traditional Noren curtain (暖簾) texture with slits.
+ * Aspect ratio 512x128 (4:1) matches 3.4m x 0.78m hanging noren proportions.
  */
 export function createNorenTexture({ bg, fg, crestText }) {
-  return makeCanvasTexture(256, 128, (g, w, h) => {
+  return makeCanvasTexture(512, 128, (g, w, h) => {
     g.fillStyle = bg;
     g.fillRect(0, 0, w, h);
     // Fabric weave vertical texture
     g.fillStyle = 'rgba(255,255,255,0.05)';
-    for (let x = 0; x < w; x += 6) g.fillRect(x, 0, 2, h);
+    for (let x = 0; x < w; x += 8) g.fillRect(x, 0, 2, h);
     // Panel slits at bottom
     const panels = 4;
     const pw = w / panels;
     g.fillStyle = '#1a1512';
     for (let i = 1; i < panels; i++) {
-      g.fillRect(i * pw - 2, h * 0.35, 4, h * 0.65);
+      g.fillRect(i * pw - 3, h * 0.32, 6, h * 0.68);
     }
-    // White crest circles / text
+    // White crest circle & kanji in each panel
     g.strokeStyle = fg;
     g.lineWidth = 3;
     g.beginPath();
-    g.arc(pw * 0.5, h * 0.46, 22, 0, Math.PI * 2);
+    g.arc(pw * 0.5, h * 0.48, 34, 0, Math.PI * 2);
     g.stroke();
     g.fillStyle = fg;
-    g.font = 'bold 24px "Hiragino Mincho ProN", serif';
+    g.font = 'bold 40px "Hiragino Mincho ProN", serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     const chars = [...crestText];
     chars.forEach((c, idx) => {
-      g.fillText(c, pw * (idx + 0.5), h * 0.48);
+      g.fillText(c, pw * (idx + 0.5), h * 0.5);
     });
   }, { repeat: false });
 }

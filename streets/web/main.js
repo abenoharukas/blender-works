@@ -37,10 +37,48 @@ const weatherIntensityVal = document.querySelector('#weather-intensity-val');
 const intensityRow = document.querySelector('.intensity-row');
 
 // ------------------------------------------------------------------ renderer
+// Keep Three.js library untouched; patch WebGLRenderer's transmission chunk once
+// at startup so glTF materials authored as smooth clear glass (roughness < 0.02)
+// sample Mip-0 directly instead of hitting WebGLRenderer's 0.0525 roughness
+// floor + 16-tap B-spline mip blur, while frosted glass keeps Three.js's blur.
+{
+  const chunk = THREE.ShaderChunk.transmission_pars_fragment;
+  const sig = 'vec4 getTransmissionSample';
+  const start = chunk.indexOf(sig);
+  const openBrace = start >= 0 ? chunk.indexOf('{', start) : -1;
+  let depth = 0;
+  let closeBrace = -1;
+  for (let i = openBrace; i >= 0 && i < chunk.length; i++) {
+    if (chunk[i] === '{') depth += 1;
+    else if (chunk[i] === '}' && --depth === 0) {
+      closeBrace = i;
+      break;
+    }
+  }
+  if (start >= 0 && closeBrace > openBrace) {
+    const renamed = chunk
+      .slice(start, closeBrace + 1)
+      .replace('vec4 getTransmissionSample', 'vec4 _defaultTransmissionSample');
+    const wrapper = `
+vec4 getTransmissionSample( const in vec2 fragCoord, const in float clampedRoughness, const in float ior ) {
+\tif ( roughness < 0.02 ) {
+\t\tivec2 texSize = textureSize( transmissionSamplerMap, 0 );
+\t\tif ( thickness == 0.0 && all( lessThan( abs( fragCoord.xy * vec2( texSize ) - gl_FragCoord.xy ), vec2( 2.5 ) ) ) ) {
+\t\t\tivec2 pix = clamp( ivec2( gl_FragCoord.xy ), ivec2( 0 ), texSize - ivec2( 1 ) );
+\t\t\treturn texelFetch( transmissionSamplerMap, pix, 0 );
+\t\t}
+\t\treturn textureLod( transmissionSamplerMap, fragCoord.xy, 0.0 );
+\t}
+\treturn _defaultTransmissionSample( fragCoord, clampedRoughness, ior );
+}`;
+    THREE.ShaderChunk.transmission_pars_fragment =
+      chunk.slice(0, start) + renamed + wrapper + chunk.slice(closeBrace + 1);
+  }
+}
+
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-// 1.75 on a 2x display is 3.3 MP of a 1.7 MP frame. At dusk the street lamp
-// pool is the last fill-rate cost, so 1.5 keeps 60 fps while still supersampling.
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.transmissionResolutionScale = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.55;
@@ -156,10 +194,7 @@ function loadAsset(config) {
     const promise = new Promise((resolve, reject) => {
       loader.load(
         config.asset,
-        (gltf) => {
-          prepareMaterials(gltf.scene);
-          resolve(gltf.scene);
-        },
+        (gltf) => resolve(gltf.scene),
         (event) => {
           if (!event.total) return;
           setStatus(`${config.label} ${Math.round((event.loaded / event.total) * 100)}%`);
@@ -170,101 +205,6 @@ function loadAsset(config) {
     assetCache.set(config.id, promise);
   }
   return assetCache.get(config.id);
-}
-
-/**
- * In daylight the Blender glass should read as dark reflective panes, not as
- * a white veil: leaving transmission on (or a low-opacity pane) stacks dozens
- * of surfaces into haze at street distance. Same idea as the viewer in `web/`,
- * tuned for an outdoor scene.
- */
-function prepareMaterials(root) {
-  root.updateMatrixWorld(true);
-  root.traverse((object) => {
-    if (!object.isMesh) return;
-
-    const meshName = object.name ?? '';
-    // Interior roller blinds sit 10-12 cm behind the curtain wall. When
-    // outdoor glass is rendered opaque below, hide interior curtain meshes so
-    // they do not add ~200k unseen triangles or bleed at extreme distances.
-    if (/curtain/i.test(meshName) && !/wall/i.test(meshName)) {
-      object.visible = false;
-      return;
-    }
-
-    const isEscalatorTube = /escalator.*glass|continuous_glass_tube/i.test(meshName);
-    const isFrostMesh = /frost/i.test(meshName);
-    const isGlassMesh = /glass/i.test(meshName) && !isFrostMesh && !isEscalatorTube;
-    const isLightMesh = /light|glow/i.test(meshName);
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of materials) {
-      if (!material) continue;
-      const matName = material.name ?? '';
-      const isEscalatorGlass = isEscalatorTube || /escalator_glass/i.test(matName);
-      const namedGlass = /glass/i.test(matName) && !/frost/i.test(matName) && !isEscalatorGlass;
-      if (isEscalatorGlass) {
-        // Centre Pompidou's exterior escalator tube is a single-wall glass
-        // enclosure wrapping the red circulation stair; keep it translucent.
-        material.transmission = 0;
-        material.transparent = true;
-        material.opacity = 0.34;
-        material.depthWrite = false;
-        material.color.setHex(0x8ab8cf);
-        material.metalness = 0.12;
-        material.roughness = 0.08;
-        material.envMapIntensity = 1.35;
-        material.userData.isPlaygroundGlass = true;
-        material.needsUpdate = true;
-      } else if ((material.transmission ?? 0) > 0.4 || namedGlass || isGlassMesh) {
-        material.transmission = 0;
-        material.transparent = false;
-        material.opacity = 1;
-        material.depthWrite = true;
-        material.polygonOffset = true;
-        material.polygonOffsetFactor = 1;
-        material.polygonOffsetUnits = 1;
-        material.color.setHex(0x3d505b);
-        material.metalness = 0.35;
-        material.roughness = 0.12;
-        material.metalnessMap = null;
-        material.roughnessMap = null;
-        material.envMapIntensity = 2.0;
-        material.clearcoat = 0;
-        material.specularIntensity = 0.4;
-        material.userData.isPlaygroundGlass = true;
-        material.needsUpdate = true;
-      } else if (isFrostMesh) {
-        material.transmission = 0;
-        material.transparent = false;
-        material.opacity = 1;
-        material.depthWrite = true;
-        material.polygonOffset = true;
-        material.polygonOffsetFactor = 1;
-        material.polygonOffsetUnits = 1;
-        material.color.setHex(0x697880);
-        material.roughness = 0.35;
-        material.metalness = 0.15;
-        material.userData.isPlaygroundFrost = true;
-        material.needsUpdate = true;
-      }
-      // Any leftover transmission makes WebGLRenderer render the whole scene a
-      // second time into the transmission target every frame. The Stack's
-      // foliage exports at 0.12; outdoors nothing should be refractive.
-      if ((material.transmission ?? 0) > 0) {
-        material.transmission = 0;
-        material.needsUpdate = true;
-      }
-      // The glTF carries the Blender interior fills as emissive materials in
-      // nits (8..360). Clamp for daylight balance and tag for night boost.
-      const hasEmissive = (material.emissive && (material.emissive.r + material.emissive.g + material.emissive.b > 0.02))
-        || Boolean(material.emissiveMap)
-        || isLightMesh;
-      if (hasEmissive && !material.userData.isPlaygroundGlass && !material.userData.isPlaygroundFrost) {
-        material.userData.isTowerEmissive = true;
-        if (material.emissiveIntensity > 2) material.emissiveIntensity = 1.1;
-      }
-    }
-  });
 }
 
 function firstFreePlot() {
@@ -283,11 +223,17 @@ function frameEntry(entry) {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxSize = Math.max(size.x, size.y, size.z);
-  const distance = (maxSize / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.5;
-  const position = center.clone().add(
-    new THREE.Vector3(0.42, 0.16, 1).normalize().multiplyScalar(distance),
+  const distance = (maxSize / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.42;
+  // Frame from street/podium eye level rather than 220+ m up: ceiling light
+  // fixtures sit underneath opaque floor slabs, so a low architectural angle
+  // reads every lit storey from the retail podium to the crown (matching
+  // model_viewer's facade elevation).
+  const offset = new THREE.Vector3(0.32, 0, 1).normalize().multiplyScalar(distance);
+  const position = new THREE.Vector3(
+    center.x + offset.x,
+    Math.max(box.min.y + Math.min(size.y * 0.03, 9), 6),
+    center.z + offset.z,
   );
-  position.y = Math.max(position.y, 30);
   flyTo(position, center);
 }
 
@@ -328,8 +274,12 @@ async function addModel(id, { focus = true } = {}) {
 
     root.traverse((object) => {
       if (!object.isMesh) return;
-      object.castShadow = true;
-      object.receiveShadow = true;
+      const mats = Array.isArray(object.material) ? object.material : [object.material];
+      const isGlassOrLamp = mats.some(
+        (m) => m && ((m.transmission ?? 0) > 0 || m.transparent || (m.emissiveIntensity ?? 0) > 1),
+      );
+      object.castShadow = !isGlassOrLamp;
+      object.receiveShadow = !isGlassOrLamp;
     });
 
     const entry = {
@@ -360,10 +310,6 @@ async function addModel(id, { focus = true } = {}) {
 
 function removeEntry(entry) {
   scene.remove(entry.group);
-  if (entry.interiorLights) {
-    entry.interiorLights.forEach((pt) => scene.remove(pt));
-    entry.interiorLights = null;
-  }
   const index = placed.indexOf(entry);
   if (index >= 0) placed.splice(index, 1);
   reservedPlots.delete(entry.plot);

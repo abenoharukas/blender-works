@@ -43,9 +43,13 @@ keep draw calls low.
 ## Notes
 
 - Loading uses `GLTFLoader` + the meshopt decoder for the optimized web GLBs.
-- Blender's transmission glass is converted into dark reflective panes so
-  stacked glazing does not wash out into white haze outdoors; high-nit interior
-  emissives are clamped for daylight balance.
+- Glass is alpha-blended rather than transmissive: the exported
+  `KHR_materials_transmission` is swapped for `transparent` panes that keep the
+  model's own colour (`opacity` 0.32, low metalness, `envMapIntensity` 0.6), so
+  the facade stays see-through without the extra full-scene render WebGL
+  transmission needs. Time of day never changes the glass — the 24 h cycle only
+  moves lights and sky — while the exported lamp panels brighten at night as
+  they do in the model viewer.
 - Models are grounded on their authored origin (`+0.02 m` above the plaza
   surface) rather than `Box3.setFromObject`, avoiding rotated merged-mesh AABB
   offsets.

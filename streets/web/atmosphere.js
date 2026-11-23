@@ -26,24 +26,24 @@ const TIME_KEYFRAMES = [
     zenith: '#050914',
     horizon: '#0d1629',
     sunColor: '#9ab4e8',
-    hemiSky: '#263a61',
-    hemiGround: '#141822',
-    hemiIntensity: 0.54,
+    hemiSky: '#1e2f50',
+    hemiGround: '#10131b',
+    hemiIntensity: 0.36,
     fogColor: '#0c1424',
-    exposure: 1.04,
-    envIntensity: 0.42,
+    exposure: 0.80,
+    envIntensity: 0.36,
   },
   {
     hour: 4.5,
     zenith: '#091124',
     horizon: '#1e2742',
     sunColor: '#ff9666',
-    hemiSky: '#2e4069',
-    hemiGround: '#181a22',
-    hemiIntensity: 0.52,
+    hemiSky: '#28385a',
+    hemiGround: '#14161e',
+    hemiIntensity: 0.38,
     fogColor: '#1a2238',
-    exposure: 0.96,
-    envIntensity: 0.44,
+    exposure: 0.78,
+    envIntensity: 0.38,
   },
   {
     hour: 5.75, // Sunrise / Dawn (朝阳)
@@ -134,24 +134,24 @@ const TIME_KEYFRAMES = [
     zenith: '#060c1a',
     horizon: '#121d33',
     sunColor: '#9ab4e8',
-    hemiSky: '#263a61',
-    hemiGround: '#141822',
-    hemiIntensity: 0.54,
+    hemiSky: '#203254',
+    hemiGround: '#10131b',
+    hemiIntensity: 0.36,
     fogColor: '#0e1728',
-    exposure: 1.04,
-    envIntensity: 0.42,
+    exposure: 0.80,
+    envIntensity: 0.36,
   },
   {
     hour: 24.0,
     zenith: '#050914',
     horizon: '#0d1629',
     sunColor: '#9ab4e8',
-    hemiSky: '#263a61',
-    hemiGround: '#141822',
-    hemiIntensity: 0.54,
+    hemiSky: '#1e2f50',
+    hemiGround: '#10131b',
+    hemiIntensity: 0.36,
     fogColor: '#0c1424',
-    exposure: 1.04,
-    envIntensity: 0.42,
+    exposure: 0.80,
+    envIntensity: 0.36,
   },
 ];
 
@@ -389,7 +389,9 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
   // 60 fps, and the additive lamp pools below carry the light further out.
   const nightLights = [];
   for (let i = 0; i < 9; i++) {
-    const pt = new THREE.PointLight(0xffb969, 0, 68, 1.35);
+    // Physical inverse-square decay (2.0) + local 36 m cutoff prevents adjacent
+    // Shotengai lamps from stacking into blown-out yellow facades in walk mode.
+    const pt = new THREE.PointLight(0xffb969, 0, 36, 2.0);
     pt.visible = false;
     scene.add(pt);
     nightLights.push(pt);
@@ -398,6 +400,8 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
   let allLampSpots = [];
   let lampPoolMesh = null;
   let lastPoolSortPos = new THREE.Vector3(1e9, 1e9, 1e9);
+  const _lampAim = new THREE.Vector3();
+  const _lampFocus = new THREE.Vector3();
   let currentGlowFactor = 0;
 
   function registerLampSpots(spots) {
@@ -426,9 +430,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
     const dummy = new THREE.Object3D();
     allLampSpots.forEach((spot, idx) => {
       dummy.position.set(spot.x, 0.24, spot.z);
-      // Wider pools: with nine real point lights the additive ground glow is what
-      // carries the street beyond the nearest lamps.
-      dummy.scale.set((spot.radius ?? 18) * 1.3, 1, (spot.radius ?? 18) * 1.3);
+      dummy.scale.set((spot.radius ?? 18) * 0.75, 1, (spot.radius ?? 18) * 0.75);
       dummy.updateMatrix();
       lampPoolMesh.setMatrixAt(idx, dummy.matrix);
     });
@@ -439,16 +441,20 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
 
   function updateNearestLampLights(force = false) {
     if (!allLampSpots.length || currentGlowFactor <= 0.04) return;
-    const focus = controls?.target
-      ? camera.position.clone().lerp(controls.target, 0.35)
-      : camera.position;
-    if (!force && focus.distanceToSquared(lastPoolSortPos) < 64) return;
-    lastPoolSortPos.copy(focus);
+    camera.getWorldDirection(_lampAim);
+    _lampAim.y = 0;
+    if (_lampAim.lengthSq() > 1e-6) _lampAim.normalize();
+    const lookAhead = controls?.target
+      ? Math.min(camera.position.distanceTo(controls.target) * 0.35, 28)
+      : 20;
+    _lampFocus.copy(camera.position).addScaledVector(_lampAim, lookAhead);
+    if (!force && _lampFocus.distanceToSquared(lastPoolSortPos) < 64) return;
+    lastPoolSortPos.copy(_lampFocus);
 
     const ranked = allLampSpots
       .map((spot) => {
-        const dx = spot.x - focus.x;
-        const dz = spot.z - focus.z;
+        const dx = spot.x - _lampFocus.x;
+        const dz = spot.z - _lampFocus.z;
         return { spot, d2: dx * dx + dz * dz };
       })
       .sort((a, b) => a.d2 - b.d2);
@@ -461,29 +467,8 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
         continue;
       }
       pt.position.set(item.spot.x, item.spot.y, item.spot.z);
-      pt.intensity = currentGlowFactor * 220.0;
+      pt.intensity = currentGlowFactor * 20.0;
       pt.visible = true;
-    }
-  }
-
-  // With nine plots at dusk the towers' interior fills would add 27 point lights to the street pool. Keep only the
-  // nearest model's three on (the one whose interior is actually visible), so the whole scene stays at 12 lights.
-  function updateInteriorLights() {
-    let nearest = null;
-    let best = Infinity;
-    if (currentGlowFactor > 0.08) {
-      for (const entry of placed) {
-        if (!entry.interiorLights || entry.hidden) continue;
-        const d = camera.position.distanceToSquared(entry.group.position);
-        if (d < best) {
-          best = d;
-          nearest = entry;
-        }
-      }
-    }
-    for (const entry of placed) {
-      if (!entry.interiorLights) continue;
-      for (const pt of entry.interiorLights) pt.visible = entry === nearest;
     }
   }
 
@@ -713,7 +698,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       // Moonlight
       sunLight.position.copy(moonDir).multiplyScalar(1800);
       sunLight.color.setHex(0x8cb0e8);
-      sunLight.intensity = 0.58 * moonUpFactor * sunDamp;
+      sunLight.intensity = 0.32 * moonUpFactor * sunDamp;
     }
 
     // Hemisphere light
@@ -750,7 +735,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
     }
     if (lampPoolMesh) {
       lampPoolMesh.visible = glowFactor > 0.04;
-      lampPoolMesh.material.opacity = glowFactor * 0.9;
+      lampPoolMesh.material.opacity = glowFactor * 0.18;
     }
 
     // Update street materials for night emissives, wet rain reflections, and snow dusting
@@ -764,30 +749,30 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
           m.emissiveIntensity = THREE.MathUtils.lerp(base.emissiveIntensity * baseMult, nightMult, glowFactor);
         }
       };
-      boostEmissive(streetMats.warmLamp, 0.8, 12.0);
-      boostEmissive(streetMats.lanternRed, 0.7, 8.5);
-      boostEmissive(streetMats.lanternWarm, 0.7, 8.5);
-      boostEmissive(streetMats.vendFace, 0.75, 6.5);
-      boostEmissive(streetMats.sleeveSigns, 0.8, 3.2);
-      boostEmissive(streetMats.shotengaiBanner, 0.8, 3.0);
-      boostEmissive(streetMats.konbiniSignBlue, 0.8, 4.2);
-      boostEmissive(streetMats.konbiniSignGreen, 0.8, 4.0);
+      boostEmissive(streetMats.warmLamp, 0.8, 6.0);
+      boostEmissive(streetMats.lanternRed, 0.7, 4.2);
+      boostEmissive(streetMats.lanternWarm, 0.7, 4.2);
+      boostEmissive(streetMats.vendFace, 0.75, 3.2);
+      boostEmissive(streetMats.sleeveSigns, 0.8, 1.5);
+      boostEmissive(streetMats.shotengaiBanner, 0.8, 1.5);
+      boostEmissive(streetMats.konbiniSignBlue, 0.8, 2.2);
+      boostEmissive(streetMats.konbiniSignGreen, 0.8, 2.0);
       // Randomly lit residential windows & commercial storefronts at night
-      boostEmissive(streetMats.houseLightWalls, 0, 2.8);
-      boostEmissive(streetMats.houseSlitWalls, 0, 2.8);
-      boostEmissive(streetMats.houseDarkWalls, 0, 2.8);
-      boostEmissive(streetMats.houseTileWalls, 0, 2.6);
-      boostEmissive(streetMats.woodAccentWall, 0, 2.6);
-      boostEmissive(streetMats.washikiLower, 0, 2.6);
-      boostEmissive(streetMats.shikkuiWall, 0, 2.6);
-      boostEmissive(streetMats.commUppers, 0, 3.4);
-      boostEmissive(streetMats.shopIzakaya, 0, 1.8);
-      boostEmissive(streetMats.shopRamen, 0, 1.8);
-      boostEmissive(streetMats.shopKissaten, 0, 1.6);
-      boostEmissive(streetMats.shopPharmacy, 0, 1.8);
-      boostEmissive(streetMats.shopBookstore, 0, 1.5);
-      boostEmissive(streetMats.shopKonbiniLawson, 0, 2.4);
-      boostEmissive(streetMats.shopKonbiniFamima, 0, 2.4);
+      boostEmissive(streetMats.houseLightWalls, 0, 1.8);
+      boostEmissive(streetMats.houseSlitWalls, 0, 1.8);
+      boostEmissive(streetMats.houseDarkWalls, 0, 1.8);
+      boostEmissive(streetMats.houseTileWalls, 0, 1.7);
+      boostEmissive(streetMats.woodAccentWall, 0, 1.7);
+      boostEmissive(streetMats.washikiLower, 0, 1.7);
+      boostEmissive(streetMats.shikkuiWall, 0, 1.7);
+      boostEmissive(streetMats.commUppers, 0, 2.0);
+      boostEmissive(streetMats.shopIzakaya, 0, 1.35);
+      boostEmissive(streetMats.shopRamen, 0, 1.35);
+      boostEmissive(streetMats.shopKissaten, 0, 1.25);
+      boostEmissive(streetMats.shopPharmacy, 0, 1.35);
+      boostEmissive(streetMats.shopBookstore, 0, 1.2);
+      boostEmissive(streetMats.shopKonbiniLawson, 0, 1.8);
+      boostEmissive(streetMats.shopKonbiniFamima, 0, 1.8);
 
       // Wet roads & plazas in rain
       for (const key of ['road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder']) {
@@ -825,62 +810,30 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       }
     }
 
-    // Update placed glTF tower glass translucency, fluorescent emissives & interior fill lights
-    const towerEmissive = THREE.MathUtils.lerp(0.45, 36.0, glowFactor);
-    const glassShouldBeTranslucent = glowFactor >= 0.15;
-    const glassOpacity = glassShouldBeTranslucent ? THREE.MathUtils.lerp(0.82, 0.14, glowFactor) : 1.0;
-    const glassEnvIntensity = THREE.MathUtils.lerp(2.0, 0.32, glowFactor);
-    const frostOpacity = glassShouldBeTranslucent ? THREE.MathUtils.lerp(0.88, 0.38, glowFactor) : 1.0;
-
+    // Lift interior lamp fixtures at night along the 24h cycle while keeping
+    // all exported glTF glass and surface PBR properties untouched.
+    const nightWeight = 1 - sunUpFactor;
+    const lampBoost = 1 + 3.2 * nightWeight;
     for (const entry of placed) {
-      if (!entry.interiorLights) {
-        const box = new THREE.Box3().setFromObject(entry.group, true);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const radius = Math.max(size.x, size.z, 40) * 2.2;
-        entry.interiorLights = [
-          { ratio: 0.2, color: 0xffe4bc },
-          { ratio: 0.5, color: 0xdcebff },
-          { ratio: 0.78, color: 0xfff0d6 },
-        ].map(({ ratio, color }) => {
-          const pt = new THREE.PointLight(color, 0, radius, 1.35);
-          pt.position.set(center.x, box.min.y + size.y * ratio, center.z);
-          pt.visible = false;
-          scene.add(pt);
-          return pt;
+      if (!entry.lampMaterials) {
+        entry.lampMaterials = [];
+        entry.group.traverse((obj) => {
+          if (!obj.isMesh) return;
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const mat of mats) {
+            if (!mat || (mat.emissiveIntensity ?? 0) <= 1) continue;
+            if (mat.userData.lampBase === undefined) {
+              mat.userData.lampBase = mat.emissiveIntensity;
+            }
+            if (!entry.lampMaterials.includes(mat)) {
+              entry.lampMaterials.push(mat);
+            }
+          }
         });
       }
-      for (const pt of entry.interiorLights) pt.intensity = glowFactor * 2200;
-
-      entry.group.traverse((obj) => {
-        if (!obj.isMesh) return;
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const mat of mats) {
-          if (!mat) continue;
-          if (mat.userData?.isPlaygroundGlass) {
-            const wantTransparent = glassShouldBeTranslucent;
-            if (mat.transparent !== wantTransparent) {
-              mat.transparent = wantTransparent;
-              mat.depthWrite = !wantTransparent;
-              mat.needsUpdate = true;
-            }
-            mat.opacity = glassOpacity;
-            mat.envMapIntensity = glassEnvIntensity;
-          } else if (mat.userData?.isPlaygroundFrost) {
-            const wantTransparent = glassShouldBeTranslucent;
-            if (mat.transparent !== wantTransparent) {
-              mat.transparent = wantTransparent;
-              mat.depthWrite = !wantTransparent;
-              mat.needsUpdate = true;
-            }
-            mat.opacity = frostOpacity;
-          } else if (mat.userData?.isTowerEmissive) {
-            mat.emissiveIntensity = towerEmissive;
-          } else if (mat.emissive && (mat.emissive.r + mat.emissive.g + mat.emissive.b > 0.05)) {
-            mat.emissiveIntensity = towerEmissive;
-          }
-        }
-      });
+      for (const mat of entry.lampMaterials) {
+        mat.emissiveIntensity = mat.userData.lampBase * lampBoost;
+      }
     }
 
     // Particle visibility & opacity
@@ -895,7 +848,6 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       lastShadowHour = h;
     }
 
-    updateInteriorLights();
     bakeEnvironment(forceEnv);
   }
 
@@ -913,7 +865,6 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       applyAtmosphere();
     }
     updateNearestLampLights(false);
-    updateInteriorLights();
 
     const cx = camera.position.x;
     const cy = camera.position.y;
