@@ -12,10 +12,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 # Opacity of clear web glass: low enough to read the lit rooms behind the
 # facade, high enough that the tint and sky reflection still show.
 WEB_GLASS_ALPHA = 0.25
-# Emissive fixtures that stand in for lit rooms. The panels are modelled
-# geometry and stay; only their render-time strength (100-360) is scaled down,
-# because that value tone-maps to a flat white in a PBR viewer.
-FIXTURE_MATERIAL_PREFIXES = ("CeilingLight", "PodiumCeilingLight")
+# Modelled lamp panels that stand in for lit rooms. They are geometry and stay;
+# only their render-time emissive strength (2 to 360 across the works) is scaled
+# down, because those values tone-map to a flat white in a PBR viewer.
 WEB_FIXTURE_EMISSIVE = 2.0
 
 
@@ -147,17 +146,25 @@ def fake_light_objects():
     return lamps + rigs
 
 
+def _is_lit_fixture(material):
+    """A modelled lamp panel: a Principled material with emission switched on."""
+    if not material.use_nodes:
+        return False
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    return float(_input_value(bsdf, "Emission Strength", 0.0)) > 0.0
+
+
 def _make_fixture_panel(material):
     """Export the modelled lamp panel as a lit fixture.
 
-    The render drives these materials at emissive strength 100-360, which does
+    The works drive these materials at emissive strength 2 to 360, which does
     not light anything in a PBR viewer — it bakes a blown-out white that
-    transmission smears across the facade. The warm / cool tone is kept in both
-    base and emission colour; only the strength is scaled down.
+    transmission smears across the facade. Colour is kept in both base and
+    emission; only the strength is scaled down.
     """
     source_bsdf = material.node_tree.nodes.get("Principled BSDF")
     color = _input_value(source_bsdf, "Base Color", (0.8, 0.8, 0.78, 1.0))
-    lit = float(_input_value(source_bsdf, "Emission Strength", 0.0)) > 0.0
+    glow = _input_value(source_bsdf, "Emission Color", color)
     panel = bpy.data.materials.new(f"{material.name}_Web")
     panel.use_nodes = True
     nodes = panel.node_tree.nodes
@@ -169,9 +176,8 @@ def _make_fixture_panel(material):
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Metallic"].default_value = 0.0
     bsdf.inputs["Roughness"].default_value = 0.45
-    bsdf.inputs["Emission Color"].default_value = color
-    bsdf.inputs["Emission Strength"].default_value = (
-        WEB_FIXTURE_EMISSIVE if lit else 0.0)
+    bsdf.inputs["Emission Color"].default_value = glow
+    bsdf.inputs["Emission Strength"].default_value = WEB_FIXTURE_EMISSIVE
     panel.diffuse_color = color
     return panel
 
@@ -184,7 +190,7 @@ def fixture_panel_materials():
             continue
         materials = obj.data.materials
         for index, material in enumerate(materials):
-            if not material or not material.name.startswith(FIXTURE_MATERIAL_PREFIXES):
+            if not material or not _is_lit_fixture(material):
                 continue
             if material.name not in cache:
                 cache[material.name] = _make_fixture_panel(material)

@@ -16,6 +16,9 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXPORTER = os.path.join(REPO_ROOT, "the_stack", "export_the_stack.py")
 WEB_ASSETS = os.path.join(REPO_ROOT, "web", "assets")
+# Every web asset is physically based: transmissive glass and no virtual light
+# sources, with the modelled lamp panels kept and lit at an export-safe strength.
+EXPORT_ARGS = ["--transmissive-glass", "--no-fake-lights"]
 
 TARGETS = {
     "the_stack": {
@@ -44,7 +47,6 @@ TARGETS = {
         "build": ["highrise_house/build_house.py", "--", "--no-render", "--no-glb"],
         "blend": "highrise_house/out/highrise_house.blend",
         "verifiers": [],
-        "export_args": ["--transmissive-glass", "--no-fake-lights"],
     },
     "office_tower": {
         "build": ["office_tower/build_office.py", "--no-render"],
@@ -111,7 +113,7 @@ def main():
                 spec["blend"],
                 "--output",
                 raw_glb,
-                *spec.get("export_args", []),
+                *EXPORT_ARGS,
             ],
             f"export:{name}",
         )

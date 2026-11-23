@@ -2883,35 +2883,35 @@ def gltf_glass(material):
 
 
 # Modelled ceiling / arcade fixture panels. They stay in the export — they are
-# geometry — but their emission is switched off: in a physically based viewer an
-# emissive strength of 100-360 bakes a blown-out glow into the glass instead of
-# lighting anything.
-FIXTURE_MATERIAL_PREFIXES = ("CeilingLight", "PodiumCeilingLight")
-
-
-def is_fake_fixture(material):
-    """A lamp panel material, matched by name because it is built in shared/."""
-    return material.name.startswith(FIXTURE_MATERIAL_PREFIXES)
-
-
+# geometry — and keep glowing, but at an export-safe strength.
+#
 # Emission written for the modelled lamp panels. The render drives them at
 # 100-360, which a PBR viewer tone-maps to a flat white that transmissive glass
 # then smears across the whole facade; this keeps them reading as lit fixtures.
 GLB_FIXTURE_EMISSIVE = 2.0
 
 
+def is_lit_fixture(material):
+    """A modelled lamp panel: a Principled material with emission switched on."""
+    if not material.use_nodes:
+        return False
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    return (bsdf is not None
+            and float(bsdf.inputs["Emission Strength"].default_value) > 0.0)
+
+
 def gltf_fixture(material):
     """The modelled lamp panel, exported as a lit fixture.
 
-    Base colour and emission colour keep the warm / cool tone the render uses
-    for per-room variety, and the strength is scaled down from the render value
-    above. A panel whose render strength is 0 stays switched off.
+    Base and emission colour keep the warm / cool tone the render uses for
+    per-room variety, and only the strength is scaled down from the render
+    value above. A panel whose render strength is 0 stays switched off.
     """
     source = material.node_tree.nodes.get("Principled BSDF")
     color = (tuple(source.inputs["Base Color"].default_value)
              if source else (0.8, 0.8, 0.78, 1.0))
-    lit = source is not None and float(
-        source.inputs["Emission Strength"].default_value) > 0.0
+    glow = (tuple(source.inputs["Emission Color"].default_value)
+            if source else color)
     panel = bpy.data.materials.new(f"{material.name}_glTF")
     panel.use_nodes = True
     nodes, links = panel.node_tree.nodes, panel.node_tree.links
@@ -2922,9 +2922,8 @@ def gltf_fixture(material):
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Metallic"].default_value = 0.0
     bsdf.inputs["Roughness"].default_value = 0.45
-    bsdf.inputs["Emission Color"].default_value = color
-    bsdf.inputs["Emission Strength"].default_value = (
-        GLB_FIXTURE_EMISSIVE if lit else 0.0)
+    bsdf.inputs["Emission Color"].default_value = glow
+    bsdf.inputs["Emission Strength"].default_value = GLB_FIXTURE_EMISSIVE
     panel.diffuse_color = color
     return panel
 
@@ -2970,7 +2969,7 @@ def export_glb(path, compress=False):
                 continue
             if is_preview_glass(material):
                 store, factory = glass, gltf_glass
-            elif is_fake_fixture(material):
+            elif is_lit_fixture(material):
                 store, factory = fixtures, gltf_fixture
             else:
                 continue
