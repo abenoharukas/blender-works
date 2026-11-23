@@ -3,7 +3,6 @@ import { WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const viewer = document.querySelector('#viewer');
 const status = document.querySelector('#load-status');
@@ -40,42 +39,160 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.82;
 viewer.appendChild(renderer.domElement);
 
-// The Blender EEVEE glass uses a node mix that glTF cannot preserve. This
-// neutral studio environment gives the reconstructed physical glass something
-// real to reflect without adding haze to the camera view.
-const pmrem = new THREE.PMREMGenerator(renderer);
-const environment = new RoomEnvironment();
-scene.environment = (await pmrem.fromSceneAsync(environment, 0.04)).texture;
-scene.environmentIntensity = 0.6;
-environment.dispose();
-pmrem.dispose();
+// Time-of-day sky. One equirectangular painting, rebuilt from the sun's
+// elevation, feeds both the visible background and the reflection environment,
+// so glass mirrors the sky of the hour instead of a fixed studio box.
+const SKY_WIDTH = 512;
+const SKY_HEIGHT = 256;
+const skyCanvas = document.createElement('canvas');
+skyCanvas.width = SKY_WIDTH;
+skyCanvas.height = SKY_HEIGHT;
+const skyContext = skyCanvas.getContext('2d');
+// The WebGPU backend keeps the GPU copy of a CanvasTexture after the canvas is
+// repainted, even when needsUpdate is set, so each repaint swaps in a fresh
+// texture instead. 512x256 is above the detail of a smooth gradient.
+let skyTexture = null;
 
-// RoomEnvironment is intentionally soft, but a uniform room has no readable
-// reflection pattern on front-facing glass. Add two high-contrast softbox
-// bands to the reflection-only environment; they are not visible as scenery.
-const reflectionCanvas = document.createElement('canvas');
-reflectionCanvas.width = 1024;
-reflectionCanvas.height = 512;
-const reflectionContext = reflectionCanvas.getContext('2d');
-const reflectionGradient = reflectionContext.createLinearGradient(0, 0, 1024, 0);
-reflectionGradient.addColorStop(0, '#13272d');
-reflectionGradient.addColorStop(0.24, '#203b42');
-reflectionGradient.addColorStop(0.34, '#d9f4f1');
-reflectionGradient.addColorStop(0.39, '#35545a');
-reflectionGradient.addColorStop(0.62, '#182f36');
-reflectionGradient.addColorStop(0.72, '#fff0d3');
-reflectionGradient.addColorStop(0.77, '#345057');
-reflectionGradient.addColorStop(1, '#102229');
-reflectionContext.fillStyle = reflectionGradient;
-reflectionContext.fillRect(0, 0, 1024, 512);
-const reflectionTexture = new THREE.CanvasTexture(reflectionCanvas);
-reflectionTexture.colorSpace = THREE.SRGBColorSpace;
-reflectionTexture.mapping = THREE.EquirectangularReflectionMapping;
-const reflectionPmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = (await reflectionPmrem.fromEquirectangularAsync(reflectionTexture)).texture;
-scene.environmentIntensity = 1.0;
-reflectionTexture.dispose();
-reflectionPmrem.dispose();
+function pushSkyTexture() {
+  const previous = skyTexture;
+  skyTexture = new THREE.CanvasTexture(skyCanvas);
+  skyTexture.mapping = THREE.EquirectangularReflectionMapping;
+  skyTexture.colorSpace = THREE.SRGBColorSpace;
+  scene.background = skyTexture;
+  if (previous) previous.dispose();
+  window.__stackDebug.skyCanvas = skyCanvas;
+  window.__stackDebug.skyTexture = skyTexture;
+}
+const skyPmrem = new THREE.PMREMGenerator(renderer);
+let skyEnvironment = null;
+let lastSkyUpdate = 0;
+
+// Sky keyframes by clock hour. The dial is the thing the reader drags, so the
+// mood is authored against it directly: a sun that climbs 70 degrees in six
+// hours squeezes sunset into a few minutes of dial travel otherwise. The
+// palette stays muted — the viewer is an editorial render, not a postcard.
+const SKY_HOURS = [
+  { hour: 0, zenith: '#0c1622', horizon: '#18232e', sun: '#22303c', glow: 0.03 },
+  { hour: 4.2, zenith: '#0d1724', horizon: '#192530', sun: '#233240', glow: 0.04 },
+  { hour: 5.2, zenith: '#2a3d52', horizon: '#55636b', sun: '#8a7a6a', glow: 0.18 },
+  { hour: 6.0, zenith: '#46596b', horizon: '#9a8672', sun: '#d9a273', glow: 0.45 },
+  { hour: 6.8, zenith: '#6e8494', horizon: '#c8b9a4', sun: '#ffcf9b', glow: 0.60 },
+  { hour: 8.0, zenith: '#8ba2a3', horizon: '#d2d3c2', sun: '#ffe6b8', glow: 0.40 },
+  { hour: 10.0, zenith: '#9cb3ad', horizon: '#d5dbca', sun: '#fff1d4', glow: 0.22 },
+  { hour: 12.0, zenith: '#a8bdb7', horizon: '#d8decd', sun: '#fff6e3', glow: 0.15 },
+  { hour: 15.0, zenith: '#a3b8b2', horizon: '#d6dcc9', sun: '#fff0cf', glow: 0.20 },
+  { hour: 16.8, zenith: '#93a8a6', horizon: '#dcd2b8', sun: '#ffe0ae', glow: 0.35 },
+  { hour: 17.6, zenith: '#7a8f99', horizon: '#dfc39f', sun: '#ffc98a', glow: 0.55 },
+  { hour: 18.4, zenith: '#5b7186', horizon: '#cfa07c', sun: '#f0a26a', glow: 0.70 },
+  { hour: 19.1, zenith: '#24384f', horizon: '#4d6480', sun: '#7a90a8', glow: 0.30 },
+  { hour: 20.0, zenith: '#16222f', horizon: '#26343f', sun: '#33475a', glow: 0.10 },
+  { hour: 21.5, zenith: '#0c1622', horizon: '#18232e', sun: '#22303c', glow: 0.03 },
+  { hour: 24, zenith: '#0c1622', horizon: '#18232e', sun: '#22303c', glow: 0.03 },
+].map((stop) => ({
+  hour: stop.hour,
+  glow: stop.glow,
+  zenith: new THREE.Color(stop.zenith),
+  horizon: new THREE.Color(stop.horizon),
+  sun: new THREE.Color(stop.sun),
+}));
+
+const skyGround = new THREE.Color();
+const SKY_GROUND_NEUTRAL = new THREE.Color('#3a444d');
+
+function skyStopsAtHour(hour) {
+  const stops = SKY_HOURS;
+  let index = 0;
+  while (index < stops.length - 2 && stops[index + 1].hour <= hour) index += 1;
+  const low = stops[index];
+  const high = stops[index + 1];
+  const t = Math.min(1, Math.max(0, (hour - low.hour) / (high.hour - low.hour)));
+  return {
+    zenith: low.zenith.clone().lerp(high.zenith, t),
+    horizon: low.horizon.clone().lerp(high.horizon, t),
+    sun: low.sun.clone().lerp(high.sun, t),
+    glow: low.glow + (high.glow - low.glow) * t,
+  };
+}
+
+function cssColor(color, alpha) {
+  const style = color.getStyle();
+  if (alpha >= 1) return style;
+  return style.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+}
+
+function paintSky(hour, azimuth) {
+  const { zenith, horizon, sun, glow } = skyStopsAtHour(hour);
+  // The lower half of the equirect sits behind the site, so it borrows the
+  // ground plane's tone rather than turning the horizon into a brown band.
+  skyGround.copy(horizon).lerp(SKY_GROUND_NEUTRAL, 0.45).multiplyScalar(0.85);
+  const gradient = skyContext.createLinearGradient(0, 0, 0, SKY_HEIGHT);
+  gradient.addColorStop(0, cssColor(zenith, 1));
+  gradient.addColorStop(0.5, cssColor(horizon, 1));
+  gradient.addColorStop(0.501, cssColor(skyGround, 1));
+  gradient.addColorStop(1, cssColor(skyGround.clone().multiplyScalar(0.7), 1));
+  skyContext.fillStyle = gradient;
+  skyContext.fillRect(0, 0, SKY_WIDTH, SKY_HEIGHT);
+
+  // Sun bearing in equirect u, and its height in v.
+  const elevation = Math.sin((hour - 6) / 12 * Math.PI) * SUN_ELEVATION_MAX;
+  const elevationDeg = (elevation * 180) / Math.PI;
+  const cosEl = Math.cos(elevation);
+  const sunX = Math.sin(azimuth) * cosEl;
+  const sunZ = -Math.cos(azimuth) * cosEl;
+  const u = ((Math.atan2(sunZ, sunX) / (Math.PI * 2)) + 0.5 + 1) % 1;
+  const sunPx = u * SKY_WIDTH;
+  const horizonY = SKY_HEIGHT * 0.5;
+
+  // Horizon glow: broad and warm, strongest while the sun crosses the horizon.
+  if (glow > 0.01) {
+    const halo = skyContext.createRadialGradient(
+      sunPx, horizonY, 0, sunPx, horizonY, SKY_WIDTH * 0.42);
+    halo.addColorStop(0, cssColor(sun, Math.min(1, glow)));
+    halo.addColorStop(0.35, cssColor(sun, glow * 0.45));
+    halo.addColorStop(1, cssColor(sun, 0));
+    skyContext.fillStyle = halo;
+    skyContext.fillRect(0, 0, SKY_WIDTH, SKY_HEIGHT);
+  }
+
+  // The disc itself, while it is above the horizon.
+  if (elevationDeg > -2) {
+    const discY = SKY_HEIGHT * (0.5 - elevation / Math.PI);
+    const disc = skyContext.createRadialGradient(
+      sunPx, discY, 0, sunPx, discY, SKY_HEIGHT * 0.05);
+    disc.addColorStop(0, cssColor(sun, Math.min(1, 0.4 + elevationDeg / 14)));
+    disc.addColorStop(1, cssColor(sun, 0));
+    skyContext.fillStyle = disc;
+    skyContext.fillRect(0, 0, SKY_WIDTH, SKY_HEIGHT);
+  }
+  pushSkyTexture();
+}
+
+function refreshSkyEnvironment(force = false) {
+  const now = performance.now();
+  if (!force && now - lastSkyUpdate < 120) return;
+  lastSkyUpdate = now;
+  if (skyEnvironment) skyEnvironment.dispose();
+  skyEnvironment = skyPmrem.fromEquirectangular(skyTexture);
+  scene.environment = skyEnvironment.texture;
+}
+
+// Modelled lamp panels: exported at a fixed emissive strength, brightened as
+// the sky darkens so lit windows read at night the way they do at dusk.
+const lampMaterials = new Set();
+
+function collectLampMaterials() {
+  scene.traverse((object) => {
+    if (!object.isMesh) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!material || (material.emissiveIntensity ?? 0) <= 0.5) continue;
+      if (material.userData.lampBase === undefined) {
+        material.userData.lampBase = material.emissiveIntensity;
+      }
+      lampMaterials.add(material);
+    }
+  });
+}
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -107,19 +224,11 @@ scene.add(keyLight);
 const fillLight = new THREE.DirectionalLight('#c3d9e5', 0.8);
 scene.add(fillLight);
 const SUN_DISTANCE = 420;
-const DAY_BACKGROUND = new THREE.Color('#8e9d93');
-const NIGHT_BACKGROUND = new THREE.Color('#141c22');
+const SUN_ELEVATION_MAX = (70 * Math.PI) / 180;
 const DAY_GROUND = new THREE.Color('#aeb9af');
-const NIGHT_GROUND = new THREE.Color('#2a3330');
-const SUN_COLOR_NOON = new THREE.Color('#fff8e5');
-const SUN_COLOR_HORIZON = new THREE.Color('#ff8a3a');
-const SUN_COLOR_NIGHT = new THREE.Color('#8aa4c4');
+const NIGHT_GROUND = new THREE.Color('#2f3833');
 const FILL_COLOR_DAY = new THREE.Color('#c3d9e5');
 const FILL_COLOR_NIGHT = new THREE.Color('#1c2836');
-const HEMI_SKY_DAY = new THREE.Color('#f4f7ed');
-const HEMI_SKY_NIGHT = new THREE.Color('#1a2430');
-const HEMI_GROUND_DAY = new THREE.Color('#7e8d83');
-const HEMI_GROUND_NIGHT = new THREE.Color('#12181c');
 const SUN_HANDLE_R = 54;
 const SUN_CENTER = 70;
 let sunHour = 10;
@@ -356,6 +465,8 @@ function loadModel(id) {
           }
         }
       });
+      collectLampMaterials();
+      setSunHour(sunHour, true);
       requestRender();
       status.textContent = 'Model ready';
       loadingCard.classList.add('is-hidden');
@@ -407,12 +518,14 @@ function padHour(hour) {
 }
 
 function sunPhaseName(hour) {
-  if (hour >= 5 && hour < 7) return 'dawn';
-  if (hour >= 7 && hour < 11) return 'morning';
-  if (hour >= 11 && hour < 14) return 'noon';
-  if (hour >= 14 && hour < 17) return 'afternoon';
-  if (hour >= 17 && hour < 19.5) return 'dusk';
-  return 'night';
+  if (hour < 5.2 || hour >= 20.4) return 'night';
+  if (hour < 6.2) return 'dawn';
+  if (hour < 7.4) return 'sunrise';
+  if (hour < 11) return 'morning';
+  if (hour < 14) return 'noon';
+  if (hour < 17) return 'afternoon';
+  if (hour < 18.6) return 'sunset';
+  return 'blue hour';
 }
 
 function drawSunDial() {
@@ -438,33 +551,51 @@ function drawSunDial() {
   }
 }
 
-function setSunHour(hour) {
+function smoothstep(edge0, edge1, value) {
+  const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+function setSunHour(hour, immediate = false) {
   sunHour = ((hour % 24) + 24) % 24;
   const azimuth = (sunHour / 24) * Math.PI * 2;
-  const elevation = Math.sin((sunHour - 6) / 12 * Math.PI) * (70 * Math.PI / 180);
+  // Latitude-free sun path: rises at 06:00, peaks at 70 degrees at noon, sets
+  // at 18:00 and keeps falling to -70 degrees after dark.
+  const elevation = Math.sin((sunHour - 6) / 12 * Math.PI) * SUN_ELEVATION_MAX;
+  const elevationDeg = (elevation * 180) / Math.PI;
   const cosEl = Math.cos(elevation);
   const x = SUN_DISTANCE * Math.sin(azimuth) * cosEl;
-  const y = SUN_DISTANCE * Math.max(Math.sin(elevation), 0.04);
+  const y = SUN_DISTANCE * Math.sin(elevation);
   const z = -SUN_DISTANCE * Math.cos(azimuth) * cosEl;
-  keyLight.position.set(x, y, z);
+  keyLight.position.set(x, Math.max(y, SUN_DISTANCE * 0.03), z);
   fillLight.position.set(-x * 0.7, Math.max(y * 0.35, 80), -z * 0.7);
 
-  const above = Math.max(Math.sin(elevation), 0);
-  const horizon = Math.max(0, 1 - Math.abs(elevation) / 0.35);
-  const night = 1 - above;
-  scratchColor.copy(SUN_COLOR_NOON).lerp(SUN_COLOR_HORIZON, horizon * above);
-  scratchColor.lerp(SUN_COLOR_NIGHT, night);
+  // daylight spans civil twilight to full day; golden peaks as the disc
+  // touches the horizon.
+  const daylight = smoothstep(-6, 14, elevationDeg);
+  const golden = smoothstep(-2, 1, elevationDeg) * (1 - smoothstep(6, 22, elevationDeg));
+
+  paintSky(sunHour, azimuth);
+  refreshSkyEnvironment(immediate);
+
+  const sky = skyStopsAtHour(sunHour);
+  scratchColor.copy(sky.sun).lerp(sky.zenith, 0.25);
   keyLight.color.copy(scratchColor);
-  keyLight.intensity = 0.08 + above * 2.2 + horizon * above * 0.4;
-  fillLight.color.copy(FILL_COLOR_DAY).lerp(FILL_COLOR_NIGHT, night);
-  fillLight.intensity = 0.08 + above * 0.72;
-  hemiLight.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, night);
-  hemiLight.groundColor.copy(HEMI_GROUND_DAY).lerp(HEMI_GROUND_NIGHT, night);
-  hemiLight.intensity = 0.18 + above * 0.72;
-  scene.background.copy(DAY_BACKGROUND).lerp(NIGHT_BACKGROUND, night);
-  ground.material.color.copy(DAY_GROUND).lerp(NIGHT_GROUND, night);
-  scene.environmentIntensity = 0.18 + above * 0.82;
-  renderer.toneMappingExposure = 0.42 + above * 0.4;
+  keyLight.intensity = 2.2 * smoothstep(-1.5, 26, elevationDeg) + 0.35 * golden;
+  fillLight.color.copy(FILL_COLOR_NIGHT).lerp(FILL_COLOR_DAY, daylight);
+  fillLight.intensity = 0.10 + 0.70 * daylight;
+  hemiLight.color.copy(sky.zenith);
+  hemiLight.groundColor.copy(skyGround);
+  hemiLight.intensity = 0.34 + 0.54 * daylight;
+  scene.environmentIntensity = 0.16 + 0.84 * daylight;
+  renderer.toneMappingExposure = 0.50 + 0.36 * daylight;
+  ground.material.color.copy(NIGHT_GROUND).lerp(DAY_GROUND, daylight);
+
+  // Exported lamp panels brighten as the sky darkens.
+  const lampBoost = 1 + 3.2 * (1 - daylight);
+  for (const material of lampMaterials) {
+    material.emissiveIntensity = material.userData.lampBase * lampBoost;
+  }
 
   const angle = hourAngle(sunHour);
   sunHandle.setAttribute('cx', String(SUN_CENTER + Math.cos(angle) * SUN_HANDLE_R));
@@ -507,6 +638,8 @@ function bindSunDial() {
     if (sunDial.hasPointerCapture(event.pointerId)) {
       sunDial.releasePointerCapture(event.pointerId);
     }
+    // The throttled rebuild may have skipped the final position.
+    refreshSkyEnvironment(true);
   };
   sunDial.addEventListener('pointerup', stopDrag);
   sunDial.addEventListener('pointercancel', stopDrag);

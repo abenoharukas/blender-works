@@ -161,6 +161,21 @@ pinned the GPU. Only the AREA lamp rig from the Blender scene is dropped at expo
 time — it exists for the Blender render and has no geometry — while the modelled
 panels stay, lit, in the asset.
 
+#### Time of day
+
+The dial in the top-left corner runs a full 24 hours. The sun rises at 06:00, peaks at
+70 degrees at noon and sets at 18:00; its position drives the key light, the fill, the
+hemisphere light, the exposure and the lamp panels, which brighten as the sky darkens.
+The sky itself is an equirectangular gradient painted from an hour-keyed palette in
+`paintSky`, and the same image feeds `scene.environment`, so glass reflects the sky of
+the hour instead of a fixed studio box. Phases read dawn (05:12–06:12), sunrise,
+morning, noon, afternoon, sunset (17:00–18:36), blue hour (18:36–20:24) and night.
+
+The palette is keyed by clock hour rather than by sun elevation on purpose: the sun
+climbs 70 degrees in six hours here, which would squeeze sunset into a few minutes of
+dial travel. Each repaint swaps in a fresh `CanvasTexture`, because the WebGPU backend
+keeps the old GPU copy of a repainted canvas even when `needsUpdate` is set.
+
 The current The Stack web assets are approximately:
 
 ```text
