@@ -23,14 +23,16 @@ scene.background = new THREE.Color('#8e9d93');
 
 const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 2500);
 const devicePixelRatio = window.devicePixelRatio || 1;
-const idlePixelRatio = Math.min(devicePixelRatio, 2);
-const interactionPixelRatio = Math.min(devicePixelRatio, 1);
+// Full device resolution at all times. Orbiting used to drop to one device
+// pixel per CSS pixel and come back 120 ms after release, which blurred the
+// facade exactly while it was being inspected; the scene is fast enough now.
+const pixelRatio = Math.min(devicePixelRatio, 2);
 const renderer = new WebGPURenderer({
   antialias: true,
   powerPreference: 'high-performance',
 });
 await renderer.init();
-renderer.setPixelRatio(idlePixelRatio);
+renderer.setPixelRatio(pixelRatio);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.sortObjects = true;
 window.__stackDebug = { renderer, scene, camera, renderFrames: 0 };
@@ -84,16 +86,10 @@ controls.maxDistance = 720;
 controls.target.set(0, 145, 0);
 
 let renderQueued = false;
-let restoreRenderScale;
 function requestRender() {
   if (renderQueued) return;
   renderQueued = true;
   requestAnimationFrame(renderFrame);
-}
-function setRenderScale(scale) {
-  renderer.setPixelRatio(scale);
-  resize();
-  requestRender();
 }
 function renderFrame() {
   renderQueued = false;
@@ -103,17 +99,6 @@ function renderFrame() {
   if (dampingActive) requestRender();
 }
 controls.addEventListener('change', requestRender);
-controls.addEventListener('start', () => {
-  clearTimeout(restoreRenderScale);
-  setRenderScale(interactionPixelRatio);
-});
-controls.addEventListener('end', () => {
-  clearTimeout(restoreRenderScale);
-  restoreRenderScale = setTimeout(
-    () => setRenderScale(idlePixelRatio),
-    120
-  );
-});
 
 const hemiLight = new THREE.HemisphereLight('#f4f7ed', '#7e8d83', 0.9);
 scene.add(hemiLight);
