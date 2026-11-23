@@ -33,7 +33,7 @@ live, so the page works from either the repository root or this directory.
 | Palette | click a model (or press `1`–`5`) to place it on the next free plot |
 | In scene | click a row to frame that model; `●`/`○` hides it, `×` removes it |
 | Views | `Street` (`S`), `Shotengai` (`M`), `Ikkodate` (`H`), `Overview` (`O`) |
-| Walk | `Walk` (`F`): first-person at 1.7 m — `WASD` move, `Shift` run, mouse look, `Esc` back to orbit |
+| Walk | `Walk` (`F`): first-person at 1.7 m — `WASD` move, `Shift` run, mouse look, `Esc` back to orbit. `Space` jumps; double-tap it to fly (Minecraft creative style): in flight `WASD` follows the look direction, `Space` climbs, `Shift` descends, and touching down lands |
 | Clear scene | removes every placed model |
 
 The street network, commercial hubs, residential lots, and overhead utility

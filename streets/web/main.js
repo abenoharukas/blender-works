@@ -73,7 +73,6 @@ const walk = createWalkController({
     walkToggleBtn.classList.toggle('is-active', active);
     walkHud.classList.toggle('is-visible', active);
     if (active) {
-      viewButtons.forEach((button) => button.classList.remove('is-active'));
       // Enter mid-flight and the half-finished camera tween would drag the eye
       // back out of the walk as soon as it ends.
       tween = null;
@@ -444,12 +443,8 @@ window.addEventListener('keydown', (event) => {
     walk.toggle();
     return;
   }
-  // W/A/S/D are walking keys first, and S/M/H/O are the view shortcuts: those
-  // belong to the orbit camera, not to the stroll.
-  if (walk.active) return;
   const index = Number(event.key);
   if (index >= 1 && index <= MODELS.length) addModel(MODELS[index - 1].id);
-  if (key === 's') applyView('street');
   if (key === 'm') applyView('shotengai');
   if (key === 'h') applyView('ikkodate');
   if (key === 'o') applyView('overview');
@@ -554,7 +549,11 @@ function updateTween(now) {
   const eased = 1 - Math.pow(1 - progress, 3);
   camera.position.lerpVectors(tween.fromPosition, tween.toPosition, eased);
   controls.target.lerpVectors(tween.fromTarget, tween.toTarget, eased);
-  if (progress >= 1) tween = null;
+  controls.update();
+  if (progress >= 1) {
+    tween = null;
+    walk.enter({ lock: false, preserveHeight: true });
+  }
 }
 
 function resize() {
@@ -602,6 +601,7 @@ camera.position.copy(VIEWS.street.position);
 controls.target.copy(VIEWS.street.target);
 controls.update();
 viewButtons.forEach((button) => button.classList.toggle('is-active', button.dataset.view === 'street'));
+walk.enter({ lock: false, preserveHeight: false });
 resize();
 setStatus('Street ready — add a model');
 
