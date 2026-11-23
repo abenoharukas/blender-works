@@ -598,7 +598,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
 
   // ------------------------------------------------------------------ state
   const state = {
-    hour: 12.5,
+    hour: 22.5,
     weather: 'clear',
     intensity: 0.75,
     playing: false,

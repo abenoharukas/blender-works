@@ -16,14 +16,14 @@ gateposts, and kei-cars).
 
 ## Run
 
-Serve the repository root (or this folder) and open `/playground/`:
+Serve the repository root (or this folder) and open `/streets/web/`:
 
 ```bash
-npm run playground          # python3 -m http.server 8123
-# http://localhost:8123/playground/
+npm run serve               # python3 -m http.server 8123
+# http://localhost:8123/streets/web/
 ```
 
-`assets` is a symlink to `../web/assets`, where the optimized browser GLBs
+`assets` is a symlink to `../../model_viewer/assets`, where the optimized browser GLBs
 live, so the page works from either the repository root or this directory.
 
 ## Use

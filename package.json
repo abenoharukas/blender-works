@@ -8,14 +8,16 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "playground": "python3 -m http.server 8123",
+    "serve": "python3 -m http.server 8123",
     "optimize:web": "gltf-transform optimize",
     "rt:build": "bun /Users/raku/repos/others/ThreeRT/renderer/build.ts",
-    "rt:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts playground/threeRT/playground-street.ts -o playground/threeRT/out/playground-street.js",
-    "rt:play": "npm run rt:bundle && /Users/raku/repos/others/ThreeRT/renderer/target/release/threert-render play playground/threeRT/out/playground-street.js --assets /Users/raku/repos/others/ThreeRT",
-    "rt:diamond:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts playground/threeRT/diamond-optics.ts -o playground/threeRT/out/diamond-optics.js",
-    "rt:diamond": "node playground/threeRT/render-diamond.mjs",
-    "rt:diamond:render": "node playground/threeRT/render-diamond.mjs"
+    "rt:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts streets/native/playground-street.ts -o streets/native/out/playground-street.js",
+    "rt:play": "npm run rt:bundle && /Users/raku/repos/others/ThreeRT/renderer/target/release/threert-render play streets/native/out/playground-street.js --assets /Users/raku/repos/others/ThreeRT",
+    "rt:diamond:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts optics/diamond/diamond-optics.ts -o optics/diamond/out/diamond-optics.js",
+    "rt:diamond": "node optics/diamond/render-diamond.mjs",
+    "rt:diamond:render": "node optics/diamond/render-diamond.mjs",
+    "rt:prism:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts optics/prism/prism-optics.ts -o optics/prism/out/prism-optics.js",
+    "rt:prism": "node optics/prism/render-prism.mjs"
   },
   "repository": {
     "type": "git",

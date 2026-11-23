@@ -1,7 +1,7 @@
-// The models the playground can load. Every asset is the browser copy the
-// existing viewer in `web/` uses (`web/assets/*.optimized.glb`); `assets` in
-// this folder is a symlink to it, so the page works when served either from
-// the repository root or from `playground/`.
+// The models the street viewer can load. Every asset is the browser copy in
+// `model_viewer/assets/*.optimized.glb`; `assets` in this folder is a symlink
+// to `../../model_viewer/assets`, so the page works from the repository root
+// or from `streets/web/`.
 export const MODELS = [
   {
     id: 'stack',

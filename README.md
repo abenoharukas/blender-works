@@ -1,6 +1,6 @@
 # Blender Works
 
-Independent procedural Blender studies, one directory per work. Shared materials and helpers live in `shared/`, the Three.js viewer in `model_viewer/`; the commands in each section run from the repository root.
+Independent procedural Blender studies under `works/`, with the Three.js viewer in `model_viewer/`, the Japanese streetscape in `streets/`, and optical/material path-tracing studies in `optics/`; commands in each section run from the repository root.
 
 ## Highrise House
 
@@ -317,17 +317,22 @@ Each work has its own directory with its scripts, `PROGRESS.md`, reference
 `images/` and a Git-ignored `out/` for build products.
 
 ```text
-highrise_house/   # Twin residential towers and podium (build_house.py, verify, render_views, update_*)
-office_tower/     # Separate procedural office-tower study
-centre_pompidou/  # Centre Pompidou model
-abeno_harukas/    # Approximate Abeno Harukas model and reference figures
-the_stack/        # The Stack, first generation, plus the web GLB exporter
-the_stack2/       # The Stack, second generation
-the_stack3/       # The Stack, third generation (stacked bands)
-ship/             # Purple liner imported from longtest 25.skp
-shared/           # materials.py, open_in_blender.py, check_stack_zfight.py
-model_viewer/     # Three.js viewer and web assets
-package.json      # glTF Transform post-processing command
+works/
+  highrise_house/   # Twin residential towers and podium (build_house.py, verify, render_views, update_*)
+  office_tower/     # Separate procedural office-tower study
+  centre_pompidou/  # Centre Pompidou model
+  abeno_harukas/    # Approximate Abeno Harukas model and reference figures
+  the_stack/        # The Stack, first generation, plus the web GLB exporter
+  the_stack2/       # The Stack, second generation
+  the_stack3/       # The Stack, third generation (stacked bands)
+  ship/             # Purple liner imported from longtest 25.skp
+  shared/           # materials.py, open_in_blender.py, check_stack_zfight.py, rebuild_web_assets.py
+model_viewer/       # Three.js standalone model viewer and web GLB assets
+streets/
+  web/              # Three.js procedural Japanese streetscape & plot placement sandbox
+  native/           # ThreeRT Rust/Metal path-traced Japanese streetscape
+optics/             # ThreeRT optical dispersion & material verification (prism/, diamond/, the-stack-final.mts)
+package.json        # Serve, glTF optimization, and ThreeRT scripts
 ```
 
 ## Usage

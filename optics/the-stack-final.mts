@@ -1,8 +1,8 @@
 // Build the ThreeRT-ready GLB for The Stack from blender-works' own web export:
-//   node playground/threeRT/the-stack-final.ts
+//   node optics/the-stack-final.mts
 //
-// Reads:  web/assets/the_stack.glb
-// Writes: the_stack/out/the_stack_final.glb
+// Reads:  model_viewer/assets/the_stack.glb
+// Writes: works/the_stack/out/the_stack_final.glb
 //         (and copies to $THREERT_ASSET_STORE/the_stack_final.glb when accessible)
 //
 // Three adjustments over the raw browser export so the path-traced dusk tower stays crisp and noise-free:
@@ -17,9 +17,9 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-const repoRoot = resolve(import.meta.dirname, "../..");
-const source = process.argv[2] ?? join(repoRoot, "web/assets/the_stack.glb");
-const localOut = process.argv[3] ?? join(repoRoot, "the_stack/out/the_stack_final.glb");
+const repoRoot = resolve(import.meta.dirname, "..");
+const source = process.argv[2] ?? join(repoRoot, "model_viewer/assets/the_stack.glb");
+const localOut = process.argv[3] ?? join(repoRoot, "works/the_stack/out/the_stack_final.glb");
 const assetStore = process.env.THREERT_ASSET_STORE ?? resolve(repoRoot, "../others/threert-assets");
 const storeOut = join(assetStore, "the_stack_final.glb");
 

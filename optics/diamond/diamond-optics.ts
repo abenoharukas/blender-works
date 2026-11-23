@@ -693,9 +693,9 @@ export default defineGame<DiamondOpticsState>({
     scene.add(diamondMesh);
 
     // 3. Load 2K Pre-Baked Continuous-Spectrum Wavefront Caustics
-    const wallCausticTex = new Texture("playground/threeRT/out/caustics-wall.png", "linear");
+    const wallCausticTex = new Texture("optics/diamond/out/caustics-wall.png", "linear");
     wallCausticTex.wrap = "clamp";
-    const floorCausticTex = new Texture("playground/threeRT/out/caustics-floor.png", "linear");
+    const floorCausticTex = new Texture("optics/diamond/out/caustics-floor.png", "linear");
     floorCausticTex.wrap = "clamp";
 
     // 4. Rear Gallery Slate-Plaster Projection Wall (`z = WALL_Z`)

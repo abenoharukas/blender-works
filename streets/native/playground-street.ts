@@ -61,6 +61,9 @@ const VIEWS: Record<ViewId, { label: string; pos: [number, number, number]; targ
 
 const VIEW_ORDER: ViewId[] = ["street", "shotengai", "ikkodate", "overview"];
 
+// The scene opens on the Night preset: a pitch-black sky with only the street lights and lit windows.
+const DEFAULT_HOUR = 22.5;
+
 function formatHour(hour: number): string {
   const h = ((hour % 24) + 24) % 24;
   const hh = Math.floor(h);
@@ -153,7 +156,7 @@ function nightGlowFactor(hour: number, weather: WeatherId): number {
 const data = tape as Tape;
 
 // Frame-local mutable state (never mutate the frozen `f.state` inside `frame()`).
-let liveHour = 17.75;
+let liveHour = DEFAULT_HOUR;
 let syncedHourSeq = 0;
 let syncedViewSeq = 0;
 let currentRain = 0;
@@ -161,16 +164,17 @@ let currentCloud = 0.12;
 let currentFogDensity = 0.00002;
 let currentFogIntensity = 4;
 
-// Route clicks from the native egui HUD panel (`hud.choose`) into transactional handlers via `world.emit`.
+// Route clicks/drags from the native egui HUD panel (`hud.choose`) into transactional handlers via `world.emit`.
 host.on("hud.choose", (m, world) => {
-  if (m.item === "time_menu") {
+  if (m.item === "time_slider" && typeof m.value === "number") {
+    world.emit("setHour", { hour: m.value });
+  } else if (m.item === "time_transport") {
     if (m.row === 0) world.emit("togglePlay", {});
     else if (m.row === 1) world.emit("stepHour", { delta: -1, base: liveHour });
     else if (m.row === 2) world.emit("stepHour", { delta: 1, base: liveHour });
-    else {
-      const preset = TIME_PRESETS[m.row - 3];
-      if (preset) world.emit("setHour", { hour: preset.hour });
-    }
+  } else if (m.item === "time_presets") {
+    const preset = TIME_PRESETS[m.row];
+    if (preset) world.emit("setHour", { hour: preset.hour });
   } else if (m.item === "weather_menu") {
     const w = WEATHERS[m.row];
     if (w) world.emit("setWeather", { weather: w.id });
@@ -209,55 +213,82 @@ function applyLighting(
 }
 
 function pushHud(state: Readonly<State>, displayHour: number) {
-  const wInfo = WEATHERS.find((w) => w.id === state.weather) ?? WEATHERS[0];
-  const vInfo = VIEWS[state.view];
-  const timeRows = [
-    [state.playing ? "暂停时间" : "播放时间"],
-    ["-1 小时"],
-    ["+1 小时"],
-    ...TIME_PRESETS.map((p) => [p.label]),
-  ];
-  const weatherRows = WEATHERS.map((w) => [w.label]);
-  const viewRows = VIEW_ORDER.map((id) => [VIEWS[id].label]);
-
   const timeHighlight = TIME_PRESETS.findIndex((p) => Math.abs(displayHour - p.hour) < 0.35);
   const weatherHighlight = WEATHERS.findIndex((w) => w.id === state.weather);
   const viewHighlight = VIEW_ORDER.indexOf(state.view);
 
+  const timePresetRows = TIME_PRESETS.map((p) => {
+    const [name, time] = p.label.split(" ");
+    return [name, time ?? ""];
+  });
+  const weatherRows = WEATHERS.map((w) => {
+    const [cn, en] = w.label.split(" ");
+    return [cn, en ?? ""];
+  });
+
   hud.set({
     items: [
-      { type: "text", anchor: "top-left", label: "时间", text: `${formatHour(displayHour)} · ${phaseLabel(displayHour)}`, tone: "accent", size: "large" },
-      { type: "text", anchor: "top-left", label: "天气", text: wInfo.label, tone: state.weather === "rain" ? "warn" : "default" },
-      { type: "text", anchor: "top-left", label: "机位", text: vInfo.label, tone: "dim" },
       {
-        type: "table",
-        anchor: "top-right",
-        id: "time_menu",
-        title: "日夜循环 Time",
-        columns: ["操作"],
-        rows: timeRows,
-        selectable: true,
-        ...(timeHighlight >= 0 ? { highlight: timeHighlight + 3 } : {}),
-      },
-      {
-        type: "table",
-        anchor: "top-right",
-        id: "weather_menu",
-        title: "天气 Weather",
-        columns: ["模式"],
-        rows: weatherRows,
-        selectable: true,
-        highlight: weatherHighlight,
+        type: "text",
+        anchor: "top-left",
+        badge: "PG",
+        text: "Playground / blender-works",
       },
       {
         type: "table",
         anchor: "top-right",
         id: "view_menu",
-        title: "机位 Camera",
         columns: ["视角"],
-        rows: viewRows,
+        rows: VIEW_ORDER.map((id) => [VIEWS[id].label]),
+        layout: "segmented",
         selectable: true,
         highlight: viewHighlight,
+      },
+      {
+        type: "slider",
+        anchor: "right",
+        id: "time_slider",
+        label: "TIME · 24H",
+        hint: phaseLabel(displayHour),
+        valueText: formatHour(displayHour),
+        min: 0,
+        max: 24,
+        step: 0.05,
+        value: displayHour,
+        gradient: "daylight",
+      },
+      {
+        type: "table",
+        anchor: "right",
+        id: "time_transport",
+        columns: ["控制"],
+        rows: [[state.playing ? "暂停" : "播放"], ["-1 小时"], ["+1 小时"]],
+        layout: "grid",
+        gridCols: 3,
+        selectable: true,
+      },
+      {
+        type: "table",
+        anchor: "right",
+        id: "time_presets",
+        columns: ["时段", "时间"],
+        rows: timePresetRows,
+        layout: "grid",
+        gridCols: 3,
+        selectable: true,
+        ...(timeHighlight >= 0 ? { highlight: timeHighlight } : {}),
+      },
+      {
+        type: "table",
+        anchor: "right",
+        id: "weather_menu",
+        title: "WEATHER · 天气",
+        columns: ["天气", "模式"],
+        rows: weatherRows,
+        layout: "grid",
+        gridCols: 2,
+        selectable: true,
+        highlight: weatherHighlight,
       },
     ],
   });
@@ -265,7 +296,7 @@ function pushHud(state: Readonly<State>, displayHour: number) {
 
 export default defineGame<State>({
   state: {
-    hour: 17.75,
+    hour: DEFAULT_HOUR,
     hourSeq: 0,
     playing: false,
     speed: 1,
@@ -275,7 +306,7 @@ export default defineGame<State>({
   },
   keys: {},
   setup() {
-    liveHour = 17.75;
+    liveHour = DEFAULT_HOUR;
     syncedHourSeq = 0;
     syncedViewSeq = 0;
     currentRain = 0;
@@ -351,7 +382,7 @@ export default defineGame<State>({
     camera.lookAt(...v0.target);
     scene.add(camera);
 
-    applyLighting(sun, moon, camera, pointLights, 17.75, "clear");
+    applyLighting(sun, moon, camera, pointLights, DEFAULT_HOUR, "clear");
 
     return {
       scene,

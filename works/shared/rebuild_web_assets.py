@@ -3,8 +3,8 @@
 Runs with the repository's standalone bpy virtual environment (.venv) without
 requiring Blender.app:
 
-    .venv/bin/python shared/rebuild_web_assets.py
-    .venv/bin/python shared/rebuild_web_assets.py the_stack abeno_harukas
+    .venv/bin/python works/shared/rebuild_web_assets.py
+    .venv/bin/python works/shared/rebuild_web_assets.py the_stack abeno_harukas
 """
 
 import argparse
@@ -13,8 +13,8 @@ import shutil
 import subprocess
 import sys
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXPORTER = os.path.join(REPO_ROOT, "the_stack", "export_the_stack.py")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+EXPORTER = os.path.join(REPO_ROOT, "works", "the_stack", "export_the_stack.py")
 WEB_ASSETS = os.path.join(REPO_ROOT, "model_viewer", "assets")
 # Every web asset is physically based: transmissive glass and no virtual light
 # sources, with the modelled lamp panels kept and lit at an export-safe strength.
@@ -22,35 +22,35 @@ EXPORT_ARGS = ["--transmissive-glass", "--no-fake-lights"]
 
 TARGETS = {
     "the_stack": {
-        "build": ["the_stack/build_the_stack.py", "--", "--no-render"],
-        "blend": "the_stack/out/the_stack.blend",
+        "build": ["works/the_stack/build_the_stack.py", "--", "--no-render"],
+        "blend": "works/the_stack/out/the_stack.blend",
         "verifiers": [
-            ["the_stack/verify_the_stack.py", "--", "the_stack/out/the_stack.blend"],
-            ["shared/check_stack_zfight.py", "--", "the_stack/out/the_stack.blend"],
+            ["works/the_stack/verify_the_stack.py", "--", "works/the_stack/out/the_stack.blend"],
+            ["works/shared/check_stack_zfight.py", "--", "works/the_stack/out/the_stack.blend"],
         ],
     },
     "abeno_harukas": {
-        "build": ["abeno_harukas/build_abeno_harukas.py", "--", "--no-render"],
-        "blend": "abeno_harukas/out/abeno_harukas.blend",
+        "build": ["works/abeno_harukas/build_abeno_harukas.py", "--", "--no-render"],
+        "blend": "works/abeno_harukas/out/abeno_harukas.blend",
         "verifiers": [
-            ["abeno_harukas/verify_abeno_harukas.py", "--", "abeno_harukas/out/abeno_harukas.blend"],
+            ["works/abeno_harukas/verify_abeno_harukas.py", "--", "works/abeno_harukas/out/abeno_harukas.blend"],
         ],
     },
     "centre_pompidou": {
-        "build": ["centre_pompidou/build_pompidou.py", "--", "--no-render"],
-        "blend": "centre_pompidou/out/centre_pompidou.blend",
+        "build": ["works/centre_pompidou/build_pompidou.py", "--", "--no-render"],
+        "blend": "works/centre_pompidou/out/centre_pompidou.blend",
         "verifiers": [
-            ["centre_pompidou/verify_pompidou.py", "--", "centre_pompidou/out/centre_pompidou.blend"],
+            ["works/centre_pompidou/verify_pompidou.py", "--", "works/centre_pompidou/out/centre_pompidou.blend"],
         ],
     },
     "highrise_house": {
-        "build": ["highrise_house/build_house.py", "--", "--no-render", "--no-glb"],
-        "blend": "highrise_house/out/highrise_house.blend",
+        "build": ["works/highrise_house/build_house.py", "--", "--no-render", "--no-glb"],
+        "blend": "works/highrise_house/out/highrise_house.blend",
         "verifiers": [],
     },
     "office_tower": {
-        "build": ["office_tower/build_office.py", "--no-render"],
-        "blend": "office_tower/out/office_tower.blend",
+        "build": ["works/office_tower/build_office.py", "--no-render"],
+        "blend": "works/office_tower/out/office_tower.blend",
         "verifiers": [],
     },
 }
