@@ -9,6 +9,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "serve": "python3 -m http.server 8123",
+    "plateau:build": "node plateau/scripts/build_plateau_tokyo.mjs",
     "optimize:web": "gltf-transform optimize",
     "rt:build": "bun /Users/raku/repos/others/ThreeRT/renderer/build.ts",
     "rt:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts streets/native/playground-street.ts -o streets/native/out/playground-street.js",

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="PLATEAU Tokyo: real Nishi-Shinjuku LOD2 urban twin with an excavated residential plot for blender-works architectural models." />
+    <title>PLATEAU Tokyo / blender-works</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <div id="viewer" class="viewer"></div>
+
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">PT</span>
+          <span>PLATEAU Tokyo <em>·</em> Nishi-Shinjuku LOD2 <em>/</em> blender-works</span>
+        </div>
+        <div class="topbar-right">
+          <span id="status" class="status">Loading PLATEAU Tokyo</span>
+          <div class="view-switch">
+            <button data-view="street" class="is-active">Street <span>S</span></button>
+            <button data-view="alley">Alley <span>A</span></button>
+            <button data-view="skyline">Skyline <span>K</span></button>
+            <button data-view="overview">Overview <span>O</span></button>
+          </div>
+          <div class="view-switch walk-switch">
+            <button id="walk-toggle" title="First-person walk (F)">Walk <span>F</span></button>
+          </div>
+        </div>
+      </header>
+
+      <aside class="panel">
+        <section class="block">
+          <div class="section-head"><span>Switch Building</span><span class="hint">click or keys 1–5</span></div>
+          <div id="palette" class="palette"></div>
+        </section>
+
+        <section class="block">
+          <div class="section-head"><span>Excavated Plot</span><span id="placed-count" class="hint">0 / 1</span></div>
+          <div id="placed" class="placed"></div>
+          <button id="clear-scene" class="clear">Empty plot (show excavated site)</button>
+        </section>
+
+        <footer class="panel-footer">
+          <span>13104 Shinjuku-ku · LOD2</span>
+          <span>291 houses excavated</span>
+        </footer>
+      </aside>
+
+      <aside class="env-panel" aria-label="Time of day and weather controls">
+        <section class="block">
+          <div class="section-head">
+            <span>Time · 24H</span>
+            <span id="time-phase" class="hint">Morning · 上午</span>
+          </div>
+          <div class="time-readout-row">
+            <span id="time-clock" class="time-clock">10:00</span>
+            <div class="time-transport">
+              <button id="time-play" class="mini-btn" title="Play / Pause cycle (P)">▶</button>
+              <button id="time-speed" class="mini-btn" title="Cycle speed">1×</button>
+            </div>
+          </div>
+          <input id="time-slider" class="time-slider" type="range" min="0" max="24" step="0.05" value="10.0" aria-label="Hour of day" />
+          <div id="time-presets" class="preset-grid"></div>
+        </section>
+
+        <section class="block">
+          <div class="section-head">
+            <span>Weather · 天气</span>
+            <span id="weather-label" class="hint">Clear · 晴朗</span>
+          </div>
+          <div id="weather-buttons" class="weather-grid"></div>
+          <div class="intensity-row">
+            <label for="weather-intensity" class="hint">Intensity</label>
+            <input id="weather-intensity" class="intensity-slider" type="range" min="0.15" max="1" step="0.05" value="0.75" />
+            <span id="weather-intensity-val" class="hint">75%</span>
+          </div>
+        </section>
+      </aside>
+
+      <div id="toast" class="toast"></div>
+
+      <div id="walk-hud" class="walk-hud" aria-hidden="true">
+        <span class="walk-crosshair"></span>
+        <span class="walk-keys">WASD move · Space jump · double-tap Space fly · hold Space up / Shift down · Esc exit</span>
+      </div>
+      <div id="loading" class="loading">
+        <span class="spinner"></span>
+        <span>Loading PLATEAU Tokyo</span>
+      </div>
+    </main>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
