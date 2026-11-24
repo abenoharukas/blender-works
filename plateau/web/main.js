@@ -116,31 +116,31 @@ const plateauGroup = buildPlateauBase(scene);
 renderer.shadowMap.autoUpdate = false;
 
 // ------------------------------------------------------------------ views
-// Framed specifically for Nishi-Shinjuku:
-// - `skyline` (DEFAULT): inside the Nishi-Shinjuku skyscraper cluster (standing on a
-//   high-rise rooftop at x=529, y=119, z=70 among Tocho & Park Hyatt) looking west
-//   toward our excavated residential plot and placed tower!
-// - `street`: eye-level (1.75 m) on the south residential approach avenue looking
-//   north at the excavated plot framed by low-rise houses
-// - `alley`: from the west Nishi-Shinjuku residential lane looking east across the
-//   excavated plot toward the real textured Shinjuku skyscraper cluster
-// - `overview`: high aerial view from the east skyscraper side looking across the entire district
+// Framed specifically for Minato-ku Toranomon Hills LOD3:
+// - `skyline` (DEFAULT): standing inside the Toranomon Hills 300 m skyscraper cluster
+//   (on the 163.7 m rooftop deck at x=-309, y=165.4, z=248, flanked by Mori Tower,
+//   Station Tower, and Residential Tower) looking northeast toward our excavated plot!
+// - `alley`: standing on the 218.3 m Toranomon Hills Residential Tower rooftop deck
+//   (x=-340, y=220.0, z=-52) looking east across the Toranomon canyon toward our tower
+// - `street`: eye-level (1.75 m) on the south Nishi-Shimbashi approach avenue looking
+//   north at the excavated plot framed by LOD3 buildings
+// - `overview`: high aerial view from the Toranomon Hills skyscraper side looking across the district
 const VIEWS = {
   skyline: {
-    position: new THREE.Vector3(529, 118.9, 70),
-    target: new THREE.Vector3(0, 108, 32),
+    position: new THREE.Vector3(-309, 165.45, 248),
+    target: new THREE.Vector3(0, 110, 32),
   },
   street: {
     position: new THREE.Vector3(0.8, 1.75, 368),
     target: new THREE.Vector3(0, 108, 20),
   },
   alley: {
-    position: new THREE.Vector3(305, 170.8, -86),
-    target: new THREE.Vector3(0, 102, 32),
+    position: new THREE.Vector3(-340, 220.0, -52),
+    target: new THREE.Vector3(0, 115, 32),
   },
   overview: {
-    position: new THREE.Vector3(680, 390, 460),
-    target: new THREE.Vector3(60, 80, 10),
+    position: new THREE.Vector3(-640, 420, 480),
+    target: new THREE.Vector3(-40, 90, 0),
   },
 };
 
@@ -173,9 +173,9 @@ loader.setMeshoptDecoder(MeshoptDecoder);
 const assetCache = new Map();
 const placed = [];
 const atmosphere = createAtmosphereSystem({ scene, renderer, camera, controls, placed });
-// Start at 09:30 Morning so the sun in the East/Southeast illuminates the eastern
-// facades facing the Nishi-Shinjuku skyscraper cluster
-atmosphere.state.hour = 9.5;
+// Start at 15:00 Afternoon so the sun in the West/Southwest illuminates the western
+// facades facing the Toranomon Hills skyscraper cluster
+atmosphere.state.hour = 15.0;
 atmosphere.registerStreetMaterials(plateauGroup.userData.mats);
 atmosphere.registerLampSpots(plateauGroup.userData.lampSpots);
 window.__plateau = { THREE, scene, camera, controls, renderer, placed, atmosphere };
@@ -225,7 +225,7 @@ function loadAsset(config) {
 }
 
 async function loadPlateauCity() {
-  beginLoading('Loading PLATEAU Tokyo LOD2...');
+  beginLoading('Loading PLATEAU Minato-ku LOD3...');
   try {
     const gltf = await new Promise((resolve, reject) => {
       loader.load(
@@ -233,7 +233,7 @@ async function loadPlateauCity() {
         resolve,
         (event) => {
           if (!event.total) return;
-          setStatus(`PLATEAU Tokyo ${Math.round((event.loaded / event.total) * 100)}%`);
+          setStatus(`PLATEAU Minato-ku LOD3 ${Math.round((event.loaded / event.total) * 100)}%`);
         },
         reject,
       );
@@ -243,7 +243,7 @@ async function loadPlateauCity() {
     // Re-sync camera height in case the default view starts on a PLATEAU skyscraper rooftop
     if (walk.active) walk.syncFromCamera({ preserveHeight: true });
     renderer.shadowMap.needsUpdate = true;
-    setStatus('PLATEAU Tokyo ready · Nishi-Shinjuku LOD2');
+    setStatus('PLATEAU Tokyo ready · Minato-ku LOD3');
   } catch (error) {
     console.error('Failed to load PLATEAU Tokyo GLB:', error);
     setStatus('PLATEAU Tokyo failed to load');
@@ -259,8 +259,8 @@ function frameEntry(entry) {
   const center = box.getCenter(new THREE.Vector3());
   const maxSize = Math.max(size.x, size.y, size.z);
   const distance = (maxSize / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.35;
-  // Frame from the East (Nishi-Shinjuku skyscraper cluster direction) looking West
-  const offset = new THREE.Vector3(0.92, 0, 0.32).normalize().multiplyScalar(distance);
+  // Frame from the West (Toranomon Hills skyscraper cluster direction) looking East
+  const offset = new THREE.Vector3(-0.88, 0, 0.42).normalize().multiplyScalar(distance);
   const position = new THREE.Vector3(
     center.x + offset.x,
     Math.max(box.min.y + Math.min(size.y * 0.35, 115), 24),

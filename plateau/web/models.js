@@ -39,11 +39,11 @@ export const MODELS = [
   },
 ];
 
-// Single excavated plot in Nishi-Shinjuku 5-chome (139.6852°E, 35.6915°N).
-// 291 low-rise detached houses inside [-136..136] x [-110..120] m were removed
-// from the PLATEAU LOD2 dataset so any of the 5 architectural studies can be
-// switched in and out on the civic plaza slab.
-export const PLOTS = [{ x: 0, z: 32, code: 'SHINJUKU-01' }];
+// Single excavated plot in Nishi-Shimbashi / Toranomon, Minato-ku (139.7524°E, 35.6656°N).
+// 131 buildings inside [-136..136] x [-110..120] m were removed from the
+// PLATEAU Minato-ku LOD3 dataset so any of the 5 architectural studies can be
+// switched in and out right beside the 300 m Toranomon Hills skyscraper cluster.
+export const PLOTS = [{ x: 0, z: 32, code: 'MINATO-LOD3-01' }];
 
 export const EXCAVATED_BOUNDS = {
   x0: -136,

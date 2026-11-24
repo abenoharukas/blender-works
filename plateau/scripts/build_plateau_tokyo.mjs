@@ -24,26 +24,28 @@ const CACHE_DIR = path.join(ROOT, 'plateau/out/cache_b3dm');
 const RAW_GLB = path.join(ROOT, 'plateau/out/tokyo_plateau.raw.glb');
 const OPT_GLB = path.join(ROOT, 'plateau/web/tokyo_plateau.optimized.glb');
 
-// Official Project PLATEAU 2025 Shinjuku-ku LOD2 textured 3D Tiles dataset
+// Official Project PLATEAU 2025 Minato-ku LOD3 textured 3D Tiles dataset
+// (Detailed 3D facades with windows, balconies, roof structures, and ~90% real photo texture coverage!)
 const TILESET_BASE =
-  'https://assets.cms.plateau.reearth.io/assets/00/bed0bd-f882-4cde-b942-21d0f8d2ddc2/13104_shinjuku-ku_pref_2025_citygml_1_op_bldg_3dtiles_13104_shinjuku-ku_lod2/';
+  'https://assets.cms.plateau.reearth.io/assets/c7/ffcc73-1d33-434b-a49a-aa0289160814/13103_minato-ku_pref_2025_citygml_1_op_bldg_3dtiles_13103_minato-ku_lod3/';
 
-// Official Project PLATEAU 2025 Shinjuku-ku LOD3 Transportation (Roads) 3D Tiles
+// Official Project PLATEAU 2025 Minato-ku LOD3 Transportation (Roads) 3D Tiles
 const TRAN_TILESET_BASE =
-  'https://assets.cms.plateau.reearth.io/assets/5d/8e46a6-98de-4829-8e4f-656c7cc89348/13104_shinjuku-ku_pref_2025_citygml_1_op_tran_3dtiles_lod3/';
+  'https://assets.cms.plateau.reearth.io/assets/87/884fad-ac86-4b58-8672-9f3d7bdbd44c/13103_minato-ku_pref_2025_citygml_1_op_tran_3dtiles_lod3/';
 
-// Center of our excavated residential plot in Nishi-Shinjuku 5-chome
-// (low-rise detached houses immediately west of Shinjuku Central Park & Tocho)
-const ORIGIN_LON_DEG = 139.6852;
-const ORIGIN_LAT_DEG = 35.6915;
-const ORIGIN_H = 63.7; // reference ellipsoid height (m) at plot center
+// Center of our excavated neighborhood plot in Nishi-Shimbashi / Toranomon
+// (immediately east of the 300 m Toranomon Hills Station Tower, Mori Tower,
+// Residential Tower, and Business Tower cluster)
+const ORIGIN_LON_DEG = 139.7524;
+const ORIGIN_LAT_DEG = 35.6656;
+const ORIGIN_H = 40.0; // reference ellipsoid height (m) at plot center
 
 // District window in local metres (X = East, Z = South / -North):
-// West: -340 m (Kumano Shrine / Nishi-Shinjuku 5-chome residential lanes)
-// East: +960 m (Shinjuku Central Park + Tocho / Park Hyatt / Mode Gakuen skyscrapers)
-// North/South: [-480 m, +480 m]
-const BBOX_X = [-340, 960];
-const BBOX_Z = [-480, 480];
+// West: -860 m (Toranomon Hills 4-tower 300 m skyscraper cluster & Ark Hills)
+// East: +420 m (Nishi-Shimbashi / Shimbashi urban blocks)
+// North/South: [-520 m, +520 m]
+const BBOX_X = [-860, 420];
+const BBOX_Z = [-520, 520];
 
 // Central excavated residential plot bounds (in local scene metres).
 // Every PLATEAU building whose 2D footprint intersects this box is cleanly
@@ -116,7 +118,7 @@ function gltfNormalToThree(nx, ny, nz) {
   return [e / len, u / len, -n / len];
 }
 
-async function fetchCached(relUri, baseUrl = TILESET_BASE, prefix = '') {
+async function fetchCached(relUri, baseUrl = TILESET_BASE, prefix = 'minato_') {
   const safeName = prefix + relUri.replace(/[\/\\]/g, '_');
   const localPath = path.join(CACHE_DIR, safeName);
   try {
@@ -319,22 +321,21 @@ async function main() {
       }
     }
 
-    // Copy texture if this tile has textured primitives
-    let tileMat = null;
-    const srcTextures = tileDoc.getRoot().listTextures();
-    if (srcTextures.length > 0) {
-      const srcTex = srcTextures[0];
+    // Copy all textures from this tile (Minato-ku LOD3 tiles can contain multiple texture atlases per b3dm!)
+    const srcTextureMap = new Map();
+    for (const srcTex of tileDoc.getRoot().listTextures()) {
       const imgBytes = srcTex.getImage();
       if (imgBytes) {
         const outTex = outDoc
-          .createTexture(`tex_${ti}`)
+          .createTexture(`tex_${ti}_${srcTextureMap.size}`)
           .setMimeType(srcTex.getMimeType() || 'image/webp')
           .setImage(imgBytes);
-        tileMat = outDoc
-          .createMaterial(`Plateau_Tile_${ti}`)
+        const mat = outDoc
+          .createMaterial(`Plateau_Tile_${ti}_${srcTextureMap.size}`)
           .setBaseColorTexture(outTex)
-          .setRoughnessFactor(0.78)
-          .setMetallicFactor(0.08);
+          .setRoughnessFactor(0.76)
+          .setMetallicFactor(0.06);
+        srcTextureMap.set(srcTex, mat);
       }
     }
 
@@ -348,6 +349,8 @@ async function main() {
         const indices = prim.getIndices();
         if (!pos || !indices) continue;
 
+        const primTex = prim.getMaterial()?.getBaseColorTexture();
+        const tileMat = (primTex && srcTextureMap.get(primTex)) || [...srcTextureMap.values()][0] || null;
         const hasUv = Boolean(uv && tileMat);
         const newPos = [];
         const newNorm = [];
@@ -600,8 +603,8 @@ async function main() {
   );
 
   // 4. Download & merge PLATEAU 2025 Shinjuku-ku LOD3 Transportation (Roads & Sidewalks) 3D Tiles!
-  console.log('[2b/4] Downloading PLATEAU Shinjuku-ku LOD3 Road Network (tran)...');
-  const tranTsBuf = await fetchCached('tileset.json', TRAN_TILESET_BASE, 'tran_');
+  console.log('[2b/4] Downloading PLATEAU Minato-ku LOD3 Road Network (tran)...');
+  const tranTsBuf = await fetchCached('tileset.json', TRAN_TILESET_BASE, 'minato_tran_');
   const tranTileset = JSON.parse(tranTsBuf.toString('utf-8'));
   const tranLeaves = [];
   function walkTran(node) {
@@ -636,7 +639,7 @@ async function main() {
   let roadTris = 0;
 
   for (let ti = 0; ti < selectedTranTiles.length; ti++) {
-    const rawB3dm = await fetchCached(selectedTranTiles[ti].uri, TRAN_TILESET_BASE, 'tran_');
+    const rawB3dm = await fetchCached(selectedTranTiles[ti].uri, TRAN_TILESET_BASE, 'minato_tran_');
     const { glb, rtc } = unpackB3dmToCleanGlb(rawB3dm);
     const tileDoc = await io.readBinary(glb);
     for (const mesh of tileDoc.getRoot().listMeshes()) {
