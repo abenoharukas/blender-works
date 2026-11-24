@@ -117,29 +117,30 @@ renderer.shadowMap.autoUpdate = false;
 
 // ------------------------------------------------------------------ views
 // Framed specifically for Nishi-Shinjuku:
+// - `skyline` (DEFAULT): inside the Nishi-Shinjuku skyscraper cluster (standing on a
+//   high-rise rooftop at x=529, y=119, z=70 among Tocho & Park Hyatt) looking west
+//   toward our excavated residential plot and placed tower!
 // - `street`: eye-level (1.75 m) on the south residential approach avenue looking
 //   north at the excavated plot framed by low-rise houses
 // - `alley`: from the west Nishi-Shinjuku residential lane looking east across the
-//   excavated plot toward the real textured Shinjuku skyscraper cluster (Tocho)
-// - `skyline`: elevated architectural view showing our tower alongside the real
-//   Nishi-Shinjuku LOD2 high-rise skyline
-// - `overview`: high aerial view of the 1.3 km x 1.0 km Tokyo district & excavated plot
+//   excavated plot toward the real textured Shinjuku skyscraper cluster
+// - `overview`: high aerial view from the east skyscraper side looking across the entire district
 const VIEWS = {
+  skyline: {
+    position: new THREE.Vector3(529, 118.9, 70),
+    target: new THREE.Vector3(0, 108, 32),
+  },
   street: {
     position: new THREE.Vector3(0.8, 1.75, 368),
     target: new THREE.Vector3(0, 108, 20),
   },
   alley: {
-    position: new THREE.Vector3(-235, 14, 155),
-    target: new THREE.Vector3(120, 78, -10),
-  },
-  skyline: {
-    position: new THREE.Vector3(-390, 145, 340),
-    target: new THREE.Vector3(160, 88, -20),
+    position: new THREE.Vector3(305, 170.8, -86),
+    target: new THREE.Vector3(0, 102, 32),
   },
   overview: {
-    position: new THREE.Vector3(-460, 480, 680),
-    target: new THREE.Vector3(90, 65, -20),
+    position: new THREE.Vector3(680, 390, 460),
+    target: new THREE.Vector3(60, 80, 10),
   },
 };
 
@@ -172,9 +173,9 @@ loader.setMeshoptDecoder(MeshoptDecoder);
 const assetCache = new Map();
 const placed = [];
 const atmosphere = createAtmosphereSystem({ scene, renderer, camera, controls, placed });
-// Start at 14:30 Afternoon so the sun illuminates the West & South facades of both
-// the excavated plot and the Nishi-Shinjuku skyscraper skyline
-atmosphere.state.hour = 14.5;
+// Start at 09:30 Morning so the sun in the East/Southeast illuminates the eastern
+// facades facing the Nishi-Shinjuku skyscraper cluster
+atmosphere.state.hour = 9.5;
 atmosphere.registerStreetMaterials(plateauGroup.userData.mats);
 atmosphere.registerLampSpots(plateauGroup.userData.lampSpots);
 window.__plateau = { THREE, scene, camera, controls, renderer, placed, atmosphere };
@@ -238,6 +239,9 @@ async function loadPlateauCity() {
       );
     });
     attachPlateauCityModel(gltf.scene, plateauGroup, atmosphere);
+    walk.setColliderGroup('plateau', gltf.scene);
+    // Re-sync camera height in case the default view starts on a PLATEAU skyscraper rooftop
+    if (walk.active) walk.syncFromCamera({ preserveHeight: true });
     renderer.shadowMap.needsUpdate = true;
     setStatus('PLATEAU Tokyo ready · Nishi-Shinjuku LOD2');
   } catch (error) {
@@ -254,11 +258,12 @@ function frameEntry(entry) {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxSize = Math.max(size.x, size.y, size.z);
-  const distance = (maxSize / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.42;
-  const offset = new THREE.Vector3(-0.38, 0, 1).normalize().multiplyScalar(distance);
+  const distance = (maxSize / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.35;
+  // Frame from the East (Nishi-Shinjuku skyscraper cluster direction) looking West
+  const offset = new THREE.Vector3(0.92, 0, 0.32).normalize().multiplyScalar(distance);
   const position = new THREE.Vector3(
     center.x + offset.x,
-    Math.max(box.min.y + Math.min(size.y * 0.08, 22), 8),
+    Math.max(box.min.y + Math.min(size.y * 0.35, 115), 24),
     center.z + offset.z,
   );
   flyTo(position, center);
@@ -330,6 +335,7 @@ async function switchModel(id, { focus = false } = {}) {
       hidden: false,
     };
     placed.push(entry);
+    walk.setColliderGroup('placed', group);
     atmosphere.applyAtmosphere();
     renderPlaced();
     renderPalette();
@@ -349,6 +355,7 @@ function removeEntry(entry) {
   scene.remove(entry.group);
   const index = placed.indexOf(entry);
   if (index >= 0) placed.splice(index, 1);
+  walk.setColliderGroup('placed', null);
   renderPlaced();
   renderPalette();
   renderer.shadowMap.needsUpdate = true;
@@ -438,7 +445,8 @@ window.addEventListener('keydown', (event) => {
     switchModel(MODELS[index - 1].id, { focus: false });
     return;
   }
-  if (key === 'a') applyView('alley');
+  if (key === 's' && !walk.active) applyView('street');
+  if (key === 'a' && !walk.active) applyView('alley');
   if (key === 'k') applyView('skyline');
   if (key === 'o') applyView('overview');
   if (key === 'p') togglePlay();

@@ -1,123 +1,17 @@
 // Builds the excavated Nishi-Shinjuku site pad, perimeter roads, streetlamps,
-// and loads the real Tokyo Project PLATEAU 2025 LOD2 city chunk
-// (`./tokyo_plateau.optimized.glb`). Also enriches untextured PLATEAU wall/roof
-// buckets with Japanese residential facade/window emissive maps and generates
-// subtle night window glow on real textured LOD2 skyscraper/apartment facades.
+// and loads the authentic Tokyo Project PLATEAU 2025 LOD2 city chunk
+// (`./tokyo_plateau.optimized.glb`), keeping PLATEAU's original aerial textures
+// and untextured LOD2 white-model geometry faithfully without fake procedural
+// facade textures or synthetic night window emissives.
 import * as THREE from 'three';
 import { EXCAVATED_BOUNDS } from './models.js';
-import {
-  createHouseWallTexture,
-  createHouseWallEmissiveMap,
-  createCommercialUpperTexture,
-  createCommercialUpperEmissiveMap,
-  createRoofTexture,
-} from './japanese-textures.js';
-
-/**
- * Generates an emissive map from a PLATEAU LOD2 facade texture atlas AND gently
- * lifts dark baked aerial-photography shadows on the daytime color texture so
- * Shinjuku skyscrapers read crisp and bright under Three.js ACES tone mapping.
- */
-function processPlateauAtlasTextures(srcTexture, seed = 1) {
-  const img = srcTexture?.image;
-  if (!img || !img.width || !img.height) return null;
-
-  // 1. Brighten daytime albedo texture (lift dark aerial shadow areas with a 0.72 gamma curve)
-  const cw = img.width;
-  const ch = img.height;
-  const colorCanvas = document.createElement('canvas');
-  colorCanvas.width = cw;
-  colorCanvas.height = ch;
-  const colorCtx = colorCanvas.getContext('2d');
-  colorCtx.drawImage(img, 0, 0, cw, ch);
-
-  try {
-    const cData = colorCtx.getImageData(0, 0, cw, ch);
-    const px = cData.data;
-    const lut = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) {
-      // Lift shadows while preserving bright highlights
-      const norm = i / 255;
-      lut[i] = Math.min(255, Math.round(Math.pow(norm, 0.72) * 242 + 13));
-    }
-    for (let i = 0; i < px.length; i += 4) {
-      px[i] = lut[px[i]];
-      px[i + 1] = lut[px[i + 1]];
-      px[i + 2] = lut[px[i + 2]];
-    }
-    colorCtx.putImageData(cData, 0, 0);
-  } catch {
-    return null;
-  }
-
-  const colorTex = new THREE.CanvasTexture(colorCanvas);
-  colorTex.colorSpace = THREE.SRGBColorSpace;
-  colorTex.flipY = srcTexture.flipY;
-  colorTex.wrapS = srcTexture.wrapS;
-  colorTex.wrapT = srcTexture.wrapT;
-
-  // 2. Build 512x512 night window emissive map from original image contrast
-  const w = Math.min(512, img.width);
-  const h = Math.min(512, img.height);
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0, w, h);
-
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const data = imgData.data;
-
-  const cellSize = 16;
-  for (let y = 0; y < h; y++) {
-    const cy = Math.floor(y / cellSize);
-    for (let x = 0; x < w; x++) {
-      const cx = Math.floor(x / cellSize);
-      const cellHash = Math.abs(Math.imul(cx * 73 + cy * 199 + seed * 37, 0x45d9f3b)) % 100;
-      const idx = (y * w + x) * 4;
-
-      if (cellHash < 52) {
-        data[idx] = 0;
-        data[idx + 1] = 0;
-        data[idx + 2] = 0;
-        continue;
-      }
-
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-
-      if (lum > 20 && lum < 122 && b >= r * 0.82) {
-        const strength = Math.min(1, (122 - lum) / 72);
-        const warm = cellHash < 82;
-        data[idx] = Math.round((warm ? 255 : 210) * strength);
-        data[idx + 1] = Math.round((warm ? 208 : 230) * strength);
-        data[idx + 2] = Math.round((warm ? 138 : 255) * strength);
-      } else {
-        data[idx] = 0;
-        data[idx + 1] = 0;
-        data[idx + 2] = 0;
-      }
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  const emissiveTex = new THREE.CanvasTexture(canvas);
-  emissiveTex.colorSpace = THREE.SRGBColorSpace;
-  emissiveTex.flipY = srcTexture.flipY;
-  emissiveTex.wrapS = srcTexture.wrapS;
-  emissiveTex.wrapT = srcTexture.wrapT;
-  return { colorTex, emissiveTex };
-}
 
 export function buildPlateauBase(scene) {
   const group = new THREE.Group();
   group.name = 'plateau_city';
   scene.add(group);
 
-  // Material buckets registered with `atmosphere.js` so rain wetness, snow cover,
-  // and night emissive window lighting work seamlessly.
+  // Material buckets registered with `atmosphere.js` for roads, plaza, and streetlamps.
   const mats = {
     road: {
       material: new THREE.MeshStandardMaterial({
@@ -178,12 +72,6 @@ export function buildPlateauBase(scene) {
         roughness: 0.68,
       }),
     },
-    houseLightWalls: [],
-    houseDarkWalls: [],
-    houseTileWalls: [],
-    commUppers: [],
-    kawaraDark: null,
-    kawaraBrown: null,
     foliageFresh: {
       material: new THREE.MeshStandardMaterial({
         name: 'foliage_fresh',
@@ -318,123 +206,47 @@ export function buildPlateauBase(scene) {
 }
 
 /**
- * Configures the loaded `tokyo_plateau.optimized.glb` scene graph, binding
- * procedural window textures & night emissive maps to untextured residential
- * buckets and subtle night window emissive maps to textured LOD2 tiles.
+ * Attaches the loaded `tokyo_plateau.optimized.glb` scene graph in its authentic
+ * Project PLATEAU state: textured LOD2 buildings keep their original aerial
+ * textures untouched, and untextured LOD2 buildings render as clean neutral
+ * architectural solids without fake procedural window textures or emissive maps.
  */
 export function attachPlateauCityModel(plateauRoot, plateauGroup, atmosphere) {
   const mats = plateauGroup.userData.mats;
 
-  const wallConfigs = [
-    { hex: 0xede8de, style: 'plaster', frame: '#2a2e33', win: 'sliding', seed: 101 },
-    { hex: 0xe3dcd0, style: 'siding', frame: '#34383d', win: 'sliding', seed: 137 },
-    { hex: 0xd5ccc0, style: 'siding', frame: '#26292e', win: 'slit', seed: 173 },
-    { hex: 0x353940, style: 'siding', frame: '#1b1d20', win: 'sliding', seed: 211 },
-    { hex: 0xb89f88, style: 'tile', frame: '#2a241e', win: 'sliding', seed: 257 },
-  ];
-
-  const wallMaterials = wallConfigs.map((cfg, i) => {
-    const map = createHouseWallTexture({
-      baseHex: cfg.hex,
-      style: cfg.style,
-      frameColor: cfg.frame,
-      windowType: cfg.win,
-    });
-    map.wrapS = THREE.RepeatWrapping;
-    map.wrapT = THREE.RepeatWrapping;
-    const emissiveMap = createHouseWallEmissiveMap({ windowType: cfg.win, seed: cfg.seed });
-    emissiveMap.wrapS = THREE.RepeatWrapping;
-    emissiveMap.wrapT = THREE.RepeatWrapping;
-
-    const mat = new THREE.MeshStandardMaterial({
-      name: `Plateau_Res_Wall_${i}`,
-      map,
-      emissive: new THREE.Color(0xffffff),
-      emissiveMap,
-      emissiveIntensity: 0,
-      roughness: 0.84,
-      metalness: 0.05,
-    });
-    if (i === 3) mats.houseDarkWalls.push({ material: mat });
-    else if (i === 4) mats.houseTileWalls.push({ material: mat });
-    else mats.houseLightWalls.push({ material: mat });
-    return mat;
+  const untexturedWallMat = new THREE.MeshStandardMaterial({
+    name: 'Plateau_Untextured_Wall',
+    color: 0xd8d5ce,
+    roughness: 0.85,
+    metalness: 0.04,
+  });
+  const untexturedRoofMat = new THREE.MeshStandardMaterial({
+    name: 'Plateau_Untextured_Roof',
+    color: 0xb8b5ae,
+    roughness: 0.82,
+    metalness: 0.06,
   });
 
-  const commMap = createCommercialUpperTexture({ baseHex: 0xded8cc, accentHex: 0xb8b0a2 });
-  commMap.wrapS = THREE.RepeatWrapping;
-  commMap.wrapT = THREE.RepeatWrapping;
-  const commEmissive = createCommercialUpperEmissiveMap({ seed: 509 });
-  commEmissive.wrapS = THREE.RepeatWrapping;
-  commEmissive.wrapT = THREE.RepeatWrapping;
-  const commMat = new THREE.MeshStandardMaterial({
-    name: 'Plateau_Comm_Wall_0',
-    map: commMap,
-    emissive: new THREE.Color(0xffffff),
-    emissiveMap: commEmissive,
-    emissiveIntensity: 0,
-    roughness: 0.74,
-    metalness: 0.08,
-  });
-  mats.commUppers.push({ material: commMat });
-
-  const roof0Tex = createRoofTexture({ baseHex: 0x35393e, style: 'kawara' });
-  roof0Tex.wrapS = THREE.RepeatWrapping;
-  roof0Tex.wrapT = THREE.RepeatWrapping;
-  const roof0Mat = new THREE.MeshStandardMaterial({
-    name: 'Plateau_Res_Roof_0',
-    map: roof0Tex,
-    roughness: 0.6,
-    metalness: 0.14,
-  });
-  mats.kawaraDark = { material: roof0Mat };
-
-  const roof1Tex = createRoofTexture({ baseHex: 0x5e4234, style: 'kawara' });
-  roof1Tex.wrapS = THREE.RepeatWrapping;
-  roof1Tex.wrapT = THREE.RepeatWrapping;
-  const roof1Mat = new THREE.MeshStandardMaterial({
-    name: 'Plateau_Res_Roof_1',
-    map: roof1Tex,
-    roughness: 0.64,
-    metalness: 0.08,
-  });
-  mats.kawaraBrown = { material: roof1Mat };
-
-  let tileSeed = 1;
   plateauRoot.traverse((obj) => {
     if (!obj.isMesh) return;
     obj.castShadow = true;
     obj.receiveShadow = true;
 
     const mName = obj.material?.name || obj.name || '';
-    if (mName.startsWith('Plateau_Res_Wall_')) {
-      const idx = Number(mName.replace('Plateau_Res_Wall_', '')) || 0;
-      obj.material = wallMaterials[idx % wallMaterials.length];
-    } else if (mName.startsWith('Plateau_Comm_Wall_')) {
-      obj.material = commMat;
-    } else if (mName === 'Plateau_Res_Roof_0') {
-      obj.material = roof0Mat;
-    } else if (mName === 'Plateau_Res_Roof_1') {
-      obj.material = roof1Mat;
+    if (mName.startsWith('Plateau_Res_Wall_') || mName.startsWith('Plateau_Comm_Wall_')) {
+      obj.material = untexturedWallMat;
+    } else if (mName.startsWith('Plateau_Res_Roof_')) {
+      obj.material = untexturedRoofMat;
     } else if (mName === 'Plateau_Road_LOD3') {
       obj.castShadow = false;
       obj.receiveShadow = true;
       obj.material = mats.road.material;
     } else if (obj.material?.map) {
-      // Real textured PLATEAU LOD2 building tile (Nishi-Shinjuku skyscrapers & avenues)
+      // Original PLATEAU LOD2 aerial photography texture — keep unmodified
       const mat = obj.material;
-      mat.roughness = 0.62;
-      mat.metalness = 0.08;
+      mat.roughness = 0.78;
+      mat.metalness = 0.05;
       mat.side = THREE.DoubleSide;
-      const processed = processPlateauAtlasTextures(mat.map, tileSeed++);
-      if (processed) {
-        mat.map = processed.colorTex;
-        mat.emissive = new THREE.Color(0xffffff);
-        mat.emissiveMap = processed.emissiveTex;
-        mat.emissiveIntensity = 0;
-        mat.needsUpdate = true;
-        mats.commUppers.push({ material: mat });
-      }
     }
   });
 
