@@ -43,7 +43,7 @@ import {
   addShotengaiLamp,
   addShotengaiArch,
 } from './japanese-buildings.js';
-import { applyInteriorMapping } from './interior-mapping.js';
+import { applyInteriorMapping, applyShopInteriorMapping } from './interior-mapping.js';
 
 export const STREET = { road: 4.8, walk: 2.3, from: 136, to: 592 };
 const FRONT = STREET.road + STREET.walk;
@@ -269,16 +269,18 @@ function createMaterialLibrary() {
   const windowLitOffice = makeLitWin('window_lit_office', 'office_cool');
   const windowLitModern = makeLitWin('window_lit_modern', 'modern_led');
 
-  // 4. Ground-Floor Recessed Storefront Bays (STRICT emissiveMap masks -> zero glowing plaster/frames!)
+  // 4. Ground-Floor Recessed Storefront Bays (STRICT emissiveMap glass mask -> 3D Parallax Shop Interiors!)
   const makeLitShopBay = (name, variant, roughness) => {
     const set = createShopfrontBayTextureSet(variant);
-    return std(name, {
+    const b = std(name, {
       map: set.map,
       emissive: 0xffffff,
       emissiveMap: set.emissiveMap,
       emissiveIntensity: 0,
       roughness,
     });
+    applyShopInteriorMapping(b.material, variant);
+    return b;
   };
   const shopIzakaya = makeLitShopBay('shop_izakaya', 'izakaya', 0.62);
   const shopRamen = makeLitShopBay('shop_ramen', 'ramen', 0.62);
