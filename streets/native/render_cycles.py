@@ -20,6 +20,9 @@ import bpy
 from mathutils import Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+from cycles_interiors import upgrade_cycles_interiors
 ROOT = os.path.dirname(os.path.dirname(HERE))
 OUT = os.path.join(HERE, "out")
 ASSETS = "/Users/raku/repos/others/threert-assets"
@@ -49,6 +52,7 @@ VIEWS = {
     # Same eye-level street preset as the ThreeRT scene.
     "street": {"pos": (4.9, 1.7, 560.0), "target": (0.0, 55.0, 90.0), "fov": 52.0},
     "shotengai": {"pos": (3.6, 8.8, 366.0), "target": (-12.0, 4.6, 308.0), "fov": 52.0},
+    "shotengai_walk": {"pos": (-2.5, 1.75, 392.0), "target": (8.5, 2.4, 370.0), "fov": 52.0},
     "ikkodate": {"pos": (36.0, 3.2, 380.0), "target": (106.0, 2.8, 379.2), "fov": 52.0},
 }
 
@@ -103,7 +107,7 @@ def emission_materials():
     """Materials that carry glTF emissive strength (lit windows, signs, lamps)."""
     found = []
     for mat in bpy.data.materials:
-        if not mat.use_nodes:
+        if not mat.use_nodes or mat.name.startswith("Shop3D_"):
             continue
         for node in mat.node_tree.nodes:
             if node.type == "BSDF_PRINCIPLED" and node.inputs["Emission Strength"].default_value > 0.001:
@@ -157,11 +161,11 @@ def set_world_blue():
     span.inputs["To Max"].default_value = 1.0
     ramp = nt.nodes.new("ShaderNodeValToRGB")
     stops = [
-        (0.00, (0.46, 0.27, 0.41, 1.0)),
-        (0.18, (0.34, 0.21, 0.37, 1.0)),
-        (0.40, (0.16, 0.13, 0.28, 1.0)),
-        (0.70, (0.05, 0.06, 0.16, 1.0)),
-        (1.00, (0.02, 0.025, 0.07, 1.0)),
+        (0.00, (0.20, 0.27, 0.56, 1.0)),
+        (0.16, (0.12, 0.21, 0.48, 1.0)),
+        (0.40, (0.045, 0.11, 0.34, 1.0)),
+        (0.72, (0.018, 0.055, 0.22, 1.0)),
+        (1.00, (0.010, 0.032, 0.15, 1.0)),
     ]
     els = ramp.color_ramp.elements
     while len(els) > 1:
@@ -170,7 +174,7 @@ def set_world_blue():
     for pos, color in stops[1:]:
         el = els.new(pos)
         el.color = color
-    bg.inputs["Strength"].default_value = 2.2
+    bg.inputs["Strength"].default_value = 1.55
     nt.links.new(tc.outputs["Generated"], sep.inputs["Vector"])
     nt.links.new(sep.outputs["Z"], span.inputs["Value"])
     nt.links.new(span.outputs["Result"], ramp.inputs["Fac"])
@@ -186,7 +190,7 @@ def set_world_night():
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputWorld")
     bg = nt.nodes.new("ShaderNodeBackground")
-    bg.inputs["Color"].default_value = (0.004, 0.006, 0.014, 1.0)
+    bg.inputs["Color"].default_value = (0.011, 0.016, 0.034, 1.0)
     bg.inputs["Strength"].default_value = 1.0
     nt.links.new(bg.outputs["Background"], out.inputs["Surface"])
 
@@ -202,7 +206,7 @@ def add_sun(direction, strength, color, angle_deg=0.6):
     return obj
 
 
-def add_street_lights(data, watt):
+def add_street_lights(data, watt, cam_pos=None):
     for i, light in enumerate(data["points"]):
         lamp = bpy.data.lights.new(f"StreetLight_{i}", type="POINT")
         lamp.energy = watt
@@ -211,6 +215,31 @@ def add_street_lights(data, watt):
         obj = bpy.data.objects.new(f"StreetLight_{i}", lamp)
         obj.location = to_blender(light["pos"])
         bpy.context.collection.objects.link(obj)
+
+    # Also spawn warm Cycles lights under nearby residential lane streetlamps (`warm_lamp` mesh)
+    # so Ikkodate lanes cast authentic warm night pools onto the asphalt, hedges, and houses!
+    warm_obj = bpy.data.objects.get("warm_lamp")
+    if warm_obj and warm_obj.type == "MESH" and cam_pos is not None:
+        me = warm_obj.data
+        M = warm_obj.matrix_world
+        existing = [to_blender(l["pos"]) for l in data["points"]]
+        placed = []
+        for poly in me.polygons:
+            c = M @ poly.center
+            if c.z < 3.0 or c.z > 6.5:
+                continue
+            if (c - cam_pos).length > 110.0:
+                continue
+            if any((c - e).length < 4.0 for e in existing) or any((c - p).length < 4.0 for p in placed):
+                continue
+            placed.append(c)
+            lamp = bpy.data.lights.new(f"LaneLamp_{len(placed)}", type="POINT")
+            lamp.energy = watt * 1.4
+            lamp.color = (1.0, 0.78, 0.48)
+            lamp.shadow_soft_size = 0.22
+            obj = bpy.data.objects.new(f"LaneLamp_{len(placed)}", lamp)
+            obj.location = Vector((c.x, c.y, c.z - 0.22))
+            bpy.context.collection.objects.link(obj)
 
 
 def add_camera(view):
@@ -296,7 +325,10 @@ def main():
         if obj.type in {"LIGHT", "CAMERA"} and obj.name != "camera":
             bpy.data.objects.remove(obj, do_unlink=True)
 
-    add_camera(VIEWS[opts["view"]])
+    # Upgrade 1F hollow storefronts to true 3D furnished rooms & upper/residential windows to GPU Interior Mapping
+    upgrade_cycles_interiors(opts["sky"])
+
+    cam_obj = add_camera(VIEWS[opts["view"]])
     emissions = emission_materials()
 
     if opts["sky"] == "day":
@@ -307,17 +339,17 @@ def main():
         samples = opts["samples"] or 48
     elif opts["sky"] == "blue":
         set_world_blue()
-        add_sun((-0.75, 0.30, -0.10), 0.10, (1.0, 0.62, 0.40), angle_deg=2.0)
-        add_street_lights(data, watt=90.0)
-        apply_emission(emissions, 0.0025, 0.0009)
-        scene.view_settings.exposure = 2.0
+        add_sun((-0.75, 0.30, -0.35), 0.24, (0.58, 0.74, 1.0), angle_deg=8.0)
+        add_street_lights(data, watt=110.0, cam_pos=cam_obj.location)
+        apply_emission(emissions, 0.0032, 0.0010)
+        scene.view_settings.exposure = 1.45
         samples = opts["samples"] or 128
     else:
         set_world_night()
         add_sun((-0.25, 0.45, -0.85), 0.12, (0.55, 0.68, 1.0), angle_deg=2.0)
-        add_street_lights(data, watt=80.0)
-        apply_emission(emissions, 0.0025, 0.0009)
-        scene.view_settings.exposure = 1.0
+        add_street_lights(data, watt=95.0, cam_pos=cam_obj.location)
+        apply_emission(emissions, 0.0028, 0.0009)
+        scene.view_settings.exposure = 1.05
         samples = opts["samples"] or 96
 
     configure_render(samples, opts["width"], opts["height"])
