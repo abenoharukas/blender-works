@@ -1,5 +1,7 @@
 # Playground
 
+![Japanese Streetscape — Cycles Blue Hour 50 mm](../images/cycles-clear-blue-street.png)
+
 A procedural Japanese townscape built with plain Three.js, hosting any of the
 repository's architectural models at real 1:1 scale across nine civic plots
 (three rows of three).

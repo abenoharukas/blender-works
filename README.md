@@ -2,6 +2,27 @@
 
 Independent procedural Blender studies under `works/`, with the Three.js viewer in `model_viewer/`, the Japanese streetscape in `streets/`, and optical/material path-tracing studies in `optics/`; commands in each section run from the repository root.
 
+## Japanese Streetscape (`streets/`)
+
+A procedural Japanese district combining a station-front *Shotengai* (convenience stores, timber *machiya* izakayas and ramen shops with *noren* curtains and *chochin* lanterns, corner *kissaten* cafes, pharmacies, and bookstores) with six *ikkodate* detached-house archetypes across nine civic plots hosting any tower model in this repository at 1:1 scale.
+
+Rendered offline in **Blender Cycles (Apple Metal GPU, 50 mm lens)** with a hybrid interior architecture — true 3D furnished rooms behind transparent reflective glass for 619 hollow ground-floor storefronts, paired with a native Metal GPU Interior Mapping shader node group for upper-storey and residential windows (see [`streets/INTERIOR_MAPPING.md`](streets/INTERIOR_MAPPING.md) for the Web GLSL, ThreeRT WGSL, and Cycles implementation details):
+
+![Japanese Streetscape — Cycles Blue Hour 50 mm](streets/images/cycles-clear-blue-street.png)
+
+| Shotengai 1.75 m Night Walk (3D 1F Storefronts + 2F GPU Interior Mapping) | Ikkodate Residential Lane at Night |
+| --- | --- |
+| ![Shotengai night walk closeup](streets/images/cycles-clear-night-shotengai_walk.png) | ![Ikkodate residential lane at night](streets/images/cycles-clear-night-ikkodate.png) |
+
+```bash
+# Interactive Three.js web sandbox (http://localhost:8123/streets/web/)
+npm run serve
+
+# Offline Blender Cycles renders (50 mm lens, day / blue / night)
+blender --background --factory-startup --python-exit-code 1 \
+  --python streets/native/render_cycles.py -- --sky blue --view street
+```
+
 ## Highrise House
 
 A procedural Blender model of a high-rise residential complex composed of two independently configured apartment towers, a continuous curved glass podium, open pilotis levels, sky gardens, and landscaped roofs. The project explores facade rhythm, public space, structure, and lighting at the scale of a dense vertical development.
@@ -329,8 +350,10 @@ works/
   shared/           # materials.py, open_in_blender.py, check_stack_zfight.py, rebuild_web_assets.py
 model_viewer/       # Three.js standalone model viewer and web GLB assets
 streets/
-  web/              # Three.js procedural Japanese streetscape & plot placement sandbox
-  native/           # ThreeRT Rust/Metal path-traced Japanese streetscape
+  web/                # Three.js procedural Japanese streetscape, 24H atmosphere & GLSL Interior Mapping
+  native/             # ThreeRT WGSL path-traced streetscape & Blender Cycles offline renderer
+  images/             # Presentation renders for README
+  INTERIOR_MAPPING.md # Analytic ray-box Interior Mapping design across Web / ThreeRT / Cycles
 optics/             # ThreeRT optical dispersion & material verification (prism/, diamond/, the-stack-final.mts)
 package.json        # Serve, glTF optimization, and ThreeRT scripts
 ```
