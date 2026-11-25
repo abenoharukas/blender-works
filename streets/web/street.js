@@ -3,25 +3,31 @@
 // Konbini, Izakaya, Ramen, Kissaten, Pharmacies, Bookstores, Neighborhood Supermarkets)
 // with dense, subdivided residential blocks of authentic Japanese detached houses
 // (一戸建て: Kirizuma, Katanagare, Yosemune, 3F Kyosho-jutaku, Machiya, Courtyard).
-// All static geometry is merged per material (~40 draw calls total) for fast rendering.
+// All static geometry is merged per material (~65 draw calls total) for fast rendering.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PLOTS } from './models.js';
 import {
-  createHouseWallTexture,
-  createHouseWallEmissiveMap,
-  createCommercialUpperTexture,
-  createCommercialUpperEmissiveMap,
-  createShopfrontTexture,
-  createSleeveSignTexture,
-  createHorizontalSignTexture,
-  createNorenTexture,
-  createRoofTexture,
-  createBlockWallTexture,
+  createWallCladdingPBR,
+  createBlockWallPBR,
+  createRoofPBR,
+  createUnlitWindowTexture,
+  createLitWindowTextureSet,
+  createShopfrontBayTextureSet,
+  createShopFasciaSignSet,
+  createKonbiniFasciaSet,
+  createKonbiniPylonSet,
+  createPolePlaqueTexture,
+  createPoleReflectorTexture,
+  createStreetFlagTexture,
+  createSleeveSignTextureSet,
+  createArchSignTextureSet,
+  createNorenPanelTexture,
+  createAcUnitTexture,
+  createDrainGrateTexture,
 } from './japanese-textures.js';
 import {
   box,
-  signBox,
   LotContext,
   buildRandomIkkodate,
   buildKonbini,
@@ -29,6 +35,7 @@ import {
   buildShotengaiBuilding,
   buildKissatenCorner,
   buildNeighborhoodSuper,
+  addSleeveSign,
   addGardenTree,
   addKeiCar,
   addUtilityPole,
@@ -73,16 +80,19 @@ class Bucket {
   }
   build(parent, { name, castShadow = true, receiveShadow = true } = {}) {
     if (!this.geometries.length) return null;
-    // Normalize geometry attributes (strip non-indexed or mismatched normals/uvs safely)
     const normalized = this.geometries.map((geom) => {
-      const g = geom.index ? geom.toNonIndexed() : geom;
-      if (!g.attributes.normal) g.computeVertexNormals();
-      if (!g.attributes.uv) {
-        const count = g.attributes.position.count;
-        g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(count * 2), 2));
+      if (!geom.attributes.normal) geom.computeVertexNormals();
+      if (!geom.attributes.uv) {
+        const count = geom.attributes.position.count;
+        geom.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(count * 2), 2));
       }
-      if (g !== geom) geom.dispose();
-      return g;
+      if (!geom.index) {
+        const count = geom.attributes.position.count;
+        const idx = count > 65535 ? new Uint32Array(count) : new Uint16Array(count);
+        for (let i = 0; i < count; i++) idx[i] = i;
+        geom.setIndex(new THREE.BufferAttribute(idx, 1));
+      }
+      return geom;
     });
     this.geometries.length = 0;
     const merged = mergeGeometries(normalized, false);
@@ -149,9 +159,6 @@ function wireGeometry(a, b, sag, radius = 0.024) {
 }
 
 // ------------------------------------------------------------------ plot clearances
-// Plot 0 (0, 60) uses the exact central station plaza [-150..150, -115..135] from models.js.
-// Plots 1..8 use crisp rectangular civic plazas (240 m x 154 m) so all 5 large architectural
-// models fit with generous breathing room while dense Japanese neighborhoods weave between them.
 function insideAnyPlotPlaza(x, z, pad = 6) {
   if (Math.abs(x) < 150 + pad && z > -115 - pad && z < 135 + pad) return true;
   for (let i = 1; i < PLOTS.length; i++) {
@@ -163,211 +170,352 @@ function insideAnyPlotPlaza(x, z, pad = 6) {
 
 function createMaterialLibrary() {
   const std = (name, props) => new Bucket(new THREE.MeshStandardMaterial({ name, ...props }));
+  const stdPbr = (name, pbr, extra = {}) => std(name, {
+    map: pbr.map,
+    normalMap: pbr.normalMap,
+    normalScale: new THREE.Vector2(0.85, 0.85),
+    roughnessMap: pbr.roughnessMap,
+    roughness: 1.0,
+    ...extra,
+  });
 
-  // Residential light walls + matching windowless gable-end walls
+  // 1. Pure Residential Claddings (512x512 PBR normalMap + roughnessMap, zero 2D painted fake windows!)
   const lightDefs = [
-    { hex: 0xede8de, style: 'plaster', frame: '#2a2e33' }, // Shikkui warm white
-    { hex: 0xe3dcd0, style: 'siding', frame: '#34383d' },  // Ivory ceramic siding
-    { hex: 0xd5ccc0, style: 'siding', frame: '#26292e' },  // Greige modern siding
-    { hex: 0xdfd4c3, style: 'plaster', frame: '#4a3525' }, // Sand beige plaster
+    { hex: 0xede8de, style: 'plaster' }, // Shikkui warm white
+    { hex: 0xe3dcd0, style: 'siding' },  // Ivory ceramic siding
+    { hex: 0xd5ccc0, style: 'siding' },  // Greige modern siding
+    { hex: 0xdfd4c3, style: 'plaster' }, // Sand beige troweled stucco
   ];
-  const houseLightWalls = lightDefs.map((d, i) => std(`house_light_${i}`, {
-    map: createHouseWallTexture({ baseHex: d.hex, style: d.style, frameColor: d.frame, windowType: 'sliding' }),
-    emissive: 0xffffff,
-    emissiveMap: createHouseWallEmissiveMap({ windowType: 'sliding', seed: 11 + i * 37 }),
-    emissiveIntensity: 0,
-    roughness: 0.85,
-  }));
-  const houseLightBlanks = lightDefs.map((d, i) => std(`house_light_blank_${i}`, {
-    map: createHouseWallTexture({ baseHex: d.hex, style: d.style, windowType: 'none' }),
-    roughness: 0.85,
-  }));
+  const houseLightWalls = lightDefs.map((d, i) =>
+    stdPbr(`house_light_${i}`, createWallCladdingPBR({ baseHex: d.hex, style: d.style, seed: 11 + i * 37 })),
+  );
 
-  // Slit-window contemporary walls
-  const houseSlitWalls = [0xf0ece4, 0xd8d2c7].map((hex, i) => std(`house_slit_${i}`, {
-    map: createHouseWallTexture({ baseHex: hex, style: 'plaster', windowType: 'slit' }),
+  const houseSlitWalls = [0xf0ece4, 0xd8d2c7].map((hex, i) =>
+    stdPbr(`house_slit_${i}`, createWallCladdingPBR({ baseHex: hex, style: 'plaster', seed: 211 + i * 53 })),
+  );
+
+  const darkDefs = [
+    { hex: 0x363a40, style: 'siding' }, // Sumi charcoal ceramic siding
+    { hex: 0x2c3848, style: 'siding' }, // Navy slate modern ikkodate siding
+    { hex: 0x4b4843, style: 'siding' }, // Warm umber-grey siding
+  ];
+  const houseDarkWalls = darkDefs.map((d, i) =>
+    stdPbr(`house_dark_${i}`, createWallCladdingPBR({ baseHex: d.hex, style: d.style, seed: 401 + i * 71 }), { metalness: 0.08 }),
+  );
+
+  const houseTileWalls = [0xb59b84, 0x9c826e].map((hex, i) =>
+    stdPbr(`house_tile_${i}`, createWallCladdingPBR({ baseHex: hex, style: 'tile', seed: 607 + i * 43 })),
+  );
+  const woodAccentWall = stdPbr(
+    'wood_accent_wall',
+    createWallCladdingPBR({ baseHex: 0x8f5e3b, style: 'wood_warm', seed: 733 }),
+  );
+  const washikiLower = stdPbr(
+    'washiki_lower',
+    createWallCladdingPBR({ baseHex: 0x563924, style: 'yakisugi', seed: 829 }),
+  );
+  const shikkuiWall = stdPbr(
+    'shikkui_wall',
+    createWallCladdingPBR({ baseHex: 0xf1ece1, style: 'plaster', seed: 941 }),
+  );
+
+  // 2. Commercial Upper-Storey Porcelain Tile Claddings (pure tile + normalMap, zero corner-sliced painted windows!)
+  const commPalette = [
+    { baseHex: 0xe4ddd0, accentHex: 0xc5bcb0 },
+    { baseHex: 0xc7b198, accentHex: 0x9b8269 },
+    { baseHex: 0xab684f, accentHex: 0x854b36 }, // Classic Japanese terracotta-tile Zakkyo building
+    { baseHex: 0xbac2c7, accentHex: 0x87929a },
+    { baseHex: 0x969088, accentHex: 0x6d6861 },
+  ];
+  const commUppers = commPalette.map((p, i) =>
+    stdPbr(
+      `comm_upper_${i}`,
+      createWallCladdingPBR({ baseHex: p.baseHex, style: 'comm_tile', accentHex: p.accentHex, seed: 1009 + i * 97 }),
+    ),
+  );
+
+  // 3. True 3D Recessed Window Panes (Unlit smooth reflective architectural glass + 4 Lit interior room types)
+  const windowUnlit = std('window_unlit', {
+    map: createUnlitWindowTexture({ style: 'curtain' }),
+    roughness: 0.07,
+    metalness: 0.14,
+  });
+  const windowUnlitBlinds = std('window_unlit_blinds', {
+    map: createUnlitWindowTexture({ style: 'blinds' }),
+    roughness: 0.07,
+    metalness: 0.14,
+  });
+  const makeLitWin = (name, variant) => {
+    const set = createLitWindowTextureSet(variant);
+    return std(name, {
+      map: set.map,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0,
+      roughness: 0.12,
+      metalness: 0.06,
+    });
+  };
+  const windowLitWarm = makeLitWin('window_lit_warm', 'living_warm');
+  const windowLitAmber = makeLitWin('window_lit_amber', 'amber_shoji');
+  const windowLitOffice = makeLitWin('window_lit_office', 'office_cool');
+  const windowLitModern = makeLitWin('window_lit_modern', 'modern_led');
+
+  // 4. Ground-Floor Recessed Storefront Bays (STRICT emissiveMap masks -> zero glowing plaster/frames!)
+  const makeLitShopBay = (name, variant, roughness) => {
+    const set = createShopfrontBayTextureSet(variant);
+    return std(name, {
+      map: set.map,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0,
+      roughness,
+    });
+  };
+  const shopIzakaya = makeLitShopBay('shop_izakaya', 'izakaya', 0.62);
+  const shopRamen = makeLitShopBay('shop_ramen', 'ramen', 0.62);
+  const shopKissaten = makeLitShopBay('shop_kissaten', 'kissaten', 0.54);
+  const shopPharmacy = makeLitShopBay('shop_pharmacy', 'pharmacy', 0.52);
+  const shopBookstore = makeLitShopBay('shop_bookstore', 'bookstore', 0.54);
+  const shopKonbiniBay = makeLitShopBay('shop_konbini_bay', 'konbini', 0.34);
+
+  // Clamped 3D Shop Fascia Signboards (never repeat or slice mid-kanji!)
+  let fasciaCounter = 0;
+  const makeFascia = (cfg) => {
+    const set = createShopFasciaSignSet(cfg);
+    return std(`shop_fascia_${fasciaCounter++}`, {
+      map: set.map,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: cfg.backlit === false ? 0 : 0.18,
+      roughness: cfg.backlit === false ? 0.72 : 0.42,
+    });
+  };
+  const fasciasIzakaya = [
+    makeFascia({ bg: '#261b14', fg: '#f5ebd6', text: '居酒屋 八重', sub: '炭火焼・地酒・肴', border: '#5c4128', backlit: false }),
+    makeFascia({ bg: '#8c251e', fg: '#fff6e4', text: '旬菜酒場 まる屋', sub: 'おでん・串焼き', border: '#2b221c' }),
+    makeFascia({ bg: '#1e2c42', fg: '#f4efe2', text: '炭火焼鳥 とり源', sub: '備長炭使用', border: '#383028' }),
+  ];
+  const fasciasRamen = [
+    makeFascia({ bg: '#a32820', fg: '#fff6e0', text: '中華そば 一番軒', sub: '自家製麺・支那そば', border: '#241e1a' }),
+    makeFascia({ bg: '#302319', fg: '#f5ecd8', text: '手打蕎麦 薮久', sub: '石臼挽き二八蕎麦', border: '#5e442b', backlit: false }),
+  ];
+  const fasciasKissaten = [
+    makeFascia({ bg: '#1e362d', fg: '#e8d29c', text: '自家焙煎 珈琲琥珀', sub: 'COFFEE & TOAST', border: '#3b2c20' }),
+    makeFascia({ bg: '#b85c28', fg: '#fffaf0', text: '焼きたて 麦の穂パン', sub: 'BAKERY & CAFE', border: '#3d281c' }),
+    makeFascia({ bg: '#2c221e', fg: '#f2e4c6', text: '純喫茶 すずらん', sub: 'SINCE 1978', border: '#6e5536' }),
+  ];
+  const fasciasPharmacy = [
+    makeFascia({ bg: '#186e50', fg: '#ffffff', text: '処方箋 あおば薬局', sub: 'くすり・日用品・調剤', border: '#cfd6d2' }),
+    makeFascia({ bg: '#1c568c', fg: '#ffffff', text: 'くらしの店 毎日屋', sub: '青果・精肉・日配品', border: '#d4dadf' }),
+  ];
+  const fasciasBookstore = [
+    makeFascia({ bg: '#233042', fg: '#efe6d2', text: '古書・文具 松栄堂', sub: 'BOOKS & STATIONERY', border: '#4a3d2e' }),
+    makeFascia({ bg: '#384534', fg: '#f5efe0', text: '本と雑貨 すずらん堂', sub: '新刊・文庫・万年筆', border: '#2b2824' }),
+  ];
+  const fasciasAll = [
+    ...fasciasIzakaya,
+    ...fasciasRamen,
+    ...fasciasKissaten,
+    ...fasciasPharmacy,
+    ...fasciasBookstore,
+  ];
+
+  // Konbini striped fascias & framed roadside pylon signs
+  const makeKonbiniMat = (name, set, roughness = 0.38) => std(name, {
+    map: set.map,
     emissive: 0xffffff,
-    emissiveMap: createHouseWallEmissiveMap({ windowType: 'slit', seed: 211 + i * 53 }),
-    emissiveIntensity: 0,
+    emissiveMap: set.emissiveMap,
+    emissiveIntensity: 0.25,
+    roughness,
+  });
+  const konbiniFasciaLawson = makeKonbiniMat('konbini_fascia_lawson', createKonbiniFasciaSet('lawson'));
+  const konbiniFasciaFamima = makeKonbiniMat('konbini_fascia_famima', createKonbiniFasciaSet('famima'));
+  const konbiniPylonLawson = makeKonbiniMat('konbini_pylon_lawson', createKonbiniPylonSet('lawson'));
+  const konbiniPylonFamima = makeKonbiniMat('konbini_pylon_famima', createKonbiniPylonSet('famima'));
+
+  // 5. Fix #1: Non-emissive Curved Utility Pole Plaques & Safety Reflector Wrap
+  const polePlaqueDefs = [
+    { ward: 'すずらん一丁目', num: '12', sub: '本町地区' },
+    { ward: 'すずらん一丁目', num: '15', sub: '本町地区' },
+    { ward: 'すずらん二丁目', num: '4', sub: '駅前地区' },
+    { ward: '本町三丁目', num: '9', sub: '中央地区' },
+  ];
+  const polePlaques = polePlaqueDefs.map((cfg, i) => std(`pole_plaque_${i}`, {
+    map: createPolePlaqueTexture(cfg),
+    roughness: 0.34,
+    metalness: 0.16,
+  }));
+  const poleReflector = std('pole_reflector', {
+    map: createPoleReflectorTexture(),
+    roughness: 0.42,
+    metalness: 0.12,
+  });
+
+  // 6. Fix #2: Non-emissive Woven Shotengai Streetlamp Flags + 16 Deduplicated Shop Sleeve Signs
+  const flagDefs = [
+    { bg: '#f5f0e3', accent: '#1d5c42', fg: '#183b2c', title: 'すずらん通り', subtitle: 'SUZURAN ST.' },
+    { bg: '#f7f2e7', accent: '#a82c24', fg: '#821e18', title: '歓迎・商店街', subtitle: 'WELCOME' },
+    { bg: '#1e3554', accent: '#c9a14a', fg: '#f7f2e6', title: 'すずらん街', subtitle: 'SHOPPING AVE' },
+    { bg: '#f6efe0', accent: '#b87624', fg: '#2b2520', title: '歳末大感謝祭', subtitle: '本町振興組合' },
+  ];
+  const streetFlags = flagDefs.map((cfg, i) => std(`street_flag_${i}`, {
+    map: createStreetFlagTexture(cfg),
     roughness: 0.84,
   }));
 
-  // Dark modern Japanese galvalume / sumi ceramic siding walls
-  const darkDefs = [
-    { hex: 0x363a40, style: 'siding', frame: '#1b1d20' }, // Sumi charcoal
-    { hex: 0x2c3848, style: 'siding', frame: '#dce2e8' }, // Navy slate (iconic modern ikkodate!)
-    { hex: 0x4b4843, style: 'siding', frame: '#222426' }, // Warm umber-grey
-  ];
-  const houseDarkWalls = darkDefs.map((d, i) => std(`house_dark_${i}`, {
-    map: createHouseWallTexture({ baseHex: d.hex, style: d.style, frameColor: d.frame, windowType: 'sliding' }),
-    emissive: 0xffffff,
-    emissiveMap: createHouseWallEmissiveMap({ windowType: 'sliding', seed: 401 + i * 71 }),
-    emissiveIntensity: 0,
-    roughness: 0.76, metalness: 0.08,
-  }));
-  const houseDarkBlanks = darkDefs.map((d, i) => std(`house_dark_blank_${i}`, {
-    map: createHouseWallTexture({ baseHex: d.hex, style: d.style, windowType: 'none' }),
-    roughness: 0.76, metalness: 0.08,
-  }));
-
-  // Ceramic tile base walls & traditional Japanese cedar/washiki walls
-  const houseTileWalls = [0xb59b84, 0x9c826e].map((hex, i) => std(`house_tile_${i}`, {
-    map: createHouseWallTexture({ baseHex: hex, style: 'tile', windowType: 'sliding' }),
-    emissive: 0xffffff,
-    emissiveMap: createHouseWallEmissiveMap({ windowType: 'sliding', seed: 607 + i * 43 }),
-    emissiveIntensity: 0,
-    roughness: 0.8,
-  }));
-  const woodAccentWall = std('wood_accent_wall', {
-    map: createHouseWallTexture({ baseHex: 0x8f5e3b, style: 'wood_warm', frameColor: '#261c14', windowType: 'slit' }),
-    emissive: 0xffffff,
-    emissiveMap: createHouseWallEmissiveMap({ windowType: 'slit', seed: 733 }),
-    emissiveIntensity: 0,
-    roughness: 0.82,
-  });
-  const washikiLower = std('washiki_lower', {
-    map: createHouseWallTexture({ baseHex: 0x5c3e28, style: 'wood_warm', frameColor: '#3b2617', windowType: 'koshido' }),
-    emissive: 0xffffff,
-    emissiveMap: createHouseWallEmissiveMap({ windowType: 'koshido', seed: 829 }),
-    emissiveIntensity: 0,
-    roughness: 0.86,
-  });
-  const shikkuiWall = std('shikkui_wall', {
-    map: createHouseWallTexture({ baseHex: 0xf1ece1, style: 'plaster', frameColor: '#4c3422', windowType: 'koshido' }),
-    emissive: 0xffffff,
-    emissiveMap: createHouseWallEmissiveMap({ windowType: 'koshido', seed: 941 }),
-    emissiveIntensity: 0,
-    roughness: 0.88,
-  });
-  const shikkuiBlank = std('shikkui_blank', {
-    map: createHouseWallTexture({ baseHex: 0xf1ece1, style: 'plaster', windowType: 'none' }),
-    roughness: 0.88,
-  });
-
-  // Commercial upper-storey porcelain tile facades
-  const commPalette = [
-    { baseHex: 0xe6e0d4, accentHex: 0xc8bfb0 },
-    { baseHex: 0xc9b49b, accentHex: 0x9e846b },
-    { baseHex: 0xb06c52, accentHex: 0x8a4f39 }, // Classic Japanese terracotta-tile pencil building
-    { baseHex: 0xbcc4c9, accentHex: 0x88949c },
-    { baseHex: 0x9a948c, accentHex: 0x706b64 },
-  ];
-  const commUppers = commPalette.map((p, i) => std(`comm_upper_${i}`, {
-    map: createCommercialUpperTexture(p),
-    emissive: 0xffffff,
-    emissiveMap: createCommercialUpperEmissiveMap({ seed: 1009 + i * 97 }),
-    emissiveIntensity: 0,
-    roughness: 0.72,
-  }));
-
-  // Ground-floor Japanese storefronts
-  const makeLitShop = (name, variant, roughness) => {
-    const tex = createShopfrontTexture(variant);
-    return std(name, { map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0, roughness });
-  };
-  const shopIzakaya = makeLitShop('shop_izakaya', 'izakaya', 0.65);
-  const shopRamen = makeLitShop('shop_ramen', 'ramen', 0.65);
-  const shopKissaten = makeLitShop('shop_kissaten', 'kissaten', 0.58);
-  const shopPharmacy = makeLitShop('shop_pharmacy', 'pharmacy', 0.55);
-  const shopBookstore = makeLitShop('shop_bookstore', 'bookstore', 0.58);
-  const shopKonbiniLawson = makeLitShop('shop_konbini_lawson', 'konbini_lawson', 0.48);
-  const shopKonbiniFamima = makeLitShop('shop_konbini_famima', 'konbini_famima', 0.48);
-
-  // Vertical projecting sleeve signs (袖看板)
   const signConfigs = [
-    { bg: '#c9382b', fg: '#fff8eb', text: '居酒屋' },
-    { bg: '#f5efe0', fg: '#1e2b3c', text: '珈琲館' },
-    { bg: '#1e7858', fg: '#ffffff', text: '処方箋' },
-    { bg: '#f2be38', fg: '#1d1c1a', text: '中華そば' },
-    { bg: '#223b66', fg: '#f5f2e9', text: '古書堂' },
-    { bg: '#e86830', fg: '#ffffff', text: '焼きたて' },
-    { bg: '#f4f2ec', fg: '#b52b24', text: 'そば処' },
+    { bg: '#b83227', fg: '#fff8eb', text: '居酒屋', sub: '炭火・地酒' },
+    { bg: '#f4ede0', fg: '#1e2b3c', text: '珈琲館', sub: '自家焙煎' },
+    { bg: '#1b6e50', fg: '#ffffff', text: '処方箋', sub: '調剤薬局' },
+    { bg: '#e0ad2f', fg: '#1d1c1a', text: '中華そば', sub: '手打麺' },
+    { bg: '#22385e', fg: '#f5f2e9', text: '古書堂', sub: '新刊・古本' },
+    { bg: '#d45c28', fg: '#ffffff', text: '焼きたて', sub: 'ベーカリー' },
+    { bg: '#f2efe8', fg: '#9e2620', text: '手打蕎麦', sub: 'うどん' },
+    { bg: '#296885', fg: '#ffffff', text: '歯科医院', sub: '小児・矯正' },
+    { bg: '#2b1f1a', fg: '#f5d996', text: '炭火焼肉', sub: 'ホルモン' },
+    { bg: '#ebe5d8', fg: '#2e4a3e', text: '美容室', sub: 'HAIR SALON' },
+    { bg: '#1f5482', fg: '#ffffff', text: '白洋舎', sub: 'クリーニング' },
+    { bg: '#2e5e36', fg: '#fff8e8', text: '青果鮮魚', sub: '八百屋' },
+    { bg: '#9e2c22', fg: '#fff6e2', text: 'お好み焼', sub: '鉄板焼' },
+    { bg: '#f0ece4', fg: '#1d324a', text: '理容室', sub: 'BARBER' },
+    { bg: '#3b4a38', fg: '#f5efe2', text: '和菓子司', sub: '茶房・甘味' },
+    { bg: '#283340', fg: '#f2e8cf', text: '不動産', sub: '賃貸・売買' },
   ];
   const sleeveSigns = signConfigs.map((cfg, i) => {
-    const tex = createSleeveSignTexture(cfg);
+    const set = createSleeveSignTextureSet(cfg);
     return std(`sleeve_sign_${i}`, {
-      map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25, roughness: 0.45,
+      map: set.map,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0.22,
+      roughness: 0.42,
     });
   });
 
-  // Noren curtains (暖簾)
-  const norenConfigs = [
-    { bg: '#213254', fg: '#f4f0e6', crestText: '酒処暖簾' },
-    { bg: '#9c2c24', fg: '#fff6e5', crestText: '中華そば' },
-    { bg: '#ece6d8', fg: '#262320', crestText: '手打蕎麦' },
-    { bg: '#34523c', fg: '#f5f0e4', crestText: '茶房甘味' },
+  // 4-panel fluttering Noren sets (暖簾)
+  const norenDefs = [
+    { bg: '#213254', fg: '#f4f0e6', chars: ['酒', '処', '八', '重'] },
+    { bg: '#942820', fg: '#fff6e5', chars: ['中', '華', 'そ', 'ば'] },
+    { bg: '#eae3d4', fg: '#262320', chars: ['手', '打', '蕎', '麦'] },
+    { bg: '#324f3a', fg: '#f5f0e4', chars: ['茶', '房', '甘', '味'] },
   ];
-  const norens = norenConfigs.map((cfg, i) => std(`noren_${i}`, {
-    map: createNorenTexture(cfg), roughness: 0.92,
-  }));
+  const norenAll = [];
+  const norenSets = norenDefs.map((cfg, sIdx) =>
+    cfg.chars.map((kanji, pIdx) => {
+      const b = std(`noren_${sIdx}_${pIdx}`, {
+        map: createNorenPanelTexture({ bg: cfg.bg, fg: cfg.fg, kanji, isFirst: pIdx === 0 }),
+        roughness: 0.92,
+      });
+      norenAll.push(b);
+      return b;
+    }),
+  );
 
-  // Horizontal Shotengai entrance arch banner sign (商店街アーチ横看板)
-  const shotengaiBannerTex = createHorizontalSignTexture({
-    bg: '#b82923',
-    fg: '#fff7e2',
-    text: 'すずらん通り',
-    border: '#d9b45b',
+  // 7. Fix #3: Shotengai Entrance Archway Plaques (Main Suzuran Arch + 3 Distinct Side Street Arches!)
+  const makeArchBanner = (name, cfg) => {
+    const set = createArchSignTextureSet(cfg);
+    return std(name, {
+      map: set.map,
+      normalMap: set.normalMap,
+      normalScale: new THREE.Vector2(0.65, 0.65),
+      roughnessMap: set.roughnessMap,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0.2,
+      roughness: 1.0,
+      metalness: 0.12,
+    });
+  };
+  const shotengaiBanner = makeArchBanner('shotengai_banner', {
+    bg: '#8c1d18', fg: '#fff8e8', text: 'すずらん通り', sub: 'SUZURAN SHOPPING STREET', accent: '#d4af5a',
   });
-  const shotengaiBanner = std('shotengai_banner', {
-    map: shotengaiBannerTex, emissive: 0xffffff, emissiveMap: shotengaiBannerTex, emissiveIntensity: 0.22, roughness: 0.5,
-  });
+  const sideArchBanners = [
+    makeArchBanner('arch_banner_ichibangai', {
+      bg: '#1c3b5e', fg: '#fff8e8', text: '一番街通り', sub: 'ICHIBANGAI AVENUE', accent: '#d4af5a',
+    }),
+    makeArchBanner('arch_banner_yokocho', {
+      bg: '#781d18', fg: '#ffeec8', text: 'ほろ酔い横丁', sub: 'LANTERN BAR ALLEY', accent: '#d9b05b',
+    }),
+    makeArchBanner('arch_banner_yanagi', {
+      bg: '#1e4a38', fg: '#f7f3e6', text: '柳小路商店街', sub: 'YANAGI-KOJI STREET', accent: '#d4af5a',
+    }),
+  ];
 
-  // Roof materials
-  const kawaraDark = std('roof_kawara_dark', {
-    map: createRoofTexture({ baseHex: 0x35393e, style: 'kawara' }), roughness: 0.58, metalness: 0.14,
-  });
-  const kawaraBrown = std('roof_kawara_brown', {
-    map: createRoofTexture({ baseHex: 0x614233, style: 'kawara' }), roughness: 0.64, metalness: 0.08,
-  });
-  const galvaCharcoal = std('roof_galva_charcoal', {
-    map: createRoofTexture({ baseHex: 0x2b2f35, style: 'galvalume' }), roughness: 0.44, metalness: 0.42,
-  });
-  const galvaNavy = std('roof_galva_navy', {
-    map: createRoofTexture({ baseHex: 0x253344, style: 'galvalume' }), roughness: 0.44, metalness: 0.38,
-  });
-  const slateRoof = std('roof_slate', {
-    map: createRoofTexture({ baseHex: 0x484b50, style: 'slate' }), roughness: 0.78,
-  });
-  const solarRoof = std('roof_solar', {
-    map: createRoofTexture({ baseHex: 0x162842, style: 'solar' }), roughness: 0.22, metalness: 0.55,
-  });
+  // 8. Roof PBR Materials (512x512 normalMap + roughnessMap)
+  const kawaraDark = stdPbr('roof_kawara_dark', createRoofPBR({ baseHex: 0x35393e, style: 'kawara' }), { metalness: 0.14 });
+  const kawaraBrown = stdPbr('roof_kawara_brown', createRoofPBR({ baseHex: 0x614233, style: 'kawara' }), { metalness: 0.08 });
+  const galvaCharcoal = stdPbr('roof_galva_charcoal', createRoofPBR({ baseHex: 0x2b2f35, style: 'galvalume' }), { metalness: 0.42 });
+  const galvaNavy = stdPbr('roof_galva_navy', createRoofPBR({ baseHex: 0x253344, style: 'galvalume' }), { metalness: 0.38 });
+  const slateRoof = stdPbr('roof_slate', createRoofPBR({ baseHex: 0x484b50, style: 'slate' }));
+  const solarRoof = stdPbr('roof_solar', createRoofPBR({ baseHex: 0x162842, style: 'solar' }), { metalness: 0.52 });
 
-  // Awnings
-  const awningBurgundy = std('awning_burgundy', { color: 0x822824, roughness: 0.85 });
-  const awningGreen = std('awning_green', { color: 0x1e4a38, roughness: 0.85 });
-  const awningNavy = std('awning_navy', { color: 0x223654, roughness: 0.85 });
-  const awningOchre = std('awning_ochre', { color: 0xb87a28, roughness: 0.85 });
+  // Awnings, block walls, AC units, storm drains & Kei-car paint palette
+  const awningBurgundy = std('awning_burgundy', { color: 0x7d2622, roughness: 0.86 });
+  const awningGreen = std('awning_green', { color: 0x1d4736, roughness: 0.86 });
+  const awningNavy = std('awning_navy', { color: 0x213452, roughness: 0.86 });
+  const awningOchre = std('awning_ochre', { color: 0xad7224, roughness: 0.86 });
 
-  // Ground, roads, walls, greenery & vehicles
-  const blockWall = std('block_wall', { map: createBlockWallTexture(0x9c988e), roughness: 0.92 });
+  const blockWall = stdPbr('block_wall', createBlockWallPBR(0x9c988e));
+  const acBody = std('ac_body', { map: createAcUnitTexture(), roughness: 0.62, metalness: 0.14 });
+  const drainGrate = std('drain_grate', { map: createDrainGrateTexture(), roughness: 0.48, metalness: 0.62 });
 
   const carColors = [0xf2f0eb, 0xd8dde2, 0xe8c448, 0x5c8ab5, 0x282c32, 0xc94a3e, 0x86a68a];
-  const carPalette = carColors.map((color, i) => std(`kei_car_${i}`, { color, roughness: 0.3, metalness: 0.38 }));
+  const carPalette = carColors.map((color, i) => std(`kei_car_${i}`, { color, roughness: 0.24, metalness: 0.42 }));
 
   return {
     houseLightWalls,
-    houseLightBlanks,
+    houseLightBlanks: houseLightWalls,
     houseSlitWalls,
     houseDarkWalls,
-    houseDarkBlanks,
+    houseDarkBlanks: houseDarkWalls,
     houseTileWalls,
     woodAccentWall,
     washikiLower,
     shikkuiWall,
-    shikkuiBlank,
+    shikkuiBlank: shikkuiWall,
     commUppers,
     commUpperLight: commUppers[0],
+    windowUnlit,
+    windowUnlitBlinds,
+    windowLitWarm,
+    windowLitAmber,
+    windowLitOffice,
+    windowLitModern,
+    windowLitList: [windowLitWarm, windowLitAmber, windowLitOffice, windowLitModern],
     shopIzakaya,
     shopRamen,
     shopKissaten,
     shopPharmacy,
     shopBookstore,
-    shopKonbiniLawson,
-    shopKonbiniFamima,
-    shopRetails: [shopKissaten, shopPharmacy, shopBookstore, shopIzakaya, shopRamen],
+    shopKonbiniBay,
+    fasciasIzakaya,
+    fasciasRamen,
+    fasciasKissaten,
+    fasciasPharmacy,
+    fasciasBookstore,
+    fasciasAll,
+    konbiniFasciaLawson,
+    konbiniFasciaFamima,
+    konbiniPylonLawson,
+    konbiniPylonFamima,
+    konbiniLitList: [konbiniFasciaLawson, konbiniFasciaFamima, konbiniPylonLawson, konbiniPylonFamima],
+    shopRetails: [
+      { bay: shopKissaten, fascias: fasciasKissaten },
+      { bay: shopPharmacy, fascias: fasciasPharmacy },
+      { bay: shopBookstore, fascias: fasciasBookstore },
+      { bay: shopIzakaya, fascias: fasciasIzakaya },
+      { bay: shopRamen, fascias: fasciasRamen },
+    ],
+    polePlaques,
+    poleReflector,
+    streetFlags,
     sleeveSigns,
-    norens,
+    norenSets,
+    norenAll,
     shotengaiBanner,
+    sideArchBanners,
+    archGoldTrim: std('arch_gold_trim', { color: 0xc9a354, roughness: 0.30, metalness: 0.74 }),
     kawaraDark,
     kawaraBrown,
     galvaCharcoal,
@@ -380,6 +528,8 @@ function createMaterialLibrary() {
     awningOchre,
     awnings: [awningBurgundy, awningGreen, awningNavy, awningOchre],
     blockWall,
+    acBody,
+    drainGrate,
     road: std('road_asphalt', { color: 0x3b3e43, roughness: 0.82 }),
     lane: std('lane_asphalt', { color: 0x484b50, roughness: 0.85 }),
     asphaltApron: std('asphalt_apron', { color: 0x56585c, roughness: 0.86 }),
@@ -392,30 +542,29 @@ function createMaterialLibrary() {
     concrete: std('concrete', { color: 0xb2ada3, roughness: 0.88 }),
     roofConcrete: std('roof_concrete', { color: 0x6e7073, roughness: 0.9 }),
     balconyWall: std('balcony_wall', { color: 0xdad5ca, roughness: 0.82 }),
-    frostedPanel: std('frosted_panel', { color: 0x9ab4c2, roughness: 0.28, metalness: 0.15 }),
+    frostedPanel: std('frosted_panel', { color: 0x9ab4c2, roughness: 0.24, metalness: 0.15 }),
     carportRoof: std('carport_roof', { color: 0x526472, roughness: 0.32, metalness: 0.25 }),
     poleConcrete: std('pole_concrete', { color: 0x8d8a82, roughness: 0.88 }),
-    woodWarm: std('wood_warm', { color: 0x8c5b36, roughness: 0.8 }),
-    woodDark: std('wood_dark', { color: 0x3b2a1e, roughness: 0.86 }),
-    darkMetal: std('dark_metal', { color: 0x2c3035, roughness: 0.45, metalness: 0.58 }),
-    silverMetal: std('silver_metal', { color: 0xa6acb2, roughness: 0.36, metalness: 0.68 }),
+    woodWarm: std('wood_warm', { color: 0x8c5b36, roughness: 0.78 }),
+    woodDark: std('wood_dark', { color: 0x3b2a1e, roughness: 0.84 }),
+    darkMetal: std('dark_metal', { color: 0x2a2e33, roughness: 0.42, metalness: 0.62 }),
+    gutterMetal: std('gutter_metal', { color: 0x3b3f45, roughness: 0.40, metalness: 0.54 }),
+    silverMetal: std('silver_metal', { color: 0xa6acb2, roughness: 0.34, metalness: 0.72 }),
     acUnit: std('ac_unit', { color: 0xdcd9d0, roughness: 0.65, metalness: 0.15 }),
-    glassDark: std('glass_dark', { color: 0x243038, roughness: 0.16, metalness: 0.25 }),
-    accentRed: std('accent_red', { color: 0xb83028, roughness: 0.55 }),
-    konbiniSignBlue: std('konbini_blue', { color: 0x1e6bb8, emissive: 0x1e6bb8, emissiveIntensity: 0.35, roughness: 0.4 }),
-    konbiniSignGreen: std('konbini_green', { color: 0x1e9648, emissive: 0x1e9648, emissiveIntensity: 0.3, roughness: 0.4 }),
-    warmLamp: std('warm_lamp', { color: 0xfff0d4, emissive: 0xffc675, emissiveIntensity: 1.5, roughness: 0.35 }),
-    lanternRed: std('lantern_red', { color: 0xd93829, emissive: 0xff5a36, emissiveIntensity: 1.15, roughness: 0.6 }),
-    lanternWarm: std('lantern_warm', { color: 0xfff0d2, emissive: 0xffcf86, emissiveIntensity: 1.1, roughness: 0.6 }),
-    vendRed: std('vend_red', { color: 0xa82622, roughness: 0.45, metalness: 0.15 }),
-    vendBlue: std('vend_blue', { color: 0x1f5694, roughness: 0.45, metalness: 0.15 }),
-    vendWhite: std('vend_white', { color: 0xe6e3dc, roughness: 0.45, metalness: 0.15 }),
-    vendFace: std('vend_face', { color: 0xdff2ff, emissive: 0xd4ecff, emissiveIntensity: 1.2, roughness: 0.3 }),
+    glassDark: std('glass_dark', { color: 0x202b33, roughness: 0.08, metalness: 0.18 }),
+    accentRed: std('accent_red', { color: 0xa82820, roughness: 0.44, metalness: 0.18 }),
+    warmLamp: std('warm_lamp', { color: 0xfff0d4, emissive: 0xffc675, emissiveIntensity: 1.5, roughness: 0.32 }),
+    lanternRed: std('lantern_red', { color: 0xd93829, emissive: 0xff5a36, emissiveIntensity: 1.15, roughness: 0.58 }),
+    lanternWarm: std('lantern_warm', { color: 0xfff0d2, emissive: 0xffcf86, emissiveIntensity: 1.1, roughness: 0.58 }),
+    vendRed: std('vend_red', { color: 0xa82622, roughness: 0.42, metalness: 0.16 }),
+    vendBlue: std('vend_blue', { color: 0x1f5694, roughness: 0.42, metalness: 0.16 }),
+    vendWhite: std('vend_white', { color: 0xe6e3dc, roughness: 0.42, metalness: 0.16 }),
+    vendFace: std('vend_face', { color: 0xdff2ff, emissive: 0xd4ecff, emissiveIntensity: 1.2, roughness: 0.28 }),
     trunk: std('tree_trunk', { color: 0x453426, roughness: 0.92 }),
     hedge: std('hedge_green', { color: 0x46633b, roughness: 0.9 }),
     foliageFresh: std('foliage_fresh', { color: 0x4f7340, roughness: 0.86 }),
     foliagePine: std('foliage_pine', { color: 0x2f4d31, roughness: 0.88 }),
-    foliageWarm: std('foliage_warm', { color: 0xb55432, roughness: 0.84 }), // Subtle Japanese maple accent!
+    foliageWarm: std('foliage_warm', { color: 0xb55432, roughness: 0.84 }),
     wire: std('overhead_wire', { color: 0x1d1e21, roughness: 0.7 }),
     carWhite: carPalette[0],
     carPalette,
@@ -437,7 +586,7 @@ function addZebraCrosswalk(mats, cx, cz, width, alongX = false) {
   }
 }
 
-function addNorthSouthAvenue(mats, x, z0, z1, roadHalf = 4.6, walkW = 2.1, tactile = false) {
+function addNorthSouthAvenue(mats, x, z0, z1, roadHalf = 4.6, walkW = 2.1, tactile = false, withDrainGrates = false) {
   const len = z1 - z0;
   if (len <= 2) return;
   const midZ = (z0 + z1) * 0.5;
@@ -445,11 +594,18 @@ function addNorthSouthAvenue(mats, x, z0, z1, roadHalf = 4.6, walkW = 2.1, tacti
 
   for (const s of [-1, 1]) {
     mats.sidewalk.add(box(walkW, 0.2, len), x + s * (roadHalf + walkW * 0.5), 0.1, midZ);
-    mats.concrete.add(box(0.16, 0.22, len), x + s * (roadHalf + 0.08), 0.11, midZ);
+    // Concrete curb + street gutter apron (L型側溝)
+    mats.concrete.add(box(0.18, 0.22, len), x + s * (roadHalf + 0.09), 0.11, midZ);
+    mats.concrete.add(box(0.32, 0.015, len - 2), x + s * (roadHalf - 0.16), 0.104, midZ);
     // Outer white lane edge line (外側線)
     mats.roadPaint.add(box(0.14, 0.02, len - 4), x + s * (roadHalf - 0.55), 0.108, midZ);
     if (tactile) {
       mats.tactileYellow.add(box(0.3, 0.02, len - 2), x + s * (roadHalf + 0.75), 0.208, midZ);
+    }
+    if (withDrainGrates) {
+      for (let gz = z0 + 12; gz < z1 - 12; gz += 15) {
+        mats.drainGrate.add(box(0.30, 0.02, 0.86, 0.30, 0.86), x + s * (roadHalf - 0.16), 0.108, gz);
+      }
     }
   }
   // Center dashed line
@@ -486,9 +642,10 @@ function addResidentialLaneEW(mats, z, x0, x1) {
 
 // ------------------------------------------------------------------ urban block fillers
 
+let _globalSignSeq = 0;
+
 /**
  * Populates a commercial frontage strip (小商圈 / 商店街) from startPos to endPos.
- * `axis` is 'z' (frontage runs along Z, facing yaw) or 'x' (frontage runs along X, facing yaw).
  */
 function populateCommercialStrip(mats, rnd, {
   axis = 'z', fixedCoord, from, to, yaw, crossCoords = [], detail = true, allowSuper = false, mode = 'retail',
@@ -497,7 +654,6 @@ function populateCommercialStrip(mats, rnd, {
   const depth = 11.4;
 
   while (cursor < to - 5.5) {
-    // Keep cross-street intersections clear
     const nearCross = crossCoords.find((c) => cursor + 8 > c - 7.5 && cursor < c + 7.5);
     if (nearCross !== undefined) {
       cursor = nearCross + 8.0;
@@ -554,6 +710,10 @@ function populateCommercialStrip(mats, rnd, {
 
     if (!insideAnyPlotPlaza(cx, cz, 5)) {
       const lot = new LotContext(cx, cz, yaw, 0);
+      // Coprime stride (+5) across 16 sleeve signs guarantees adjacent buildings never share a sign!
+      _globalSignSeq = (_globalSignSeq + 5) % mats.sleeveSigns.length;
+      const signSeed = _globalSignSeq;
+
       if (builderType === 'konbini') {
         buildKonbini(lot, mats, rnd, { w: lotW - 0.3, d: depth, twoStorey: rnd() < 0.42, detail });
       } else if (builderType === 'super') {
@@ -561,26 +721,24 @@ function populateCommercialStrip(mats, rnd, {
       } else if (builderType === 'kissaten') {
         buildKissatenCorner(lot, mats, rnd, { w: lotW - 0.3, d: depth - 0.6, detail });
       } else if (builderType === 'machiya') {
-        buildMachiyaShop(lot, mats, rnd, { w: lotW - 0.25, d: depth - 0.5, detail });
+        buildMachiyaShop(lot, mats, rnd, { w: lotW - 0.25, d: depth - 0.5, detail, signSeed });
       } else {
         const storeys = rnd() < 0.28 ? 2 : (rnd() < 0.72 ? 3 : 4);
-        buildShotengaiBuilding(lot, mats, rnd, { w: lotW - 0.25, d: depth, storeys, detail });
+        buildShotengaiBuilding(lot, mats, rnd, { w: lotW - 0.25, d: depth, storeys, detail, signSeed });
       }
       if (mode === 'yokocho') {
-        // Glowing red & warm paper lanterns (提灯) + bar sleeve signs along yokocho eaves
-        const frontZ = depth * 0.5 + 0.35;
+        const frontZ = depth * 0.5 + 0.32;
         for (let lx = -lotW * 0.34; lx <= lotW * 0.34; lx += 1.45) {
           const lanternBucket = rnd() < 0.58 ? mats.lanternRed : mats.lanternWarm;
-          lot.addBox(lanternBucket, 0.28, 0.44, 0.28, lx, 3.05, frontZ);
+          lot.addBox(lanternBucket, 0.26, 0.42, 0.26, lx, 3.05, frontZ);
         }
-        if (rnd() < 0.7) {
-          const signBucket = mats.sleeveSigns[Math.floor(rnd() * mats.sleeveSigns.length)];
-          lot.add(signBucket, signBox(0.56, 1.8, 0.24), lotW * 0.38, 4.4, frontZ + 0.35, 0, Math.PI / 2, 0);
+        if (rnd() < 0.68) {
+          _globalSignSeq = (_globalSignSeq + 3) % mats.sleeveSigns.length;
+          addSleeveSign(lot, mats, _globalSignSeq, { x: lotW * 0.38, y: 4.45, z: frontZ - 0.1 });
         }
       }
     }
 
-    // Authentic tight Japanese urban narrow gap between shophouses (25–55 cm maintenance gap!)
     cursor += lotW + 0.3 + rnd() * 0.35;
   }
 }
@@ -594,7 +752,6 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1, lampSpots = null }) 
   const depthZ = z1 - z0;
   if (widthX < 10 || depthZ < 12) return;
 
-  // Each residential double-row + 4.6m local lane takes ~28.5m in Z
   const lanePitch = 28.5;
   const strips = Math.max(1, Math.round(depthZ / lanePitch));
   const stripDepth = depthZ / strips;
@@ -605,11 +762,8 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1, lampSpots = null }) 
     const laneZ = (sz0 + sz1) * 0.5;
 
     if (stripDepth >= 22) {
-      // Carve an East-West local residential lane down the middle of the strip,
-      // and place two rows of Ikkodate facing EACH OTHER across this lane!
       if (!insideAnyPlotPlaza((x0 + x1) * 0.5, laneZ, 2)) {
         addResidentialLaneEW(mats, laneZ, x0 + 0.5, x1 - 0.5);
-        // Residential streetlamps (防犯灯) along local lanes
         let lampIdx = 0;
         for (let lx = x0 + 14; lx < x1 - 12; lx += 28) {
           if (insideAnyPlotPlaza(lx, laneZ, 4)) continue;
@@ -624,14 +778,14 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1, lampSpots = null }) 
 
       const lotD = Math.min(13.2, (stripDepth - 4.8) * 0.5);
       const rows = [
-        { cz: laneZ - 2.4 - lotD * 0.5, yaw: 0 },          // South of lane, faces +Z onto lane
-        { cz: laneZ + 2.4 + lotD * 0.5, yaw: Math.PI },    // North of lane, faces -Z onto lane
+        { cz: laneZ - 2.4 - lotD * 0.5, yaw: 0 },
+        { cz: laneZ + 2.4 + lotD * 0.5, yaw: Math.PI },
       ];
 
-      // Utility poles along inner residential lanes
+      let innerPoleIdx = 0;
       for (let px = x0 + 12; px < x1 - 10; px += 52) {
         if (Math.hypot(px, laneZ - 300) < 320 && !insideAnyPlotPlaza(px, laneZ + 2.2, 4)) {
-          addUtilityPole(mats, px, laneZ + 2.25, rnd() < 0.3, 0);
+          addUtilityPole(mats, px, laneZ + 2.25, rnd() < 0.3, 0, 1, innerPoleIdx++);
         }
       }
 
@@ -643,7 +797,7 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1, lampSpots = null }) 
           const cx = lx + lotW * 0.5;
           if (!insideAnyPlotPlaza(cx, row.cz, 5)) {
             const dist = Math.hypot(cx, row.cz - 310);
-            const tier = dist < 230 ? 2 : (dist < 440 ? 1 : 0);
+            const tier = dist < 260 ? 2 : (dist < 460 ? 1 : 0);
             const lot = new LotContext(cx, row.cz, row.yaw, 0);
             buildRandomIkkodate(lot, mats, rnd, { lotW, lotD, tier });
           }
@@ -659,7 +813,7 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1, lampSpots = null }) 
         const cx = lx + lotW * 0.5;
         if (!insideAnyPlotPlaza(cx, laneZ, 5)) {
           const dist = Math.hypot(cx, laneZ - 310);
-          const tier = dist < 230 ? 2 : (dist < 440 ? 1 : 0);
+          const tier = dist < 260 ? 2 : (dist < 460 ? 1 : 0);
           const lot = new LotContext(cx, laneZ, 0, 0);
           buildRandomIkkodate(lot, mats, rnd, { lotW, lotD, tier });
         }
@@ -673,6 +827,7 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1, lampSpots = null }) 
 
 export function buildStreet(scene) {
   const rnd = mulberry32(0x5a7c19);
+  _globalSignSeq = 0;
   const mats = createMaterialLibrary();
   const lampSpots = [
     { x: 0, y: 6.5, z: 134, radius: 28 },
@@ -680,7 +835,7 @@ export function buildStreet(scene) {
     { x: 42, y: 6.0, z: 72, radius: 28 },
   ];
 
-  // 1. Subtle urban ground plane (slightly below y = 0 so road & plaza slabs never z-fight)
+  // 1. Subtle urban ground plane
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(24000, 24000),
     new THREE.MeshStandardMaterial({ name: 'ground', color: 0x5c5b55, roughness: 0.96 }),
@@ -692,17 +847,14 @@ export function buildStreet(scene) {
   scene.add(ground);
 
   // 2. Civic Plazas for all 9 Large Architectural Plots
-  // Plot 0 (0, 60) matches models.js PLAZA: x in [-150, 150], z in [-115, 135], top = 0.12
   mats.plaza.add(box(300, 0.12, 250), 0, 0.06, 10);
   mats.plazaBorder.add(box(304, 0.1, 4.0), 0, 0.05, 135);
   mats.plazaBorder.add(box(304, 0.1, 4.0), 0, 0.05, -115);
 
-  // Plots 1..8 get crisp stone civic plazas at top = 0.012 (below groundHeightAt = 0.02!)
   for (let i = 1; i < PLOTS.length; i++) {
     const p = PLOTS[i];
     mats.plaza.add(box(236, 0.05, 150), p.x, -0.015, p.z);
     mats.plazaBorder.add(box(242, 0.045, 156), p.x, -0.02, p.z);
-    // Perimeter Zelkova avenue trees framing each civic plaza
     for (let tx = p.x - 108; tx <= p.x + 108; tx += 27) {
       for (const tz of [p.z - 73, p.z + 73]) {
         const treeLot = new LotContext(tx, tz, 0, 0);
@@ -710,7 +862,6 @@ export function buildStreet(scene) {
       }
     }
   }
-  // Zelkova street trees framing the main Central Plaza (Plot 0) without blocking x = 0 sightline
   for (const tx of [-144, 144]) {
     for (let tz = -105; tz <= 125; tz += 26) {
       const treeLot = new LotContext(tx, tz, 0, 0.12);
@@ -722,25 +873,22 @@ export function buildStreet(scene) {
     addGardenTree(treeLot, mats, 0, 0, 1.3, rnd() < 0.25 ? 'autumn' : 'leafy');
   }
 
-  // 3. Japanese Town Road Network (neatly bounded to town perimeter [-602..602] x [-716..598])
+  // 3. Japanese Town Road Network
   const ewCrossZs = [144, 232, 324, 436, 526, 594];
   const northEwZs = [-122, -198, -362, -452, -538, -714];
   const nsAvenueXs = [-600, -460, -182, 182, 460, 600];
 
-  // Main North-South Ekimae Shotengai (駅前通り・商店街: x = 0, z = 136..596)
-  addNorthSouthAvenue(mats, 0, STREET.from, STREET.to + 4, STREET.road, STREET.walk, true);
+  // Main North-South Ekimae Shotengai (with tactile paving & storm drain grates!)
+  addNorthSouthAvenue(mats, 0, STREET.from, STREET.to + 4, STREET.road, STREET.walk, true, true);
 
-  // Secondary North-South Avenues weaving cleanly through the town
   for (const ax of nsAvenueXs) {
-    addNorthSouthAvenue(mats, ax, -716, 598, 4.4, 1.8, Math.abs(ax) === 182);
+    addNorthSouthAvenue(mats, ax, -716, 598, 4.4, 1.8, Math.abs(ax) === 182, false);
   }
 
-  // East-West Cross-Avenues across South Town & North Inter-Tower Districts
   for (const az of [...ewCrossZs, ...northEwZs]) {
     addEastWestAvenue(mats, az, -604, 604, 4.2, 1.8);
   }
 
-  // Zebra crosswalks (横断歩道) at every Shotengai & major avenue intersection!
   for (const cz of ewCrossZs) {
     addZebraCrosswalk(mats, 0, cz - 7.2, STREET.road * 2);
     addZebraCrosswalk(mats, 0, cz + 7.2, STREET.road * 2);
@@ -753,21 +901,16 @@ export function buildStreet(scene) {
     }
   }
 
-  // Side Shotengai Entrance Welcome Arches (商店街アーチ) framing cross-shopping streets!
-  addShotengaiArch(mats, 514, STREET.road + 1.15);
+  // Fix #3: Main Suzuran Shotengai Entrance Arch + Distinct Side-Street Truss Arches!
+  addShotengaiArch(mats, 514, STREET.road + 1.15, mats.shotengaiBanner, 0, 0);
   for (const side of [-1, 1]) {
-    const archLot = new LotContext(side * 12.8, 324, Math.PI * 0.5, 0);
-    archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, -4.8, 2.8, 0);
-    archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, 4.8, 2.8, 0);
-    archLot.addBox(mats.accentRed, 10.2, 0.55, 0.42, 0, 5.4, 0);
-    archLot.add(mats.shotengaiBanner, signBox(5.4, 1.0, 0.5), 0, 5.52, 0);
+    addShotengaiArch(mats, 324, 4.85, mats.sideArchBanners[0], side * 13.0, Math.PI * 0.5);
   }
 
-  // 4. COMMERCIAL DISTRICTS & BAR/YOKOCHO STREETS (多条商店街 & 酒吧风情街)
+  // 4. COMMERCIAL DISTRICTS & BAR/YOKOCHO STREETS
   const mainFrontX = FRONT + 5.85;
   const allCrossZs = [...northEwZs, ...ewCrossZs].sort((a, b) => a - b);
 
-  // (a) Main Ekimae Shotengai (both West & East frontages along x = 0, z = 152..588)
   populateCommercialStrip(mats, rnd, {
     axis: 'z', fixedCoord: -mainFrontX, from: 152, to: 586, yaw: Math.PI * 0.5,
     crossCoords: ewCrossZs, detail: true, allowSuper: false,
@@ -777,8 +920,6 @@ export function buildStreet(scene) {
     crossCoords: ewCrossZs, detail: true, allowSuper: false,
   });
 
-  // (b) Cross-Street Commercial & Bar Districts (东西向商店街 + 酒吧风情街)
-  // z = 232: Central retail sub-center (|x| < 174)
   for (const dir of [-1, 1]) {
     const xStart = dir > 0 ? 21 : -173;
     const xEnd = dir > 0 ? 173 : -21;
@@ -791,7 +932,7 @@ export function buildStreet(scene) {
       crossCoords: [], detail: true, allowSuper: true,
     });
   }
-  // z = 324 (Cross-Town Shotengai) & z = 436 (South Lantern Bar Yokocho / 酒吧风情街)
+
   for (const [cz, mode] of [[324, 'retail'], [436, 'yokocho']]) {
     for (const [xStart, xEnd] of [[-448, -192], [-173, -21], [21, 173], [192, 448]]) {
       populateCommercialStrip(mats, rnd, {
@@ -804,7 +945,7 @@ export function buildStreet(scene) {
       });
     }
   }
-  // z = 526: Station-South Izakaya & Bar Yokocho (|x| < 174)
+
   for (const dir of [-1, 1]) {
     const xStart = dir > 0 ? 21 : -173;
     const xEnd = dir > 0 ? 173 : -21;
@@ -818,7 +959,6 @@ export function buildStreet(scene) {
     });
   }
 
-  // (c) North-South Bar & Commercial Avenues: x = -182 (West Bar Yokocho / 酒吧街) & x = +182 (East Shotengai)
   for (const [ax, mode] of [[-182, 'yokocho'], [182, 'retail']]) {
     populateCommercialStrip(mats, rnd, {
       axis: 'z', fixedCoord: ax - 11.9, from: -350, to: 586, yaw: Math.PI * 0.5,
@@ -830,7 +970,6 @@ export function buildStreet(scene) {
     });
   }
 
-  // (d) Outer Neighborhood Shopping Streets along x = -460 & x = +460 (z = 150..520)
   for (const ax of [-460, 460]) {
     populateCommercialStrip(mats, rnd, {
       axis: 'z', fixedCoord: ax - 11.9, from: 150, to: 520, yaw: Math.PI * 0.5,
@@ -842,7 +981,6 @@ export function buildStreet(scene) {
     });
   }
 
-  // (e) North Inter-Plot Commercial & Bar Strips (z = -122, -198, -362)
   for (const [nz, mode] of [[-122, 'retail'], [-198, 'yokocho'], [-362, 'retail']]) {
     for (const [xStart, xEnd] of [[-448, -192], [-172, 172], [192, 448]]) {
       populateCommercialStrip(mats, rnd, {
@@ -852,16 +990,17 @@ export function buildStreet(scene) {
     }
   }
 
-  // Extra Bar & Yokocho entrance arches at x = -182 and z = 436
-  for (const [ax, az, rot] of [[-182, 420, 0], [-182, 248, 0], [-12.8, 436, Math.PI * 0.5], [12.8, 436, Math.PI * 0.5]]) {
-    const archLot = new LotContext(ax, az, rot, 0);
-    archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, -4.8, 2.8, 0);
-    archLot.addBox(mats.accentRed, 0.34, 5.6, 0.34, 4.8, 2.8, 0);
-    archLot.addBox(mats.accentRed, 10.2, 0.55, 0.42, 0, 5.4, 0);
-    archLot.add(mats.shotengaiBanner, signBox(5.4, 1.0, 0.5), 0, 5.52, 0);
+  // Extra Bar & Yokocho entrance truss arches with distinct neighborhood names!
+  for (const [ax, az, rot, bIdx] of [
+    [-182, 420, 0, 1],
+    [-182, 248, 0, 2],
+    [-13.0, 436, Math.PI * 0.5, 1],
+    [13.0, 436, Math.PI * 0.5, 1],
+  ]) {
+    addShotengaiArch(mats, az, 4.85, mats.sideArchBanners[bIdx], ax, rot);
   }
 
-  // Streetlamps & light spots along ALL major N-S & E-W avenues across the whole city!
+  // Streetlamps & light spots along major avenues
   for (const ax of nsAvenueXs) {
     for (let z = -690; z <= 580; z += 34) {
       if (allCrossZs.some((cz) => Math.abs(z - cz) < 8) || insideAnyPlotPlaza(ax, z, 6)) continue;
@@ -884,7 +1023,6 @@ export function buildStreet(scene) {
   }
 
   // 5. JAPANESE DETACHED HOUSE NEIGHBORHOODS (一戸建て住宅街)
-  // Fill every urban block outside commercial frontages & civic plazas with subdivided Ikkodate streets!
   const xBands = [
     [-595, -468],
     [-452, -190],
@@ -894,31 +1032,26 @@ export function buildStreet(scene) {
     [468, 595],
   ];
 
-  // South Town residential superblocks (between ewCrossZs: 142..592)
   for (let zi = 0; zi < ewCrossZs.length - 1; zi++) {
     const bz0 = ewCrossZs[zi] + 6.5;
     const bz1 = ewCrossZs[zi + 1] - 6.5;
 
     for (const [bx0, bx1] of xBands) {
-      // Reserve frontage depth where commercial strips already stand!
       let rx0 = bx0;
       let rx1 = bx1;
       let rz0 = bz0;
       let rz1 = bz1;
 
-      // Buffer behind x = ±182 commercial/bar strips
       if (Math.abs(bx1 - (-190)) < 2) rx1 -= 12.5;
       if (Math.abs(bx0 - (-174)) < 2) rx0 += 12.5;
       if (Math.abs(bx1 - 174) < 2) rx1 -= 12.5;
       if (Math.abs(bx0 - 190) < 2) rx0 += 12.5;
-      // Buffer behind x = ±460 commercial strips
       if (bz0 < 524) {
         if (Math.abs(bx1 - (-468)) < 2) rx1 -= 12.5;
         if (Math.abs(bx0 - (-452)) < 2) rx0 += 12.5;
         if (Math.abs(bx1 - 452) < 2) rx1 -= 12.5;
         if (Math.abs(bx0 - 468) < 2) rx0 += 12.5;
       }
-      // Buffer behind z = 232, 324, 436, 526 commercial/bar cross-strips
       const innerX = Math.abs(bx0) < 176 && Math.abs(bx1) < 176;
       const midX = Math.abs(bx0) < 455 && Math.abs(bx1) < 455;
       if ((innerX && (ewCrossZs[zi] === 232 || ewCrossZs[zi] === 526)) || (midX && (ewCrossZs[zi] === 324 || ewCrossZs[zi] === 436))) {
@@ -932,7 +1065,6 @@ export function buildStreet(scene) {
     }
   }
 
-  // Mid & North Town residential superblocks weaving around and behind the 9 Tower Plots!
   const northZBands = [
     [-715, -546],
     [-530, -459],
@@ -948,18 +1080,21 @@ export function buildStreet(scene) {
   }
 
   // 6. MAIN SHOTENGAI STREET FURNITURE, UTILITY POLES, OVERHEAD WIRES & KEI-CARS
-  // Suzuran decorative lamps with shopping-street flags on both sidewalks
+  // Fix #2: Suzuran decorative bell lamps cycling cleanly across 4 non-emissive woven Shotengai flags!
   for (const side of [-1, 1]) {
-    const banner = mats.sleeveSigns[side < 0 ? 0 : 4];
+    let lampSeq = 0;
     for (let z = STREET.from + 14; z < STREET.to - 8; z += 26) {
       if (ewCrossZs.some((cz) => Math.abs(z - cz) < 8.5)) continue;
       const lx = side * (STREET.road + 0.55);
-      addShotengaiLamp(mats, lx, z, side, banner);
-      lampSpots.push({ x: lx, y: 4.6, z, radius: 22 });
+      const flagBucket = mats.streetFlags[(lampSeq + (side > 0 ? 0 : 2)) % mats.streetFlags.length];
+      const breeze = Math.sin(lampSeq * 1.9 + side) * 0.04;
+      addShotengaiLamp(mats, lx, z, side, flagBucket, breeze);
+      lampSpots.push({ x: lx, y: 4.5, z, radius: 22 });
+      lampSeq += 1;
     }
   }
 
-  // Authentic Japanese concrete utility poles (電柱) + transformers + overhead catenary wires!
+  // Fix #1: Concrete utility poles with curved non-emissive enameled chome plaques & safety wraps!
   const rightPoleX = STREET.road + 1.65;
   const leftPoleX = -(STREET.road + 1.65);
   const rightPoles = [];
@@ -968,12 +1103,12 @@ export function buildStreet(scene) {
   for (let z = STREET.from + 18; z < STREET.to - 12; z += 44) {
     const snappedZ = ewCrossZs.some((cz) => Math.abs(z - cz) < 8) ? z + 10 : z;
     rightPoles.push(snappedZ);
-    addUtilityPole(mats, rightPoleX, snappedZ, rightPoles.length % 2 === 1, rightPoles.length === 6 ? 1 : 0);
+    addUtilityPole(mats, rightPoleX, snappedZ, rightPoles.length % 2 === 1, rightPoles.length === 6 ? 1 : 0, 1, rightPoles.length - 1);
   }
   for (let z = STREET.from + 36; z < STREET.to - 12; z += 66) {
     const snappedZ = ewCrossZs.some((cz) => Math.abs(z - cz) < 8) ? z - 10 : z;
     leftPoles.push(snappedZ);
-    addUtilityPole(mats, leftPoleX, snappedZ, leftPoles.length % 2 === 0, 0);
+    addUtilityPole(mats, leftPoleX, snappedZ, leftPoles.length % 2 === 0, 0, -1, leftPoles.length + 1);
   }
 
   // Longitudinal 3-phase high-voltage & low-voltage telecom catenary wires
@@ -993,27 +1128,25 @@ export function buildStreet(scene) {
       mats.wire.add(wireGeometry([leftPoleX + dx, y, zA], [leftPoleX + dx, y, zB], span * 0.019, 0.02));
     }
   }
-  // Cross-street service drop wires framing the sky near the camera!
   for (const [zCross, yCross] of [[402, 7.6], [398, 8.3], [348, 7.8], [282, 8.1], [204, 7.9]]) {
     mats.wire.add(wireGeometry([leftPoleX, yCross, zCross], [rightPoleX, yCross + 0.25, zCross + 2.5], 0.42, 0.02));
   }
 
-  // Street-side Vending Machine Corners (自販機コーナー) along Shotengai
+  // Street-side Vending Machine Corners (自販機コーナー)
   for (const [side, z] of [[-1, 376], [1, 344], [-1, 276], [1, 194]]) {
     const vx = side * (STREET.road + 1.82);
     mats.vendRed.add(box(0.72, 1.9, 0.96), vx, 0.95, z);
     mats.vendFace.add(box(0.05, 1.26, 0.82), vx - side * 0.37, 1.16, z);
     mats.vendWhite.add(box(0.72, 1.9, 0.96), vx, 0.95, z + 1.06);
     mats.vendFace.add(box(0.05, 1.26, 0.82), vx - side * 0.37, 1.16, z + 1.06);
-    // Blue bottle/can recycle bin beside vending bank!
     mats.vendBlue.add(box(0.45, 0.86, 0.46), vx, 0.43, z + 1.88);
   }
 
-  // Japanese Kei-cars & delivery vans cruising/parked on the Shotengai & cross-streets!
+  // Japanese Kei-cars & delivery vans
   const roadCars = [
     { x: -2.2, z: 362, yaw: Math.PI, color: 0, van: false },
-    { x: 2.2, z: 292, yaw: 0, color: 2, van: false },      // Yellow Kei-car!
-    { x: -2.3, z: 248, yaw: Math.PI, color: 3, van: true }, // Delivery kei-van
+    { x: 2.2, z: 292, yaw: 0, color: 2, van: false },
+    { x: -2.3, z: 248, yaw: Math.PI, color: 3, van: true },
     { x: 2.1, z: 446, yaw: 0, color: 5, van: false },
     { x: -46, z: 318.1, yaw: Math.PI * 0.5, color: 1, van: true },
     { x: 58, z: 221.9, yaw: -Math.PI * 0.5, color: 6, van: false },
@@ -1030,21 +1163,28 @@ export function buildStreet(scene) {
 
   const buildAll = (bucketOrArray, shadowOpts = {}) => {
     if (Array.isArray(bucketOrArray)) {
-      bucketOrArray.forEach((b) => b.build(group, shadowOpts));
+      bucketOrArray.forEach((b) => {
+        if (b instanceof Bucket) b.build(group, shadowOpts);
+      });
     } else if (bucketOrArray instanceof Bucket) {
       bucketOrArray.build(group, shadowOpts);
     }
   };
 
-  // Ground/road surfaces receive shadows without needing to cast them
-  for (const key of ['road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder', 'lotPad', 'roadPaint', 'tactileYellow']) {
+  for (const key of [
+    'road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder',
+    'lotPad', 'roadPaint', 'tactileYellow', 'drainGrate',
+  ]) {
     buildAll(mats[key], { castShadow: false, receiveShadow: true });
   }
 
-  // All 3D buildings, roofs, signs, vehicles, trees & wires cast and receive shadows
   const skipKeys = new Set([
     'road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder', 'lotPad',
-    'roadPaint', 'tactileYellow', 'commUpperLight', 'shopRetails', 'awnings', 'carWhite',
+    'roadPaint', 'tactileYellow', 'drainGrate',
+    'houseLightBlanks', 'houseDarkBlanks', 'shikkuiBlank',
+    'commUpperLight', 'windowLitList', 'konbiniLitList',
+    'fasciasIzakaya', 'fasciasRamen', 'fasciasKissaten', 'fasciasPharmacy', 'fasciasBookstore',
+    'shopRetails', 'norenSets', 'awnings', 'carWhite',
   ]);
   for (const [key, val] of Object.entries(mats)) {
     if (skipKeys.has(key)) continue;

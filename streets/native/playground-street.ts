@@ -55,7 +55,7 @@ const WEATHERS: { id: WeatherId; label: string; cloud: number; rain: number; fog
 const VIEWS: Record<ViewId, { label: string; pos: [number, number, number]; target: [number, number, number] }> = {
   street: { label: "街道 Street", pos: [4.9, 1.7, 438], target: [0, 120, 90] },
   shotengai: { label: "商店街 Shotengai", pos: [3.6, 8.8, 366], target: [-12, 4.6, 308] },
-  ikkodate: { label: "住宅区 Ikkodate", pos: [38, 3.5, 386.8], target: [106, 3.1, 385.8] },
+  ikkodate: { label: "住宅区 Ikkodate", pos: [36, 3.2, 380.0], target: [106, 2.8, 379.2] },
   overview: { label: "俯瞰 Overview", pos: [560, 410, 790], target: [0, 95, -210] },
 };
 

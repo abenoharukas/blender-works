@@ -13,7 +13,7 @@
     "optimize:web": "gltf-transform optimize",
     "rt:build": "bun /Users/raku/repos/others/ThreeRT/renderer/build.ts",
     "rt:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts streets/native/playground-street.ts -o streets/native/out/playground-street.js",
-    "rt:play": "npm run rt:bundle && /Users/raku/repos/others/ThreeRT/renderer/target/release/threert-render play streets/native/out/playground-street.js --assets /Users/raku/repos/others/ThreeRT",
+    "rt:play": "npm run rt:bundle && (test -f streets/native/out/playground_street_rt.glb && cp -f streets/native/out/playground_street_rt.glb /Users/raku/repos/others/ThreeRT/assets/playground_street_rt.glb 2>/dev/null || true) && /Users/raku/repos/others/ThreeRT/renderer/target/release/threert-render play streets/native/out/playground-street.js --assets /Users/raku/repos/others/ThreeRT",
     "rt:diamond:bundle": "node /Users/raku/repos/others/ThreeRT/tools/bundle-game.ts optics/diamond/diamond-optics.ts -o optics/diamond/out/diamond-optics.js",
     "rt:diamond": "node optics/diamond/render-diamond.mjs",
     "rt:diamond:render": "node optics/diamond/render-diamond.mjs",

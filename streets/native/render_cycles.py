@@ -23,8 +23,25 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 OUT = os.path.join(HERE, "out")
 ASSETS = "/Users/raku/repos/others/threert-assets"
-STREET_GLB = os.path.join(ASSETS, "playground_street_rt.glb")
-TOWER_GLB = os.path.join(ASSETS, "the_stack_final.glb")
+LOCAL_STREET_GLB = os.path.join(OUT, "playground_street_rt.glb")
+LOCAL_TOWER_GLB = os.path.join(ROOT, "works/the_stack/out/the_stack_final.glb")
+
+
+def _resolve_glb(local_path, shared_name):
+    shared_path = os.path.join(ASSETS, shared_name)
+    try:
+        if os.path.exists(local_path):
+            if not os.path.exists(shared_path) or os.path.getmtime(local_path) >= os.path.getmtime(shared_path):
+                return local_path
+        if os.path.exists(shared_path):
+            return shared_path
+    except PermissionError:
+        pass
+    return local_path
+
+
+STREET_GLB = _resolve_glb(LOCAL_STREET_GLB, "playground_street_rt.glb")
+TOWER_GLB = _resolve_glb(LOCAL_TOWER_GLB, "the_stack_final.glb")
 SCENE_JSON = os.path.join(HERE, "playground-scene.json")
 BASE_BLEND = os.path.join(OUT, "cycles-street-base.blend")
 
@@ -32,6 +49,7 @@ VIEWS = {
     # Same eye-level street preset as the ThreeRT scene.
     "street": {"pos": (4.9, 1.7, 560.0), "target": (0.0, 55.0, 90.0), "fov": 52.0},
     "shotengai": {"pos": (3.6, 8.8, 366.0), "target": (-12.0, 4.6, 308.0), "fov": 52.0},
+    "ikkodate": {"pos": (36.0, 3.2, 380.0), "target": (106.0, 2.8, 379.2), "fov": 52.0},
 }
 
 

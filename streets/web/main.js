@@ -135,8 +135,8 @@ const VIEWS = {
     target: new THREE.Vector3(-12, 4.6, 308),
   },
   ikkodate: {
-    position: new THREE.Vector3(38, 3.5, 386.8),
-    target: new THREE.Vector3(106, 3.1, 385.8),
+    position: new THREE.Vector3(36, 3.2, 380.0),
+    target: new THREE.Vector3(106, 2.8, 379.2),
   },
   overview: {
     position: new THREE.Vector3(560, 410, 790),

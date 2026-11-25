@@ -740,39 +740,33 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
 
     // Update street materials for night emissives, wet rain reflections, and snow dusting
     if (streetMats) {
-      const boostEmissive = (bucketOrArr, baseMult, nightMult) => {
+      const boostEmissive = (bucketOrArr, baseMult, nightMult, requireBase = false) => {
         const list = Array.isArray(bucketOrArr) ? bucketOrArr : [bucketOrArr];
         for (const b of list) {
           const m = b?.material;
           const base = materialBaselines.get(m);
           if (!m || !base) continue;
+          if (requireBase && base.emissiveIntensity <= 0) continue;
           m.emissiveIntensity = THREE.MathUtils.lerp(base.emissiveIntensity * baseMult, nightMult, glowFactor);
         }
       };
       boostEmissive(streetMats.warmLamp, 0.8, 6.0);
       boostEmissive(streetMats.lanternRed, 0.7, 4.2);
       boostEmissive(streetMats.lanternWarm, 0.7, 4.2);
-      boostEmissive(streetMats.vendFace, 0.75, 3.2);
-      boostEmissive(streetMats.sleeveSigns, 0.8, 1.5);
-      boostEmissive(streetMats.shotengaiBanner, 0.8, 1.5);
-      boostEmissive(streetMats.konbiniSignBlue, 0.8, 2.2);
-      boostEmissive(streetMats.konbiniSignGreen, 0.8, 2.0);
-      // Randomly lit residential windows & commercial storefronts at night
-      boostEmissive(streetMats.houseLightWalls, 0, 1.8);
-      boostEmissive(streetMats.houseSlitWalls, 0, 1.8);
-      boostEmissive(streetMats.houseDarkWalls, 0, 1.8);
-      boostEmissive(streetMats.houseTileWalls, 0, 1.7);
-      boostEmissive(streetMats.woodAccentWall, 0, 1.7);
-      boostEmissive(streetMats.washikiLower, 0, 1.7);
-      boostEmissive(streetMats.shikkuiWall, 0, 1.7);
-      boostEmissive(streetMats.commUppers, 0, 2.0);
-      boostEmissive(streetMats.shopIzakaya, 0, 1.35);
-      boostEmissive(streetMats.shopRamen, 0, 1.35);
-      boostEmissive(streetMats.shopKissaten, 0, 1.25);
-      boostEmissive(streetMats.shopPharmacy, 0, 1.35);
-      boostEmissive(streetMats.shopBookstore, 0, 1.2);
-      boostEmissive(streetMats.shopKonbiniLawson, 0, 1.8);
-      boostEmissive(streetMats.shopKonbiniFamima, 0, 1.8);
+      boostEmissive(streetMats.vendFace, 0.7, 2.8);
+      boostEmissive(streetMats.sleeveSigns, 0.7, 1.35);
+      boostEmissive(streetMats.shotengaiBanner, 0.7, 1.3);
+      boostEmissive(streetMats.sideArchBanners, 0.7, 1.3);
+      boostEmissive(streetMats.fasciasAll, 0.7, 1.25, true);
+      boostEmissive(streetMats.konbiniLitList, 0.75, 1.65);
+      // Randomly lit 3D recessed residential & commercial windows + masked storefronts at night
+      boostEmissive(streetMats.windowLitList, 0, 1.85);
+      boostEmissive(streetMats.shopIzakaya, 0, 1.45);
+      boostEmissive(streetMats.shopRamen, 0, 1.45);
+      boostEmissive(streetMats.shopKissaten, 0, 1.35);
+      boostEmissive(streetMats.shopPharmacy, 0, 1.45);
+      boostEmissive(streetMats.shopBookstore, 0, 1.3);
+      boostEmissive(streetMats.shopKonbiniBay, 0, 1.9);
 
       // Wet roads & plazas in rain
       for (const key of ['road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder']) {
