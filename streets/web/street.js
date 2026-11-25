@@ -13,7 +13,6 @@ import {
   createRoofPBR,
   createUnlitWindowTexture,
   createLitWindowTextureSet,
-  createShopfrontBayTextureSet,
   createShopFasciaSignSet,
   createKonbiniFasciaSet,
   createKonbiniPylonSet,
@@ -25,6 +24,10 @@ import {
   createNorenPanelTexture,
   createAcUnitTexture,
   createDrainGrateTexture,
+  createBarkPBR,
+  createHedgePBR,
+  createFoliageClusterTextureSet,
+  createChochinTextureSet,
 } from './japanese-textures.js';
 import {
   box,
@@ -43,7 +46,7 @@ import {
   addShotengaiLamp,
   addShotengaiArch,
 } from './japanese-buildings.js';
-import { applyInteriorMapping, applyShopInteriorMapping } from './interior-mapping.js';
+import { applyInteriorMapping } from './interior-mapping.js';
 
 export const STREET = { road: 4.8, walk: 2.3, from: 136, to: 592 };
 const FRONT = STREET.road + STREET.walk;
@@ -269,25 +272,44 @@ function createMaterialLibrary() {
   const windowLitOffice = makeLitWin('window_lit_office', 'office_cool');
   const windowLitModern = makeLitWin('window_lit_modern', 'modern_led');
 
-  // 4. Ground-Floor Recessed Storefront Bays (STRICT emissiveMap glass mask -> 3D Parallax Shop Interiors!)
-  const makeLitShopBay = (name, variant, roughness) => {
-    const set = createShopfrontBayTextureSet(variant);
-    const b = std(name, {
-      map: set.map,
-      emissive: 0xffffff,
-      emissiveMap: set.emissiveMap,
-      emissiveIntensity: 0,
-      roughness,
-    });
-    applyShopInteriorMapping(b.material, variant);
-    return b;
-  };
-  const shopIzakaya = makeLitShopBay('shop_izakaya', 'izakaya', 0.62);
-  const shopRamen = makeLitShopBay('shop_ramen', 'ramen', 0.62);
-  const shopKissaten = makeLitShopBay('shop_kissaten', 'kissaten', 0.54);
-  const shopPharmacy = makeLitShopBay('shop_pharmacy', 'pharmacy', 0.52);
-  const shopBookstore = makeLitShopBay('shop_bookstore', 'bookstore', 0.54);
-  const shopKonbiniBay = makeLitShopBay('shop_konbini_bay', 'konbini', 0.34);
+  // 4. Shared 3D Ground-Floor Shop Interior Palette + Clear Physical Storefront Glass
+  //    (All 1F commercial storefronts now have real 3D furnished rooms + 3D framing/koushi lattice;
+  //     parallax Interior Mapping is strictly reserved for windows without 3D interior geometry.)
+  const shopGlass = new Bucket(new THREE.MeshPhysicalMaterial({
+    name: 'shop_glass',
+    color: 0xeaf2f7,
+    roughness: 0.015,
+    metalness: 0.0,
+    transmission: 0.96,
+    ior: 1.50,
+  }));
+  const shop3dPlasterWarm = std('shop3d_plaster_warm', { color: 0x9e8165, roughness: 0.84 });
+  const shop3dPlasterCream = std('shop3d_plaster_cream', { color: 0xb7ac9c, roughness: 0.82 });
+  const shop3dPlasterCool = std('shop3d_plaster_cool', { color: 0xc8ced4, roughness: 0.76 });
+  const shop3dWoodDark = std('shop3d_wood_dark', { color: 0x473526, roughness: 0.52 });
+  const shop3dWoodWarm = std('shop3d_wood_warm', { color: 0x7c593e, roughness: 0.56 });
+  const shop3dFloorDark = std('shop3d_floor_dark', { color: 0x514437, roughness: 0.32 });
+  const shop3dFloorLight = std('shop3d_floor_light', { color: 0xb4b2ac, roughness: 0.20 });
+  const shop3dCeilWood = std('shop3d_ceil_wood', { color: 0x5e4934, roughness: 0.78 });
+  const shop3dCeilWhite = std('shop3d_ceil_white', { color: 0xd1d4d7, roughness: 0.75 });
+  const shop3dMetalDark = std('shop3d_metal_dark', { color: 0x333337, roughness: 0.30, metalness: 0.85 });
+  const shop3dGoodsRed = std('shop3d_goods_red', { color: 0xc8554c, roughness: 0.48 });
+  const shop3dGoodsBlue = std('shop3d_goods_blue', { color: 0x598ac8, roughness: 0.48 });
+  const shop3dGoodsOchre = std('shop3d_goods_ochre', { color: 0xd4a955, roughness: 0.48 });
+  const shop3dGoodsGreen = std('shop3d_goods_green', { color: 0x55a574, roughness: 0.48 });
+  const shop3dMenuPlaque = std('shop3d_menu_plaque', { color: 0xeadab7, roughness: 0.82 });
+  const shop3dLampWarm = std('shop3d_lamp_warm', {
+    color: 0xfff3de, emissive: 0xffd792, emissiveIntensity: 0, roughness: 0.15,
+  });
+  const shop3dLampAmber = std('shop3d_lamp_amber', {
+    color: 0xffe7bd, emissive: 0xffbf67, emissiveIntensity: 0, roughness: 0.25,
+  });
+  const shop3dLampCool = std('shop3d_lamp_cool', {
+    color: 0xf7fdff, emissive: 0xedf8ff, emissiveIntensity: 0, roughness: 0.20,
+  });
+  const shop3dCoolerGlow = std('shop3d_cooler_glow', {
+    color: 0xd7eeff, emissive: 0xbfe7ff, emissiveIntensity: 0, roughness: 0.25,
+  });
 
   // Clamped 3D Shop Fascia Signboards (never repeat or slice mid-kanji!)
   let fasciaCounter = 0;
@@ -467,11 +489,106 @@ function createMaterialLibrary() {
   const awningOchre = std('awning_ochre', { color: 0xad7224, roughness: 0.86 });
 
   const blockWall = stdPbr('block_wall', createBlockWallPBR(0x9c988e));
+  const phys = (name, props) => new Bucket(new THREE.MeshPhysicalMaterial({ name, ...props }));
   const acBody = std('ac_body', { map: createAcUnitTexture(), roughness: 0.62, metalness: 0.14 });
   const drainGrate = std('drain_grate', { map: createDrainGrateTexture(), roughness: 0.48, metalness: 0.62 });
 
+  // Botanical bark, clipped boxwood hedge & alpha-cutout branchlet crowns
+  const trunk = stdPbr('tree_trunk', createBarkPBR(), { normalScale: new THREE.Vector2(1.0, 1.0) });
+  const hedge = stdPbr('hedge_green', createHedgePBR(), { normalScale: new THREE.Vector2(1.15, 1.15) });
+  const makeFoliage = (name, variant, roughness = 0.70) => {
+    const set = createFoliageClusterTextureSet(variant);
+    return std(name, {
+      map: set.map,
+      normalMap: set.normalMap,
+      normalScale: new THREE.Vector2(0.75, 0.75),
+      roughness,
+      alphaTest: 0.46,
+      side: THREE.DoubleSide,
+    });
+  };
+  const foliageFresh = makeFoliage('foliage_fresh', 'zelkova', 0.68);
+  const foliageWarm = makeFoliage('foliage_warm', 'maple', 0.70);
+  const foliagePine = makeFoliage('foliage_pine', 'pine', 0.74);
+  const foliageShrub = makeFoliage('foliage_shrub', 'shrub', 0.62);
+
+  // Dual-layer corrugated Washi paper lanterns (inner glowing filament core + outer rough-transmissive ribbed shell!)
+  const chochinCore = std('chochin_core', {
+    color: 0xfff6de,
+    emissive: 0xffe29a,
+    emissiveIntensity: 2.2,
+    roughness: 0.22,
+  });
+  const makeChochin = (name, cfg) => {
+    const set = createChochinTextureSet(cfg);
+    return phys(name, {
+      map: set.map,
+      normalMap: set.normalMap,
+      normalScale: new THREE.Vector2(0.85, 0.85),
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0.22,
+      transmission: 0.74,
+      roughness: 0.44,
+      ior: 1.28,
+    });
+  };
+  const lanternReds = [
+    makeChochin('lantern_red_0', { style: 'red', text: '居酒屋', sideText: '炭火焼' }),
+    makeChochin('lantern_red_1', { style: 'red', text: '中華そば', sideText: '自家製麺' }),
+    makeChochin('lantern_red_2', { style: 'red', text: 'やきとり', sideText: '地酒・肴' }),
+  ];
+  const lanternWarms = [
+    makeChochin('lantern_warm_0', { style: 'warm', text: 'おでん', sideText: '旬菜酒場' }),
+    makeChochin('lantern_warm_1', { style: 'warm', text: '手打蕎麦', sideText: '二八蕎麦' }),
+  ];
+
+  // Clearcoat metallic Kei-car paint palette, flush automotive safety glass & lighting trim
   const carColors = [0xf2f0eb, 0xd8dde2, 0xe8c448, 0x5c8ab5, 0x282c32, 0xc94a3e, 0x86a68a];
-  const carPalette = carColors.map((color, i) => std(`kei_car_${i}`, { color, roughness: 0.24, metalness: 0.42 }));
+  const carPalette = carColors.map((color, i) => phys(`kei_car_${i}`, {
+    color,
+    roughness: 0.22,
+    metalness: 0.36,
+    clearcoat: 0.90,
+    clearcoatRoughness: 0.06,
+  }));
+  const carGlass = phys('car_glass', {
+    color: 0x05080c,
+    roughness: 0.04,
+    metalness: 0.0,
+    ior: 1.50,
+  });
+  const carTrimBlack = std('car_trim_black', {
+    color: 0x121417,
+    roughness: 0.34,
+    metalness: 0.12,
+  });
+  const carHeadlampOff = phys('car_headlamp_off', {
+    color: 0xdce6f0,
+    roughness: 0.12,
+    metalness: 0.45,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.04,
+  });
+  const carHeadlampOn = std('car_headlamp_on', {
+    color: 0xfff8e8,
+    emissive: 0xffe8ba,
+    emissiveIntensity: 1.4,
+    roughness: 0.16,
+  });
+  const carTaillampOff = phys('car_taillamp_off', {
+    color: 0x8f1818,
+    roughness: 0.16,
+    metalness: 0.22,
+    clearcoat: 0.95,
+    clearcoatRoughness: 0.05,
+  });
+  const carTaillampOn = std('car_taillamp_on', {
+    color: 0xe62922,
+    emissive: 0xff2b1f,
+    emissiveIntensity: 1.1,
+    roughness: 0.20,
+  });
 
   return {
     houseLightWalls,
@@ -493,12 +610,26 @@ function createMaterialLibrary() {
     windowLitOffice,
     windowLitModern,
     windowLitList: [windowLitWarm, windowLitAmber, windowLitOffice, windowLitModern],
-    shopIzakaya,
-    shopRamen,
-    shopKissaten,
-    shopPharmacy,
-    shopBookstore,
-    shopKonbiniBay,
+    shopGlass,
+    shop3dPlasterWarm,
+    shop3dPlasterCream,
+    shop3dPlasterCool,
+    shop3dWoodDark,
+    shop3dWoodWarm,
+    shop3dFloorDark,
+    shop3dFloorLight,
+    shop3dCeilWood,
+    shop3dCeilWhite,
+    shop3dMetalDark,
+    shop3dGoodsRed,
+    shop3dGoodsBlue,
+    shop3dGoodsOchre,
+    shop3dGoodsGreen,
+    shop3dMenuPlaque,
+    shop3dLampWarm,
+    shop3dLampAmber,
+    shop3dLampCool,
+    shop3dCoolerGlow,
     fasciasIzakaya,
     fasciasRamen,
     fasciasKissaten,
@@ -511,11 +642,11 @@ function createMaterialLibrary() {
     konbiniPylonFamima,
     konbiniLitList: [konbiniFasciaLawson, konbiniFasciaFamima, konbiniPylonLawson, konbiniPylonFamima],
     shopRetails: [
-      { bay: shopKissaten, fascias: fasciasKissaten },
-      { bay: shopPharmacy, fascias: fasciasPharmacy },
-      { bay: shopBookstore, fascias: fasciasBookstore },
-      { bay: shopIzakaya, fascias: fasciasIzakaya },
-      { bay: shopRamen, fascias: fasciasRamen },
+      { kind: 'kissaten', fascias: fasciasKissaten },
+      { kind: 'pharmacy', fascias: fasciasPharmacy },
+      { kind: 'bookstore', fascias: fasciasBookstore },
+      { kind: 'izakaya', fascias: fasciasIzakaya },
+      { kind: 'ramen', fascias: fasciasRamen },
     ],
     polePlaques,
     poleReflector,
@@ -564,18 +695,32 @@ function createMaterialLibrary() {
     glassDark: std('glass_dark', { color: 0x202b33, roughness: 0.08, metalness: 0.18 }),
     accentRed: std('accent_red', { color: 0xa82820, roughness: 0.44, metalness: 0.18 }),
     warmLamp: std('warm_lamp', { color: 0xfff0d4, emissive: 0xffc675, emissiveIntensity: 1.5, roughness: 0.32 }),
-    lanternRed: std('lantern_red', { color: 0xd93829, emissive: 0xff5a36, emissiveIntensity: 1.15, roughness: 0.58 }),
-    lanternWarm: std('lantern_warm', { color: 0xfff0d2, emissive: 0xffcf86, emissiveIntensity: 1.1, roughness: 0.58 }),
+    chochinCore,
+    lanternReds,
+    lanternWarms,
+    lanternRed: lanternReds[0],
+    lanternWarm: lanternWarms[0],
+    lanternAll: [...lanternReds, ...lanternWarms],
     vendRed: std('vend_red', { color: 0xa82622, roughness: 0.42, metalness: 0.16 }),
     vendBlue: std('vend_blue', { color: 0x1f5694, roughness: 0.42, metalness: 0.16 }),
     vendWhite: std('vend_white', { color: 0xe6e3dc, roughness: 0.42, metalness: 0.16 }),
     vendFace: std('vend_face', { color: 0xdff2ff, emissive: 0xd4ecff, emissiveIntensity: 1.2, roughness: 0.28 }),
-    trunk: std('tree_trunk', { color: 0x453426, roughness: 0.92 }),
-    hedge: std('hedge_green', { color: 0x46633b, roughness: 0.9 }),
-    foliageFresh: std('foliage_fresh', { color: 0x4f7340, roughness: 0.86 }),
-    foliagePine: std('foliage_pine', { color: 0x2f4d31, roughness: 0.88 }),
-    foliageWarm: std('foliage_warm', { color: 0xb55432, roughness: 0.84 }),
+    ceramicPot: std('ceramic_pot', { color: 0x6e402b, roughness: 0.52, metalness: 0.08 }),
+    trunk,
+    hedge,
+    foliageFresh,
+    foliagePine,
+    foliageWarm,
+    foliageShrub,
     wire: std('overhead_wire', { color: 0x1d1e21, roughness: 0.7 }),
+    carGlass,
+    carTrimBlack,
+    carTire: std('car_tire', { color: 0x1e2023, roughness: 0.84, metalness: 0.06 }),
+    carUndercarriage: std('car_undercarriage', { color: 0x16181b, roughness: 0.88, metalness: 0.18 }),
+    carHeadlampOff,
+    carHeadlampOn,
+    carTaillampOff,
+    carTaillampOn,
     carWhite: carPalette[0],
     carPalette,
   };
@@ -738,10 +883,17 @@ function populateCommercialStrip(mats, rnd, {
       }
       if (mode === 'yokocho') {
         const frontZ = depth * 0.5 + 0.32;
-        for (let lx = -lotW * 0.34; lx <= lotW * 0.34; lx += 1.45) {
-          const lanternBucket = rnd() < 0.58 ? mats.lanternRed : mats.lanternWarm;
-          lot.addBox(lanternBucket, 0.26, 0.42, 0.26, lx, 3.05, frontZ);
-        }
+        addChochinRow(lot, mats, {
+          x0: -lotW * 0.34,
+          x1: lotW * 0.34,
+          y: 2.96,
+          z: frontZ,
+          count: Math.max(2, Math.round(lotW / 2.6)),
+          red: rnd() < 0.58,
+          rich: detail,
+          seed: signSeed + 1,
+          tall: true,
+        });
         if (rnd() < 0.68) {
           _globalSignSeq = (_globalSignSeq + 3) % mats.sleeveSigns.length;
           addSleeveSign(lot, mats, _globalSignSeq, { x: lotW * 0.38, y: 4.45, z: frontZ - 0.1 });
@@ -1163,7 +1315,7 @@ export function buildStreet(scene) {
   ];
   for (const c of roadCars) {
     const carLot = new LotContext(c.x, c.z, 0, 0.08);
-    addKeiCar(carLot, mats, 0, 0, c.yaw, mats.carPalette[c.color], c.van);
+    addKeiCar(carLot, mats, 0, 0, c.yaw, mats.carPalette[c.color], c.van, true, true);
   }
 
   // 7. Build all merged static meshes into one clean `street` group
@@ -1187,14 +1339,16 @@ export function buildStreet(scene) {
   ]) {
     buildAll(mats[key], { castShadow: false, receiveShadow: true });
   }
+  buildAll(mats.shopGlass, { castShadow: false, receiveShadow: false });
 
   const skipKeys = new Set([
     'road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder', 'lotPad',
-    'roadPaint', 'tactileYellow', 'drainGrate',
+    'roadPaint', 'tactileYellow', 'drainGrate', 'shopGlass',
     'houseLightBlanks', 'houseDarkBlanks', 'shikkuiBlank',
     'commUpperLight', 'windowLitList', 'konbiniLitList',
     'fasciasIzakaya', 'fasciasRamen', 'fasciasKissaten', 'fasciasPharmacy', 'fasciasBookstore',
     'shopRetails', 'norenSets', 'awnings', 'carWhite',
+    'lanternRed', 'lanternWarm', 'lanternAll',
   ]);
   for (const [key, val] of Object.entries(mats)) {
     if (skipKeys.has(key)) continue;

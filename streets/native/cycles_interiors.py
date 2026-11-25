@@ -1,39 +1,19 @@
-"""Hybrid offline Cycles interiors for Playground streets (Apple Metal GPU compatible, zero OSL):
+"""Offline Cycles interior & glazing upgrades for Playground streets (Apple Metal GPU, zero OSL):
 
-1. Ground-floor (1F) commercial storefronts (`shop_kissaten`, `shop_bookstore`, `shop_izakaya`,
-   `shop_ramen`, `shop_pharmacy`, `shop_konbini_bay`):
-   - Hollow bays (clear >= 2.5 m behind the storefront) are upgraded to TRUE 3D FURNISHED ROOMS
-     built cleanly via `bmesh` (real walls, beamed/grid ceiling, glowing 3D pendant globes / LED
-     strips / chochin, wooden counters, bookshelves, product gondolas, tables & stools), while the
-     storefront's existing `emissiveMap` masks the glass panes into physical reflective transparent
-     glass (shadow-ray transparent so interior lamps cast real light & wooden-lattice shadows onto
-     the sidewalk!) and keeps all mullions, wainscoting, and koushi lattices crisp opaque matte.
-   - Solid-backed storefront bays (where a structural 1F wall box sits < 2.5 m behind) fall back to
-     a masked Cycles GPU Interior Mapping shader so no shop ever goes dark or clips.
+1. Ground-floor (1F) commercial storefronts:
+   - True 3D furnished shop interiors and 3D mullions/koushi lattices are authored directly in the
+     shared street generator (`streets/web/japanese-buildings.js`) and exported in `playground_street_rt.glb`,
+     so Web, ThreeRT, and Cycles all render the exact same 3D geometry.
+   - Here we only upgrade the shared `shop_glass` storefront glazing to Cycles architectural thin glass
+     (clear Transparent + crisp 10% Fresnel Glossy + shadow-ray transparent so interior 3D lamps cast
+     real light and wooden-lattice shadows onto the sidewalk!).
 
 2. Upper-storey & residential (一戸建て) windows (`window_lit_*`, `window_unlit*`):
-   - Upgraded with a 100% native Cycles Metal GPU Shader Node Group (`Cycles_Interior_Mapping`)
-     performing exact 3-plane analytic ray-box intersection in Blender Z-up space, reading the
-     per-window integer `cellX` seed and `cellY` aspect ratio encoded in UV0 by `windowPaneBox()`,
-     complete with flush Japanese LED ceiling light, shaded side walls, corner AO, mid-plane
-     furniture silhouette card, pleated side curtains / Venetian blinds, and glossy clearcoat glass.
+   - Windows WITHOUT 3D interior geometry are upgraded with a 100% native Cycles Metal GPU Shader Node
+     Group (`Cycles_Interior_Mapping_v1`) performing exact 3-plane analytic ray-box intersection.
 """
 
-import math
-import random
-
-import bmesh
 import bpy
-from mathutils import Vector
-
-SHOP_TYPES = {
-    "shop_kissaten": "kissaten",
-    "shop_bookstore": "bookstore",
-    "shop_konbini_bay": "konbini",
-    "shop_pharmacy": "pharmacy",
-    "shop_izakaya": "izakaya",
-    "shop_ramen": "ramen",
-}
 
 WINDOW_CONFIGS = {
     "window_lit_warm": {
@@ -538,309 +518,20 @@ def upgrade_window_materials():
     return upgraded
 
 
-# ------------------------------------------------------------------ PART 1: TRUE 3D 1F STOREFRONT INTERIORS
 
-def _make_simple_mat(name, color, roughness=0.75, metallic=0.0, emission=None, emission_strength=0.0):
-    if name in bpy.data.materials:
-        mat = bpy.data.materials[name]
-    else:
-        mat = bpy.data.materials.new(name)
+# ------------------------------------------------------------------ PART 1: SHARED 1F STOREFRONT GLAZING
+
+def upgrade_shop_glass():
+    """Upgrades shared `shop_glass` material to Cycles thin architectural glass (clear + subtle
+    Fresnel reflection + shadow-ray transparent so 3D shop interior lamps cast crisp lattice shadows)."""
+    mat = bpy.data.materials.get("shop_glass")
+    if not mat:
+        return 0
     mat.use_nodes = True
     nt = mat.node_tree
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputMaterial")
-    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.inputs["Base Color"].default_value = (*color, 1.0)
-    bsdf.inputs["Roughness"].default_value = roughness
-    bsdf.inputs["Metallic"].default_value = metallic
-    if emission is not None and emission_strength > 0.0:
-        bsdf.inputs["Emission Color"].default_value = (*emission, 1.0)
-        bsdf.inputs["Emission Strength"].default_value = emission_strength
-    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
-    return mat
 
-
-def _create_3d_shop_palette(lit_scale):
-    """Creates shared Cycles materials for the true 3D ground-floor storefront rooms.
-    Calibrated with moody Showa wood/plaster contrast so dark furniture, colorful bottles/books,
-    and glowing 3D pendant lamps read crisply through the reflective glass without washing out."""
-    return {
-        "plaster_warm": _make_simple_mat("Shop3D_PlasterWarm", (0.34, 0.22, 0.13), roughness=0.84),
-        "plaster_cream": _make_simple_mat("Shop3D_PlasterCream", (0.48, 0.42, 0.34), roughness=0.82),
-        "plaster_cool": _make_simple_mat("Shop3D_PlasterCool", (0.58, 0.62, 0.66), roughness=0.76),
-        "wood_dark": _make_simple_mat("Shop3D_WoodDark", (0.06, 0.032, 0.015), roughness=0.52),
-        "wood_warm": _make_simple_mat("Shop3D_WoodWarm", (0.20, 0.10, 0.045), roughness=0.56),
-        "floor_tile_dark": _make_simple_mat("Shop3D_FloorDark", (0.08, 0.055, 0.035), roughness=0.32),
-        "floor_tile_light": _make_simple_mat("Shop3D_FloorLight", (0.46, 0.45, 0.42), roughness=0.20),
-        "ceil_wood": _make_simple_mat("Shop3D_CeilWood", (0.11, 0.065, 0.03), roughness=0.78),
-        "ceil_white": _make_simple_mat("Shop3D_CeilWhite", (0.64, 0.66, 0.68), roughness=0.75),
-        "metal_dark": _make_simple_mat("Shop3D_MetalDark", (0.03, 0.03, 0.035), roughness=0.30, metallic=0.85),
-        "shelf_red": _make_simple_mat("Shop3D_GoodsRed", (0.58, 0.09, 0.07), roughness=0.48),
-        "shelf_blue": _make_simple_mat("Shop3D_GoodsBlue", (0.10, 0.26, 0.58), roughness=0.48),
-        "shelf_ochre": _make_simple_mat("Shop3D_GoodsOchre", (0.66, 0.40, 0.09), roughness=0.48),
-        "shelf_green": _make_simple_mat("Shop3D_GoodsGreen", (0.09, 0.38, 0.18), roughness=0.48),
-        "menu_plaque": _make_simple_mat("Shop3D_MenuPlaque", (0.82, 0.70, 0.48), roughness=0.82),
-        # Physical interior emitters — scaled by lit_scale (0 in day, crisp warm/cool in blue & night)
-        "lamp_warm": _make_simple_mat(
-            "Shop3D_LampWarm", (1.0, 0.90, 0.74), roughness=0.15,
-            emission=(1.0, 0.68, 0.28), emission_strength=14.0 * lit_scale,
-        ),
-        "lamp_amber": _make_simple_mat(
-            "Shop3D_LampAmber", (1.0, 0.80, 0.50), roughness=0.25,
-            emission=(1.0, 0.52, 0.14), emission_strength=13.0 * lit_scale,
-        ),
-        "lamp_cool": _make_simple_mat(
-            "Shop3D_LampCool", (0.94, 0.98, 1.0), roughness=0.2,
-            emission=(0.86, 0.94, 1.0), emission_strength=18.0 * lit_scale,
-        ),
-        "cooler_glow": _make_simple_mat(
-            "Shop3D_CoolerGlow", (0.68, 0.86, 1.0), roughness=0.25,
-            emission=(0.52, 0.80, 1.0), emission_strength=7.5 * lit_scale,
-        ),
-    }
-
-
-def _add_box_local(bm, origin, t_vec, b_vec, n_vec, u0, u1, v0, v1, d0, d1, mat_idx, inward=False):
-    """Adds an axis-aligned box in local (T, B, -N) shop coordinates (d > 0 goes INTO the shop)."""
-    def pt(u, v, d):
-        return origin + t_vec * u + b_vec * v - n_vec * d
-
-    verts = [
-        bm.verts.new(pt(u0, v0, d0)),  # 0
-        bm.verts.new(pt(u1, v0, d0)),  # 1
-        bm.verts.new(pt(u1, v1, d0)),  # 2
-        bm.verts.new(pt(u0, v1, d0)),  # 3
-        bm.verts.new(pt(u0, v0, d1)),  # 4
-        bm.verts.new(pt(u1, v0, d1)),  # 5
-        bm.verts.new(pt(u1, v1, d1)),  # 6
-        bm.verts.new(pt(u0, v1, d1)),  # 7
-    ]
-    # Outward-facing winding (when T x B = N, -N goes into depth d):
-    faces = [
-        (0, 1, 2, 3),  # front (d0)
-        (5, 4, 7, 6),  # back (d1)
-        (4, 0, 3, 7),  # left (u0)
-        (1, 5, 6, 2),  # right (u1)
-        (3, 2, 6, 7),  # top (v1)
-        (4, 5, 1, 0),  # bottom (v0)
-    ]
-    for f in faces:
-        verts_f = [verts[i] for i in (reversed(f) if inward else f)]
-        try:
-            face = bm.faces.new(verts_f)
-            face.material_index = mat_idx
-        except ValueError:
-            pass
-
-
-def _add_quad_local(bm, origin, t_vec, b_vec, n_vec, p0, p1, p2, p3, mat_idx):
-    def pt(c):
-        return origin + t_vec * c[0] + b_vec * c[1] - n_vec * c[2]
-    try:
-        f = bm.faces.new([bm.verts.new(pt(p0)), bm.verts.new(pt(p1)), bm.verts.new(pt(p2)), bm.verts.new(pt(p3))])
-        f.material_index = mat_idx
-    except ValueError:
-        pass
-
-
-def _add_globe_local(bm, origin, t_vec, b_vec, n_vec, u, v, d, radius, mat_idx, segs=8, rings=5):
-    """Adds a low-poly 3D spherical glass pendant globe in local shop coordinates."""
-    center = origin + t_vec * u + b_vec * v - n_vec * d
-    ring_verts = []
-    top_v = bm.verts.new(center + b_vec * radius)
-    bot_v = bm.verts.new(center - b_vec * radius)
-    for r in range(1, rings):
-        phi = math.pi * r / rings
-        sp, cp = math.sin(phi), math.cos(phi)
-        row = []
-        for s in range(segs):
-            th = 2.0 * math.pi * s / segs
-            p = center + (t_vec * math.cos(th) - n_vec * math.sin(th)) * (radius * sp) + b_vec * (radius * cp)
-            row.append(bm.verts.new(p))
-        ring_verts.append(row)
-    for s in range(segs):
-        s2 = (s + 1) % segs
-        try:
-            f = bm.faces.new([top_v, ring_verts[0][s], ring_verts[0][s2]])
-            f.material_index = mat_idx
-        except ValueError:
-            pass
-        try:
-            f = bm.faces.new([bot_v, ring_verts[-1][s2], ring_verts[-1][s]])
-            f.material_index = mat_idx
-        except ValueError:
-            pass
-    for r in range(len(ring_verts) - 1):
-        for s in range(segs):
-            s2 = (s + 1) % segs
-            try:
-                f = bm.faces.new([ring_verts[r][s], ring_verts[r + 1][s], ring_verts[r + 1][s2], ring_verts[r][s2]])
-                f.material_index = mat_idx
-            except ValueError:
-                pass
-
-
-def _populate_3d_shop_room(bm, mat_idx_map, shop_kind, origin, t_vec, b_vec, n_vec, w, h, rng):
-    """Builds a true 3D recessed room + ceiling lights + counters/shelves/furniture behind a 1F storefront."""
-    depth = rng.uniform(3.4, 4.4) if shop_kind in ("konbini", "pharmacy") else rng.uniform(2.9, 3.8)
-    hw = w * 0.5 + 0.14  # Slightly wider than storefront opening so corners tuck behind pilasters
-    hh = h * 0.5
-    d_start = 0.04
-
-    if shop_kind == "kissaten":
-        wall_m = mat_idx_map["plaster_warm"]
-        ceil_m = mat_idx_map["ceil_wood"]
-        floor_m = mat_idx_map["floor_tile_dark"]
-        lamp_m = mat_idx_map["lamp_warm"]
-        wood_m = mat_idx_map["wood_dark"]
-        accent_m = mat_idx_map["wood_warm"]
-    elif shop_kind == "bookstore":
-        wall_m = mat_idx_map["plaster_cream"]
-        ceil_m = mat_idx_map["ceil_white"]
-        floor_m = mat_idx_map["wood_warm"]
-        lamp_m = mat_idx_map["lamp_warm"]
-        wood_m = mat_idx_map["wood_dark"]
-        accent_m = mat_idx_map["wood_warm"]
-    elif shop_kind in ("konbini", "pharmacy"):
-        wall_m = mat_idx_map["plaster_cool"]
-        ceil_m = mat_idx_map["ceil_white"]
-        floor_m = mat_idx_map["floor_tile_light"]
-        lamp_m = mat_idx_map["lamp_cool"]
-        wood_m = mat_idx_map["plaster_cool"]
-        accent_m = mat_idx_map["cooler_glow"]
-    else:  # izakaya / ramen
-        wall_m = mat_idx_map["plaster_warm"]
-        ceil_m = mat_idx_map["ceil_wood"]
-        floor_m = mat_idx_map["floor_tile_dark"]
-        lamp_m = mat_idx_map["lamp_amber"]
-        wood_m = mat_idx_map["wood_dark"]
-        accent_m = mat_idx_map["wood_warm"]
-
-    # 1. Room shell (5 inward-facing planes: back, left, right, ceiling, floor)
-    _add_quad_local(bm, origin, t_vec, b_vec, n_vec, (-hw, -hh, depth), (hw, -hh, depth), (hw, hh, depth), (-hw, hh, depth), wall_m)
-    _add_quad_local(bm, origin, t_vec, b_vec, n_vec, (-hw, -hh, d_start), (-hw, -hh, depth), (-hw, hh, depth), (-hw, hh, d_start), wall_m)
-    _add_quad_local(bm, origin, t_vec, b_vec, n_vec, (hw, -hh, depth), (hw, -hh, d_start), (hw, hh, d_start), (hw, hh, depth), wall_m)
-    _add_quad_local(bm, origin, t_vec, b_vec, n_vec, (-hw, hh, depth), (hw, hh, depth), (hw, hh, d_start), (-hw, hh, d_start), ceil_m)
-    _add_quad_local(bm, origin, t_vec, b_vec, n_vec, (-hw, -hh, d_start), (hw, -hh, d_start), (hw, -hh, depth), (-hw, -hh, depth), floor_m)
-
-    goods_mats = [mat_idx_map["shelf_red"], mat_idx_map["shelf_blue"], mat_idx_map["shelf_ochre"], mat_idx_map["shelf_green"]]
-
-    # 2. Architectural interior props & real 3D physical light fixtures per shop type!
-    # Keep pendants at ~1.95..2.25 m (below exterior awnings at 2.63 m!) and tall booths/shelves > 1.0 m (above wainscot!)
-    n_bays = max(1, int(round(w / 2.5)))
-    if shop_kind == "kissaten":
-        # Dark walnut wainscoting along side walls + back bar counter + espresso machine + tall bottle shelves
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, -hw + 0.02, hw - 0.02, -hh, -hh + 1.08, depth - 0.75, depth - 0.04, wood_m)
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, -hw + 0.02, hw - 0.02, -hh + 1.08, -hh + 1.15, depth - 0.82, depth - 0.04, accent_m)
-        # Side-wall dark walnut wainscoting panels up to 1.25 m
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, -hw, -hw + 0.08, -hh, -hh + 1.25, d_start, depth, wood_m)
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, hw - 0.08, hw, -hh, -hh + 1.25, d_start, depth, wood_m)
-        # Backbar wooden shelving packed with bold contrasting bottles/cups + warm backbar light strip
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, -hw * 0.78, hw * 0.78, -hh + 2.38, -hh + 2.46, depth - 0.28, depth - 0.14, lamp_m)
-        for sy in (1.30, 1.68, 2.04):
-            if -hh + sy < hh - 0.25:
-                _add_box_local(bm, origin, t_vec, b_vec, n_vec, -hw * 0.82, hw * 0.82, -hh + sy, -hh + sy + 0.05, depth - 0.34, depth - 0.04, wood_m)
-                for gx in range(7):
-                    u_g = -hw * 0.74 + (hw * 1.48) * (gx + 0.5) / 7.0
-                    gm = goods_mats[(gx + int(sy * 10)) % len(goods_mats)]
-                    _add_box_local(bm, origin, t_vec, b_vec, n_vec, u_g - 0.12, u_g + 0.12, -hh + sy + 0.05, -hh + sy + 0.30, depth - 0.28, depth - 0.08, gm)
-        # Hanging 3D round vintage glass globe pendant lamps clearly visible BELOW exterior awnings!
-        for i in range(n_bays):
-            ux = -w * 0.5 + (i + 0.5) * (w / n_bays)
-            for ld in (0.92, depth * 0.62):
-                _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.022, ux + 0.022, hh - 1.12, hh, ld - 0.022, ld + 0.022, mat_idx_map["metal_dark"])
-                _add_globe_local(bm, origin, t_vec, b_vec, n_vec, ux, hh - 1.24, ld, 0.145, lamp_m)
-            # Tall dark café booth backs (1.35 m tall -> visible above window wainscot!) + table + small table lamp
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.48, ux + 0.48, -hh + 0.78, -hh + 0.85, 0.78, 1.55, accent_m)
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.08, ux + 0.08, -hh, -hh + 0.78, 1.08, 1.24, mat_idx_map["metal_dark"])
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.72, ux - 0.52, -hh, -hh + 1.36, 0.82, 1.50, wood_m)
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux + 0.52, ux + 0.72, -hh, -hh + 1.36, 0.82, 1.50, wood_m)
-
-    elif shop_kind == "bookstore":
-        for sy in (0.45, 0.90, 1.35, 1.80, 2.25):
-            if -hh + sy < hh - 0.25:
-                _add_box_local(bm, origin, t_vec, b_vec, n_vec, -hw + 0.06, hw - 0.06, -hh + sy, -hh + sy + 0.04, depth - 0.36, depth - 0.04, wood_m)
-                for gx in range(7):
-                    u_g = -hw * 0.82 + (hw * 1.64) * (gx + 0.5) / 7.0
-                    gm = goods_mats[(gx + int(sy * 7)) % len(goods_mats)]
-                    _add_box_local(bm, origin, t_vec, b_vec, n_vec, u_g - 0.18, u_g + 0.18, -hh + sy + 0.04, -hh + sy + 0.36, depth - 0.30, depth - 0.06, gm)
-        # Tall central wooden flat-display book island (1.15 m tall -> visible above wainscot!) + pendant strips
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, -w * 0.36, w * 0.36, -hh, -hh + 1.05, 0.92, 1.85, accent_m)
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, -w * 0.32, w * 0.32, -hh + 1.05, -hh + 1.24, 0.98, 1.78, mat_idx_map["menu_plaque"])
-        for i in range(n_bays):
-            ux = -w * 0.5 + (i + 0.5) * (w / n_bays)
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.14, ux + 0.14, hh - 0.95, hh - 0.85, 0.65, depth - 0.45, lamp_m)
-
-    elif shop_kind in ("konbini", "pharmacy"):
-        n_strips = max(2, n_bays + 1)
-        for i in range(n_strips):
-            ux = -w * 0.44 + (w * 0.88) * i / max(1, n_strips - 1)
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.12, ux + 0.12, hh - 0.08, hh - 0.01, 0.35, depth - 0.35, lamp_m)
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, -hw * 0.86, hw * 0.86, -hh + 0.25, hh - 0.38, depth - 0.28, depth - 0.05, accent_m)
-        for i in range(n_bays):
-            ux = -w * 0.5 + (i + 0.5) * (w / n_bays)
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.48, ux + 0.48, -hh, -hh + 1.52, 0.95, 1.65, wood_m)
-            for s_idx, sy in enumerate((0.55, 0.98, 1.40)):
-                gm = goods_mats[(i + s_idx) % len(goods_mats)]
-                _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.44, ux + 0.44, -hh + sy, -hh + sy + 0.28, 0.88, 1.72, gm)
-
-    else:
-        # Izakaya / Ramen: warm wooden counter + tall bar stools + hanging amber lanterns + tanzaku plaques!
-        _add_box_local(bm, origin, t_vec, b_vec, n_vec, -hw + 0.06, hw - 0.06, -hh, -hh + 1.10, depth - 1.18, depth - 0.55, accent_m)
-        n_plq = max(5, int(w * 2.4))
-        for k in range(n_plq):
-            ux = -hw * 0.84 + (hw * 1.68) * (k + 0.5) / n_plq
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.075, ux + 0.075, hh - 1.25, hh - 0.58, depth - 0.09, depth - 0.04, mat_idx_map["menu_plaque"])
-        for i in range(max(2, n_bays * 2)):
-            ux = -w * 0.42 + (w * 0.84) * (i + 0.5) / max(2, n_bays * 2)
-            _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.16, ux + 0.16, -hh, -hh + 0.88, depth - 1.68, depth - 1.36, wood_m)
-        for i in range(n_bays):
-            ux = -w * 0.5 + (i + 0.5) * (w / n_bays)
-            for ld in (0.85, depth - 0.95):
-                _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.016, ux + 0.016, hh - 1.02, hh, ld - 0.016, ld + 0.016, mat_idx_map["metal_dark"])
-                _add_box_local(bm, origin, t_vec, b_vec, n_vec, ux - 0.13, ux + 0.13, hh - 1.32, hh - 1.00, ld - 0.13, ld + 0.13, lamp_m)
-
-
-def _convert_shop_mat_to_masked_glass(mat):
-    """Converts a 1F shop material so emissiveMap==0 stays opaque matte frames/mullions/wood lattice,
-    while emissiveMap>0 becomes real transparent reflective Cycles glass (transparent to shadow rays!)."""
-    nt = mat.node_tree
-    # Find existing diffuse Image Texture & emissive Image Texture imported from glTF
-    diff_img = None
-    emit_img = None
-    for node in nt.nodes:
-        if node.type == "BSDF_PRINCIPLED":
-            if node.inputs["Base Color"].is_linked:
-                src = node.inputs["Base Color"].links[0].from_node
-                if src.type == "TEX_IMAGE":
-                    diff_img = src.image
-            if node.inputs["Emission Color"].is_linked:
-                src = node.inputs["Emission Color"].links[0].from_node
-                if src.type == "TEX_IMAGE":
-                    emit_img = src.image
-            break
-    if not diff_img or not emit_img:
-        return
-
-    nt.nodes.clear()
-    out = nt.nodes.new("ShaderNodeOutputMaterial")
-    tex_diff = nt.nodes.new("ShaderNodeTexImage")
-    tex_diff.image = diff_img
-    tex_emit = nt.nodes.new("ShaderNodeTexImage")
-    tex_emit.image = emit_img
-
-    # Binary glass mask from emissiveMap: 0 = opaque frame/mullion/wainscot/lattice, 1 = glass pane
-    sep_e = nt.nodes.new("ShaderNodeSeparateColor")
-    nt.links.new(tex_emit.outputs["Color"], sep_e.inputs["Color"])
-    max_e = _math(nt, "MAXIMUM", sep_e.outputs["Red"], _math(nt, "MAXIMUM", sep_e.outputs["Green"], sep_e.outputs["Blue"]))
-    glass_mask = _smoothstep(nt, 0.04, 0.12, max_e)
-
-    # Opaque frame/mullion/wainscoting shader
-    frame_bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
-    frame_bsdf.inputs["Roughness"].default_value = 0.62
-    nt.links.new(tex_diff.outputs["Color"], frame_bsdf.inputs["Base Color"])
-
-    # Physical architectural thin glass shader (pure clear transmission + subtle crisp Fresnel reflection!)
     transp = nt.nodes.new("ShaderNodeBsdfTransparent")
     transp.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
     glossy = nt.nodes.new("ShaderNodeBsdfGlossy")
@@ -848,250 +539,24 @@ def _convert_shop_mat_to_masked_glass(mat):
     glossy.inputs["Roughness"].default_value = 0.015
     fresnel = nt.nodes.new("ShaderNodeFresnel")
     fresnel.inputs["IOR"].default_value = 1.45
-    # Subtle 10% Fresnel reflection keeps glass crisp and sparkling while revealing 3D interiors with zero milky veil
     refl_fac = _math(nt, "MULTIPLY", fresnel.outputs["Fac"], 0.10, clamp=True)
+
     glass_vis = nt.nodes.new("ShaderNodeMixShader")
     nt.links.new(refl_fac, glass_vis.inputs["Fac"])
     nt.links.new(transp.outputs["BSDF"], glass_vis.inputs[1])
     nt.links.new(glossy.outputs["BSDF"], glass_vis.inputs[2])
 
-    # Shadow rays pass straight through glass panes so interior 3D lights cast real shadows through mullions & koushi!
     lp = nt.nodes.new("ShaderNodeLightPath")
     glass_final = nt.nodes.new("ShaderNodeMixShader")
     nt.links.new(lp.outputs["Is Shadow Ray"], glass_final.inputs["Fac"])
     nt.links.new(glass_vis.outputs["Shader"], glass_final.inputs[1])
     nt.links.new(transp.outputs["BSDF"], glass_final.inputs[2])
-
-    # Blend opaque frame vs transparent reflective glass via exact emissiveMap glass mask
-    mix_all = nt.nodes.new("ShaderNodeMixShader")
-    nt.links.new(glass_mask, mix_all.inputs["Fac"])
-    nt.links.new(frame_bsdf.outputs["BSDF"], mix_all.inputs[1])
-    nt.links.new(glass_final.outputs["Shader"], mix_all.inputs[2])
-    nt.links.new(mix_all.outputs["Shader"], out.inputs["Surface"])
-
-
-def _make_parallax_fallback_shop_mat(base_mat, shop_kind, orig_emit_strength):
-    """Creates a GPU Interior-Mapping fallback material for solid-backed 1F storefronts."""
-    fb = base_mat.copy()
-    fb.name = f"{base_mat.name}_parallax"
-    nt = fb.node_tree
-
-    diff_img = None
-    emit_img = None
-    for node in nt.nodes:
-        if node.type == "BSDF_PRINCIPLED":
-            if node.inputs["Base Color"].is_linked and node.inputs["Base Color"].links[0].from_node.type == "TEX_IMAGE":
-                diff_img = node.inputs["Base Color"].links[0].from_node.image
-            if node.inputs["Emission Color"].is_linked and node.inputs["Emission Color"].links[0].from_node.type == "TEX_IMAGE":
-                emit_img = node.inputs["Emission Color"].links[0].from_node.image
-            break
-    if not diff_img or not emit_img:
-        return fb
-
-    ng = get_or_create_interior_nodegroup()
-    nt.nodes.clear()
-    out = nt.nodes.new("ShaderNodeOutputMaterial")
-    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
-    tex_diff = nt.nodes.new("ShaderNodeTexImage")
-    tex_diff.image = diff_img
-    tex_emit = nt.nodes.new("ShaderNodeTexImage")
-    tex_emit.image = emit_img
-
-    sep_e = nt.nodes.new("ShaderNodeSeparateColor")
-    nt.links.new(tex_emit.outputs["Color"], sep_e.inputs["Color"])
-    max_e = _math(nt, "MAXIMUM", sep_e.outputs["Red"], _math(nt, "MAXIMUM", sep_e.outputs["Green"], sep_e.outputs["Blue"]))
-    glass_mask = _smoothstep(nt, 0.04, 0.12, max_e)
-
-    grp = nt.nodes.new("ShaderNodeGroup")
-    grp.node_tree = ng
-    cfg = WINDOW_CONFIGS["window_lit_office"] if shop_kind in ("konbini", "pharmacy") else WINDOW_CONFIGS["window_lit_warm"]
-    grp.inputs["Back Color"].default_value = cfg["back_col"]
-    grp.inputs["Side Color"].default_value = cfg["side_col"]
-    grp.inputs["Ceil Color"].default_value = cfg["ceil_col"]
-    grp.inputs["Floor Color"].default_value = cfg["floor_col"]
-    grp.inputs["Light Color"].default_value = cfg["light_col"]
-    grp.inputs["Drape Color"].default_value = cfg["drape_col"]
-    grp.inputs["Is Lit"].default_value = 1.0
-    grp.inputs["Is Office"].default_value = 1.0 if shop_kind in ("konbini", "pharmacy") else 0.0
-    grp.inputs["Is Shoji"].default_value = 0.0
-
-    base_col = _mix_color(nt, glass_mask, tex_diff.outputs["Color"], grp.outputs["Albedo"])
-    emit_col = _mix_color(nt, glass_mask, (0.0, 0.0, 0.0, 1.0), grp.outputs["Emission"])
-    rough = _mix_float(nt, glass_mask, 0.62, 0.06)
-
-    bsdf.inputs["Emission Strength"].default_value = orig_emit_strength * 2.0
-    nt.links.new(base_col, bsdf.inputs["Base Color"])
-    nt.links.new(emit_col, bsdf.inputs["Emission Color"])
-    nt.links.new(rough, bsdf.inputs["Roughness"])
-    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
-    return fb
-
-
-def build_3d_shop_interiors(lit_scale):
-    """Upgrades hollow 1F commercial storefronts to real 3D furnished rooms behind transparent glass."""
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    palette = _create_3d_shop_palette(lit_scale)
-    mat_names = list(palette.keys())
-    mat_idx_map = {k: i for i, k in enumerate(mat_names)}
-
-    bm_rooms = bmesh.new()
-    rng = random.Random(202604)
-    built_rooms = 0
-    fallback_faces = 0
-
-    for obj_name, shop_kind in SHOP_TYPES.items():
-        obj = bpy.data.objects.get(obj_name)
-        if not obj or obj.type != "MESH" or not obj.data.materials:
-            continue
-        base_mat = obj.data.materials[0]
-        if not base_mat or not base_mat.use_nodes:
-            continue
-
-        orig_emit_strength = 100.0
-        for node in base_mat.node_tree.nodes:
-            if node.type == "BSDF_PRINCIPLED":
-                orig_emit_strength = node.inputs["Emission Strength"].default_value
-                break
-
-        fb_mat = _make_parallax_fallback_shop_mat(base_mat, shop_kind, orig_emit_strength)
-        if len(obj.data.materials) < 2:
-            obj.data.materials.append(fb_mat)
-        else:
-            obj.data.materials[1] = fb_mat
-
-        me = obj.data
-        M = obj.matrix_world
-        M_inv = M.inverted()
-        R3 = M.to_3x3()
-
-        # Each BoxGeometry face in glTF has split vertices, so each connected island is a single
-        # 2-triangle quad face (front, back, or 0.14 m rim).
-        bm_src = bmesh.new()
-        bm_src.from_mesh(me)
-        bm_src.faces.ensure_lookup_table()
-        bm_src.verts.ensure_lookup_table()
-
-        visited = set()
-        islands = []
-        for f in bm_src.faces:
-            if f.index in visited:
-                continue
-            stack = [f]
-            isl = []
-            visited.add(f.index)
-            while stack:
-                cur = stack.pop()
-                isl.append(cur)
-                for e in cur.edges:
-                    for nf in e.link_faces:
-                        if nf.index not in visited:
-                            visited.add(nf.index)
-                            stack.append(nf)
-            islands.append(isl)
-
-        up_vec = Vector((0.0, 0.0, 1.0))
-
-        def _is_inside_building(center, side_n):
-            probe = center + side_n * 1.8
-            probe.z = max(center.z + 0.8, 2.2)
-            hit_up, loc_up, _, _, hit_obj, _ = bpy.context.scene.ray_cast(
-                depsgraph, probe, up_vec, distance=22.0,
-            )
-            if not hit_up or not hit_obj:
-                return False
-            return (loc_up.z - probe.z) >= 0.6 and not hit_obj.name.startswith(("awning_", "overhead_wire", "sleeve_sign"))
-
-        # Pass 1: Identify true street-facing hollow storefront front quads & build 3D interiors behind them
-        hollow_fronts = []  # list of (origin, t_vec, b_vec, out_n, w, h)
-        front_island_ids = set()
-        for isl_idx, isl in enumerate(islands):
-            area = sum(f.calc_area() for f in isl)
-            wn = (R3 @ isl[0].normal).normalized()
-            if abs(wn.z) >= 0.15 or area < 1.2:
-                continue
-
-            pts = [M @ v.co for f in isl for v in f.verts]
-            center = sum(pts, Vector((0.0, 0.0, 0.0))) / len(pts)
-
-            # True street-facing front quad: open sky on +wn side, building roof/2F slab on -wn side!
-            if _is_inside_building(center, wn) or not _is_inside_building(center, -wn):
-                continue
-
-            b_vec = Vector((0.0, 0.0, 1.0))
-            t_vec = b_vec.cross(wn).normalized()
-            u_vals = [p.dot(t_vec) for p in pts]
-            v_vals = [p.dot(b_vec) for p in pts]
-            n_vals = [p.dot(wn) for p in pts]
-            w = max(u_vals) - min(u_vals)
-            h = max(v_vals) - min(v_vals)
-            if w < 1.4 or h < 1.6:
-                continue
-            origin = t_vec * (0.5 * (min(u_vals) + max(u_vals))) + b_vec * (0.5 * (min(v_vals) + max(v_vals))) + wn * max(n_vals)
-
-            # Verify street side clear and building interior hollow >= 2.4 m (starting past the 0.14 m back quad!)
-            hit_street, _, _, _, _, _ = bpy.context.scene.ray_cast(depsgraph, origin + wn * 0.08, wn, distance=1.6)
-            hit_in, loc_in, _, _, _, _ = bpy.context.scene.ray_cast(depsgraph, origin - wn * 0.25, -wn, distance=3.2)
-            is_hollow = (not hit_street) and ((not hit_in) or ((loc_in - origin).length >= 2.4))
-
-            if is_hollow:
-                for f in isl:
-                    f.material_index = 0
-                front_island_ids.add(isl_idx)
-                hollow_fronts.append((origin, t_vec, b_vec, wn, w, h))
-                _populate_3d_shop_room(bm_rooms, mat_idx_map, shop_kind, origin, t_vec, b_vec, wn, w, h, rng)
-                built_rooms += 1
-
-        # Pass 2: Delete back (-N) quads sitting 14 cm behind every hollow front quad; assign rest to fallback slot 1
-        to_delete = []
-        for isl_idx, isl in enumerate(islands):
-            if isl_idx in front_island_ids:
-                continue
-            pts = [M @ v.co for f in isl for v in f.verts]
-            center = sum(pts, Vector((0.0, 0.0, 0.0))) / len(pts)
-            wn = (R3 @ isl[0].normal).normalized()
-            is_occluding_back = False
-            for h_origin, h_t, h_b, h_n, h_w, h_h in hollow_fronts:
-                delta = center - h_origin
-                depth_behind = delta.dot(-h_n)
-                if -0.02 <= depth_behind <= 0.26:
-                    if abs(delta.dot(h_t)) <= h_w * 0.52 and abs(delta.dot(h_b)) <= h_h * 0.52:
-                        # Back face or rim of a hollow storefront box -> delete so view into 3D room is 100% open!
-                        if wn.dot(h_n) < -0.5 or abs(wn.z) > 0.5 or abs(wn.dot(h_t)) > 0.5:
-                            is_occluding_back = True
-                            break
-            if is_occluding_back:
-                to_delete.extend(isl)
-            else:
-                for f in isl:
-                    f.material_index = 1
-                fallback_faces += len(isl)
-
-        if to_delete:
-            bmesh.ops.delete(bm_src, geom=to_delete, context="FACES")
-        bm_src.to_mesh(me)
-        bm_src.free()
-        me.update()
-
-        # Upgrade slot 0 material to masked transparent reflective glass + crisp opaque frames/lattices
-        _convert_shop_mat_to_masked_glass(base_mat)
-
-    # Create single merged Blender object for all true 3D 1F shop interiors
-    if len(bm_rooms.faces) > 0:
-        me_rooms = bpy.data.meshes.new("Cycles_3D_Shop_Interiors")
-        bm_rooms.normal_update()
-        bm_rooms.to_mesh(me_rooms)
-        for k in mat_names:
-            me_rooms.materials.append(palette[k])
-        obj_rooms = bpy.data.objects.new("Cycles_3D_Shop_Interiors", me_rooms)
-        bpy.context.collection.objects.link(obj_rooms)
-    bm_rooms.free()
-
-    return built_rooms, fallback_faces
+    nt.links.new(glass_final.outputs["Shader"], out.inputs["Surface"])
+    return 1
 
 
 def upgrade_cycles_interiors(sky_mode):
     """Entry point called from render_cycles.py after opening the base scene."""
-    lit_scale = 0.0 if sky_mode == "day" else (1.15 if sky_mode == "blue" else 1.0)
     n_win = upgrade_window_materials()
-    n_rooms, n_fb = build_3d_shop_interiors(lit_scale)
-    print(f"[cycles_interiors] upgraded {n_win} window shaders (Metal GPU), built {n_rooms} true 3D 1F shop rooms ({n_fb} solid-backed fallback faces)")
+    n_glass = upgrade_shop_glass()
+    print(f"[cycles_interiors] upgraded {n_win} non-3D window shaders (Metal GPU), upgraded {n_glass} shared 1F shop_glass shader")

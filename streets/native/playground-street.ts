@@ -20,7 +20,7 @@ import {
   wetLayer,
 } from "@threert/scene";
 import { defineGame, host, hud, type FrameContext } from "@threert/gameplay";
-import { shopInterior, windowInterior } from "./rt-interior-mapping.ts";
+import { windowInterior } from "./rt-interior-mapping.ts";
 import tape from "./playground-scene.json";
 
 type Tape = typeof tape;
@@ -338,7 +338,8 @@ export default defineGame<State>({
         asphalt: wetLayer({ wet: 1, puddles: 0.85, puddleScale: 7 }),
         sidewalk: wetLayer({ wet: 0.85, puddles: 0.45, puddleScale: 6 }),
         plaza: wetLayer({ wet: 0.9, puddles: 0.8, puddleScale: 9 }),
-        // 3D Parallax Interior Mapping (WGSL) for upper/residential windows & masked 1F storefronts
+        // 3D Parallax Interior Mapping (WGSL) ONLY for windows without 3D interior geometry
+        // (1F commercial storefronts now have real 3D furnished rooms behind clear transmissive `shop_glass`).
         // Keep more-specific prefixes (window_unlit_blinds) ahead of shorter prefixes (window_unlit).
         window_lit_warm: windowInterior("living_warm"),
         window_lit_modern: windowInterior("modern_led"),
@@ -346,12 +347,6 @@ export default defineGame<State>({
         window_lit_amber: windowInterior("amber_shoji"),
         window_unlit_blinds: windowInterior("unlit_blinds"),
         window_unlit: windowInterior("unlit_curtain"),
-        shop_kissaten: shopInterior("kissaten"),
-        shop_bookstore: shopInterior("bookstore"),
-        shop_konbini_bay: shopInterior("konbini"),
-        shop_pharmacy: shopInterior("pharmacy"),
-        shop_izakaya: shopInterior("izakaya"),
-        shop_ramen: shopInterior("ramen"),
       },
     });
     street.name = "playground_street";

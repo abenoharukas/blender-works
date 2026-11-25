@@ -769,22 +769,22 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
         }
       };
       boostEmissive(streetMats.warmLamp, 0.8, 6.0);
-      boostEmissive(streetMats.lanternRed, 0.7, 4.2);
-      boostEmissive(streetMats.lanternWarm, 0.7, 4.2);
+      boostEmissive(streetMats.chochinCore, 0.2, 8.5);
+      boostEmissive(streetMats.lanternAll, 0.0, 0.85);
+      boostEmissive(streetMats.carHeadlampOn, 0.3, 4.8);
+      boostEmissive(streetMats.carTaillampOn, 0.3, 2.6);
       boostEmissive(streetMats.vendFace, 0.7, 2.8);
       boostEmissive(streetMats.sleeveSigns, 0.7, 1.35);
       boostEmissive(streetMats.shotengaiBanner, 0.7, 1.3);
       boostEmissive(streetMats.sideArchBanners, 0.7, 1.3);
       boostEmissive(streetMats.fasciasAll, 0.7, 1.25, true);
       boostEmissive(streetMats.konbiniLitList, 0.75, 1.65);
-      // Randomly lit 3D recessed residential & commercial windows + masked storefronts at night
+      // Randomly lit 3D recessed residential & commercial windows + real 3D 1F shop interior fixtures at night
       boostEmissive(streetMats.windowLitList, 0, 1.85);
-      boostEmissive(streetMats.shopIzakaya, 0, 1.45);
-      boostEmissive(streetMats.shopRamen, 0, 1.45);
-      boostEmissive(streetMats.shopKissaten, 0, 1.35);
-      boostEmissive(streetMats.shopPharmacy, 0, 1.45);
-      boostEmissive(streetMats.shopBookstore, 0, 1.3);
-      boostEmissive(streetMats.shopKonbiniBay, 0, 1.9);
+      boostEmissive(streetMats.shop3dLampWarm, 0, 5.5);
+      boostEmissive(streetMats.shop3dLampAmber, 0, 5.2);
+      boostEmissive(streetMats.shop3dLampCool, 0, 6.5);
+      boostEmissive(streetMats.shop3dCoolerGlow, 0, 3.0);
 
       // Wet roads & plazas in rain
       for (const key of ['road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder']) {
@@ -812,6 +812,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
         streetMats.slateRoof,
         streetMats.foliageFresh,
         streetMats.foliagePine,
+        streetMats.foliageShrub,
         streetMats.hedge,
       ];
       for (const b of snowTargets) {

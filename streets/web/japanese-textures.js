@@ -1273,3 +1273,672 @@ export function createDrainGrateTexture() {
     g.fillRect(w / 2 - 4, 0, 8, h);
   }, { repeat: true });
 }
+
+// ------------------------------------------------------------------ 6. BOTANICAL BARK, HEDGES & ALPHA-CUTOUT FOLIAGE CLUSTERS
+
+/**
+ * Fissured Japanese Zelkova / Maple tree bark (樹皮) 256x256 PBR set.
+ */
+export function createBarkPBR() {
+  const S = 256;
+  const hField = new Float32Array(S * S);
+  const rField = new Float32Array(S * S);
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const data = img.data;
+
+  for (let y = 0; y < S; y++) {
+    const v = y / S;
+    for (let x = 0; x < S; x++) {
+      const u = x / S;
+      const warp = (hash2(x >> 2, y >> 3, 301) - 0.5) * 1.4;
+      const furrow = Math.sin(u * Math.PI * 18 + warp + Math.sin(v * Math.PI * 4) * 0.7);
+      const grain = (hash2(x, y >> 1, 307) - 0.5) * 0.24 + (hash2(x >> 1, y >> 2, 311) - 0.5) * 0.22;
+      const ridge = Math.max(0, Math.min(1, 0.54 + furrow * 0.30 + grain));
+      const lenticel = hash2(x >> 2, y >> 1, 313) > 0.965 ? 0.14 : 0;
+      const moss = Math.max(0, (hash2(x >> 3, y >> 3, 317) - 0.62) * 1.4);
+
+      const idx = y * S + x;
+      hField[idx] = Math.max(0, Math.min(1, ridge - lenticel * 0.4));
+      rField[idx] = Math.max(0.76, Math.min(0.98, 0.94 - ridge * 0.10));
+
+      const baseR = 52 + ridge * 42 + lenticel * 34 - moss * 14;
+      const baseG = 40 + ridge * 34 + lenticel * 28 + moss * 16;
+      const baseB = 31 + ridge * 25 + lenticel * 20 - moss * 8;
+      const p4 = idx * 4;
+      data[p4] = Math.max(0, Math.min(255, Math.round(baseR)));
+      data[p4 + 1] = Math.max(0, Math.min(255, Math.round(baseG)));
+      data[p4 + 2] = Math.max(0, Math.min(255, Math.round(baseB)));
+      data[p4 + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const map = finalizeTexture(canvas, { repeat: true, srgb: true });
+  const { normalMap, roughnessMap } = buildNormalAndRoughnessMaps(S, S, hField, rField, { strength: 2.8, repeat: true });
+  return { map, normalMap, roughnessMap };
+}
+
+/**
+ * Dense clipped Japanese boxwood / camellia hedge (生垣: イヌツゲ・サザンカ) 512x512 seamless PBR set.
+ */
+export function createHedgePBR() {
+  const S = 512;
+  const hField = new Float32Array(S * S);
+  const rField = new Float32Array(S * S);
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const data = img.data;
+
+  // Deep shaded interior foliage bed
+  for (let i = 0; i < S * S; i++) {
+    const n = (hash2(i & 511, i >> 9, 401) - 0.5) * 10;
+    const p4 = i * 4;
+    data[p4] = Math.max(8, Math.round(22 + n));
+    data[p4 + 1] = Math.max(14, Math.round(38 + n * 1.2));
+    data[p4 + 2] = Math.max(8, Math.round(20 + n * 0.8));
+    data[p4 + 3] = 255;
+    hField[i] = 0.06;
+    rField[i] = 0.95;
+  }
+
+  // Stamp ~960 overlapping small waxy elliptic leaves seamlessly wrapping mod S
+  const totalLeaves = 960;
+  for (let k = 0; k < totalLeaves; k++) {
+    const depthLayer = k / totalLeaves; // 0 = deep shaded, 1 = sunlit outer shoots
+    const cx = hash2(k, 1, 419) * S;
+    const cy = hash2(k, 2, 421) * S;
+    const ang = (hash2(k, 3, 431) - 0.5) * Math.PI * 1.85;
+    const cosA = Math.cos(ang);
+    const sinA = Math.sin(ang);
+    const rx = 5.5 + hash2(k, 4, 433) * 4.5;
+    const ry = 11.0 + hash2(k, 5, 439) * 8.0;
+    const bound = Math.ceil(Math.max(rx, ry)) + 2;
+
+    const freshShoot = depthLayer > 0.78 && hash2(k, 6, 443) > 0.45;
+    const tone = 0.38 + depthLayer * 0.62 + (hash2(k, 7, 449) - 0.5) * 0.14;
+    const lr = (freshShoot ? 96 : 64) * tone;
+    const lg = (freshShoot ? 138 : 102) * tone;
+    const lb = (freshShoot ? 54 : 46) * tone;
+
+    for (let dy = -bound; dy <= bound; dy++) {
+      for (let dx = -bound; dx <= bound; dx++) {
+        const lx = (dx * cosA + dy * sinA) / rx;
+        const ly = (-dx * sinA + dy * cosA) / ry; // -1..+1
+        if (Math.abs(ly) > 1.0) continue;
+        // Pointed elliptic boxwood leaf envelope
+        const env = Math.cos(ly * Math.PI * 0.5) * (1.0 - 0.15 * ly);
+        if (Math.abs(lx) > env) continue;
+
+        const wx = (((Math.round(cx + dx) % S) + S) % S);
+        const wy = (((Math.round(cy + dy) % S) + S) % S);
+        const idx = wy * S + wx;
+
+        const normX = lx / Math.max(env, 1e-4);
+        const dome = Math.sqrt(Math.max(0, 1.0 - normX * normX * 0.75)) * (1.0 - Math.abs(ly) * 0.25);
+        const midrib = Math.exp(-normX * normX * 42.0) * 0.12;
+        const hVal = 0.14 + depthLayer * 0.68 + dome * 0.18 - midrib;
+
+        const shade = 0.80 + dome * 0.24 + midrib * 0.35;
+        const p4 = idx * 4;
+        data[p4] = Math.max(0, Math.min(255, Math.round(lr * shade)));
+        data[p4 + 1] = Math.max(0, Math.min(255, Math.round(lg * shade)));
+        data[p4 + 2] = Math.max(0, Math.min(255, Math.round(lb * shade)));
+        hField[idx] = Math.max(0, Math.min(1, hVal));
+        rField[idx] = Math.max(0.38, Math.min(0.88, 0.68 - depthLayer * 0.20 - dome * 0.08));
+      }
+    }
+  }
+
+  ctx.putImageData(img, 0, 0);
+  const map = finalizeTexture(canvas, { repeat: true, srgb: true });
+  const { normalMap, roughnessMap } = buildNormalAndRoughnessMaps(S, S, hField, rField, { strength: 3.1, repeat: true });
+  return { map, normalMap, roughnessMap };
+}
+
+/**
+ * Botanical RGBA alpha-cutout branchlet texture + leaf-vein normalMap (512x512, repeat: false).
+ * Bleeds leaf RGB into alpha=0 background pixels so mipmaps NEVER produce dark/white fringes!
+ * Variants: 'zelkova' (fresh green ケヤキ), 'maple' (autumn イロハモミジ), 'pine' (黒松 needle pads), 'shrub' (鉢植え低木)
+ */
+export function createFoliageClusterTextureSet(variant = 'zelkova') {
+  const S = 512;
+  const hField = new Float32Array(S * S);
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const data = img.data;
+
+  const bleedRGB = {
+    zelkova: [74, 112, 50],
+    maple: [176, 68, 36],
+    pine: [44, 78, 46],
+    shrub: [62, 102, 48],
+  }[variant] ?? [74, 112, 50];
+
+  for (let i = 0; i < S * S; i++) {
+    const p4 = i * 4;
+    data[p4] = bleedRGB[0];
+    data[p4 + 1] = bleedRGB[1];
+    data[p4 + 2] = bleedRGB[2];
+    data[p4 + 3] = 0;
+    hField[i] = 0.5;
+  }
+
+  const writePixel = (px, py, r, g, b, a, h) => {
+    if (px < 2 || px >= S - 2 || py < 2 || py >= S - 2) return;
+    const idx = py * S + px;
+    const p4 = idx * 4;
+    const curA = data[p4 + 3];
+    if (a >= 250 || curA === 0) {
+      data[p4] = Math.max(0, Math.min(255, Math.round(r)));
+      data[p4 + 1] = Math.max(0, Math.min(255, Math.round(g)));
+      data[p4 + 2] = Math.max(0, Math.min(255, Math.round(b)));
+      data[p4 + 3] = Math.max(curA, Math.min(255, Math.round(a)));
+      hField[idx] = h;
+    } else if (a > 0) {
+      const w = a / 255;
+      data[p4] = Math.round(data[p4] * (1 - w) + r * w);
+      data[p4 + 1] = Math.round(data[p4 + 1] * (1 - w) + g * w);
+      data[p4 + 2] = Math.round(data[p4 + 2] * (1 - w) + b * w);
+      data[p4 + 3] = Math.min(255, Math.max(curA, Math.round(curA + a * 0.85)));
+      hField[idx] = hField[idx] * (1 - w) + h * w;
+    }
+  };
+
+  // Helper: draw tapered woody twig segment from (x0,y0) to (x1,y1)
+  const drawTwig = (x0, y0, x1, y1, r0, r1, curve = 0) => {
+    const steps = Math.max(12, Math.ceil(Math.hypot(x1 - x0, y1 - y0)));
+    const nx = -(y1 - y0) / Math.max(1, Math.hypot(x1 - x0, y1 - y0));
+    const ny = (x1 - x0) / Math.max(1, Math.hypot(x1 - x0, y1 - y0));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const bend = Math.sin(t * Math.PI) * curve;
+      const cx = x0 + (x1 - x0) * t + nx * bend;
+      const cy = y0 + (y1 - y0) * t + ny * bend;
+      const rad = r0 + (r1 - r0) * t;
+      const ir = Math.ceil(rad) + 1;
+      for (let dy = -ir; dy <= ir; dy++) {
+        for (let dx = -ir; dx <= ir; dx++) {
+          const d = Math.hypot(dx, dy);
+          if (d <= rad + 0.65) {
+            const cov = d <= rad - 0.35 ? 255 : Math.max(0, (rad + 0.65 - d) * 255);
+            const cyl = Math.sqrt(Math.max(0, 1 - Math.min(1, d / Math.max(rad, 0.5)) ** 2));
+            writePixel(
+              Math.round(cx + dx),
+              Math.round(cy + dy),
+              68 + cyl * 26,
+              50 + cyl * 20,
+              36 + cyl * 14,
+              cov,
+              0.42 + cyl * 0.22,
+            );
+          }
+        }
+      }
+    }
+  };
+
+  // Helper: stamp serrated ovate leaf (Zelkova / Shrub) sprouting from (bx, by) along angle `ang`
+  const drawOvateLeaf = (bx, by, ang, len, wid, rBase, gBase, bBase, serrate = 0.055, layerH = 0.6) => {
+    const dirX = Math.cos(ang);
+    const dirY = Math.sin(ang);
+    const perpX = -dirY;
+    const perpY = dirX;
+    const minX = Math.floor(Math.min(bx, bx + dirX * len) - wid - 3);
+    const maxX = Math.ceil(Math.max(bx, bx + dirX * len) + wid + 3);
+    const minY = Math.floor(Math.min(by, by + dirY * len) - wid - 3);
+    const maxY = Math.ceil(Math.max(by, by + dirY * len) + wid + 3);
+
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        const rx = px - bx;
+        const ry = py - by;
+        const v = (rx * dirX + ry * dirY) / len;
+        if (v < -0.02 || v > 1.02) continue;
+        if (v < 0.05) {
+          // Short petiole stem
+          const uPet = Math.abs(rx * perpX + ry * perpY);
+          if (uPet <= 1.35) writePixel(px, py, rBase * 0.75, gBase * 0.82, bBase * 0.65, 255, layerH);
+          continue;
+        }
+        const lv = (v - 0.04) / 0.96;
+        if (lv < 0 || lv > 1) continue;
+        const baseEnv = Math.sin(Math.PI * Math.pow(lv, 0.74)) * (1.0 - 0.16 * lv);
+        const teeth = serrate * Math.sin(lv * Math.PI * 16.0) * Math.sin(Math.PI * lv);
+        const halfW = Math.max(0.5, wid * (baseEnv + teeth));
+        const uAbs = Math.abs(rx * perpX + ry * perpY);
+        if (uAbs > halfW + 0.8) continue;
+
+        const alpha = uAbs <= halfW - 0.35 ? 255 : Math.max(0, (halfW + 0.8 - uAbs) / 1.15 * 255);
+        const uNorm = uAbs / Math.max(halfW, 1.0);
+        // Midrib & angled herring-bone lateral veins
+        const midrib = Math.exp(-uAbs * uAbs * 0.35);
+        const latVein = Math.pow(Math.max(0, Math.cos((lv * 9.0 - uNorm * 2.1) * Math.PI * 2)), 10) * (1.0 - uNorm * 0.4);
+        const dome = Math.cos(uNorm * Math.PI * 0.46) * (1.0 - lv * 0.14);
+        const shade = 0.82 + dome * 0.22 + lv * 0.12 + midrib * 0.10 + latVein * 0.07;
+
+        writePixel(
+          px, py,
+          rBase * shade + midrib * 12,
+          gBase * shade + midrib * 16,
+          bBase * shade + midrib * 6,
+          alpha,
+          Math.max(0.1, Math.min(0.98, layerH + dome * 0.22 - midrib * 0.08 + latVein * 0.04)),
+        );
+      }
+    }
+  };
+
+  // Helper: stamp 5-lobed Japanese Momiji maple leaf centered at (cx, cy)
+  const drawMapleLeaf = (cx, cy, ang, radius, rBase, gBase, bBase, layerH = 0.65) => {
+    const bound = Math.ceil(radius * 1.12) + 2;
+    for (let dy = -bound; dy <= bound; dy++) {
+      for (let dx = -bound; dx <= bound; dx++) {
+        const dist = Math.hypot(dx, dy);
+        if (dist > radius * 1.1) continue;
+        let th = Math.atan2(dy, dx) - ang;
+        while (th > Math.PI) th -= Math.PI * 2;
+        while (th < -Math.PI) th += Math.PI * 2;
+        const absTh = Math.abs(th);
+        // Basal sinus cutout beyond ±138 deg
+        if (absTh > 2.42) continue;
+
+        // 5 pointed palmate lobes at 0, ±52 deg (0.91 rad), ±104 deg (1.82 rad)
+        let lobeSum = 0;
+        const lobeAngles = [0, 0.90, -0.90, 1.78, -1.78];
+        const lobeScales = [1.0, 0.88, 0.88, 0.62, 0.62];
+        for (let li = 0; li < 5; li++) {
+          const dAng = Math.abs(th - lobeAngles[li]);
+          if (dAng < 0.68) {
+            const lProfile = Math.pow(Math.cos((dAng / 0.68) * Math.PI * 0.5), 1.55) * lobeScales[li];
+            if (lProfile > lobeSum) lobeSum = lProfile;
+          }
+        }
+        const webBase = 0.28 * (1.0 - (absTh / 2.45) * 0.45);
+        const serration = 0.035 * Math.sin(absTh * 28.0);
+        const maxR = radius * Math.max(webBase, lobeSum + serration);
+        if (dist > maxR + 0.8) continue;
+
+        const alpha = dist <= maxR - 0.35 ? 255 : Math.max(0, (maxR + 0.8 - dist) / 1.15 * 255);
+        const rNorm = dist / Math.max(maxR, 1.0);
+        const shade = 0.80 + (1.0 - rNorm * 0.25) * 0.24 + rNorm * 0.12;
+        // Subtle golden-olive transition near leaf heart
+        const heartMix = Math.max(0, 1.0 - rNorm * 2.2) * 0.28;
+        writePixel(
+          Math.round(cx + dx),
+          Math.round(cy + dy),
+          rBase * shade * (1 - heartMix) + 165 * heartMix,
+          gBase * shade * (1 - heartMix) + 142 * heartMix,
+          bBase * shade * (1 - heartMix) + 48 * heartMix,
+          alpha,
+          Math.max(0.15, Math.min(0.98, layerH + (1.0 - rNorm) * 0.18)),
+        );
+      }
+    }
+  };
+
+  // Helper: stamp radiating Japanese Black Pine needle fan (黒松の葉束)
+  const drawPineFan = (cx, cy, baseAng, needleLen, spread, count, layerH = 0.6) => {
+    for (let ni = 0; ni < count; ni++) {
+      const t = count === 1 ? 0.5 : ni / (count - 1);
+      const nAng = baseAng + (t - 0.5) * spread + (hash2(ni, Math.round(cx), 509) - 0.5) * 0.08;
+      const len = needleLen * (0.82 + 0.32 * Math.sin(t * Math.PI)) * (0.9 + hash2(ni, 7, 521) * 0.2);
+      const dx = Math.cos(nAng);
+      const dy = Math.sin(nAng);
+      const tone = 0.82 + hash2(ni, 3, 523) * 0.36;
+      const steps = Math.ceil(len * 1.2);
+      for (let s = 0; s <= steps; s++) {
+        const f = s / steps;
+        const px = cx + dx * len * f;
+        const py = cy + dy * len * f;
+        const halfW = 1.65 * (1.0 - f * 0.55);
+        for (let oy = -2; oy <= 2; oy++) {
+          for (let ox = -2; ox <= 2; ox++) {
+            const d = Math.hypot(px + ox - Math.round(px + ox), py + oy - Math.round(py + oy));
+            const perp = Math.abs((ox) * (-dy) + (oy) * dx);
+            if (perp <= halfW + 0.45 && d < 1.2) {
+              const a = perp <= halfW - 0.2 ? 255 : Math.max(0, (halfW + 0.45 - perp) / 0.65 * 255);
+              const tipBright = 0.85 + f * 0.32;
+              writePixel(
+                Math.round(px + ox),
+                Math.round(py + oy),
+                40 * tone * tipBright,
+                76 * tone * tipBright,
+                42 * tone * tipBright,
+                a,
+                layerH + (1.0 - perp / 2.2) * 0.18,
+              );
+            }
+          }
+        }
+      }
+    }
+    // Warm brown pine fascicle sheath & candle bud (みどり芽) at fan base
+    drawTwig(cx, cy + 4, cx + Math.cos(baseAng) * 14, cy + Math.sin(baseAng) * 14, 3.2, 1.8, 0);
+  };
+
+  if (variant === 'zelkova') {
+    // Central woody branch rising from bottom center (256, 488) toward crown tip (256, 54)
+    drawTwig(256, 492, 256, 68, 6.2, 2.0, -14);
+    const branches = [
+      [256, 420, 102, 310, 4.0, 1.5, -10],
+      [256, 405, 412, 298, 4.0, 1.5, 10],
+      [252, 326, 76, 198, 3.6, 1.4, -12],
+      [254, 312, 434, 186, 3.6, 1.4, 12],
+      [250, 224, 118, 104, 3.0, 1.2, -8],
+      [254, 214, 396, 96, 3.0, 1.2, 8],
+    ];
+    for (const b of branches) drawTwig(...b);
+
+    // Layer shaded inner leaves first, then sunlit outer leaves for rich botanical depth
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < branches.length; i++) {
+        const [x0, y0, x1, y1] = branches[i];
+        const bAng = Math.atan2(y1 - y0, x1 - x0);
+        const bLen = Math.hypot(x1 - x0, y1 - y0);
+        const leafCount = 5;
+        for (let k = 0; k < leafCount; k++) {
+          const t = 0.20 + (k / (leafCount - 1)) * 0.78;
+          const bx = x0 + (x1 - x0) * t;
+          const by = y0 + (y1 - y0) * t;
+          const side = ((k + pass) % 2 === 0) ? 1 : -1;
+          const lAng = bAng + side * (0.58 + hash2(i * 11 + k, pass, 601) * 0.35);
+          const lLen = (68 + hash2(k, i, 607) * 26) * (1.05 - t * 0.22);
+          const lWid = lLen * 0.36;
+          const sun = pass === 0 ? 0.72 : (0.94 + t * 0.24);
+          drawOvateLeaf(bx, by, lAng, lLen, lWid, 78 * sun, 120 * sun, 50 * sun, 0.055, pass === 0 ? 0.42 : 0.72);
+        }
+        // Terminal leaf at tip of each lateral twig
+        if (pass === 1) {
+          drawOvateLeaf(x1 - Math.cos(bAng) * 8, y1 - Math.sin(bAng) * 8, bAng, 72, 26, 104, 148, 62, 0.055, 0.82);
+        }
+      }
+    }
+    // Crown apex fan of fresh sunlit leaves
+    for (const aOff of [-0.65, -0.22, 0.22, 0.65]) {
+      drawOvateLeaf(256, 86, -Math.PI * 0.5 + aOff, 78, 28, 108, 152, 64, 0.055, 0.85);
+    }
+  } else if (variant === 'maple') {
+    drawTwig(256, 492, 256, 78, 5.4, 1.8, 12);
+    const branches = [
+      [256, 416, 106, 308, 3.6, 1.3, 10],
+      [256, 398, 408, 292, 3.6, 1.3, -10],
+      [258, 314, 88, 188, 3.2, 1.2, 10],
+      [258, 298, 424, 178, 3.2, 1.2, -10],
+      [256, 206, 136, 98, 2.8, 1.1, 8],
+      [256, 198, 382, 92, 2.8, 1.1, -8],
+    ];
+    for (const b of branches) drawTwig(...b);
+
+    const palette = [
+      [188, 48, 30],  // Deep Momiji crimson
+      [216, 82, 36],  // Persimmon vermilion
+      [226, 134, 42], // Autumn amber-gold
+      [166, 38, 28],  // Shaded wine red
+    ];
+    for (let i = 0; i < 34; i++) {
+      const layer = i / 34;
+      const ringR = 38 + Math.sqrt(hash2(i, 1, 701)) * 172;
+      const th = -Math.PI * 0.5 + (hash2(i, 2, 709) - 0.5) * Math.PI * 1.55;
+      const cx = 256 + Math.sin(th + Math.PI * 0.5) * ringR * 1.04;
+      const cy = 268 - Math.cos(th + Math.PI * 0.5) * ringR * 0.96;
+      const col = palette[Math.floor(hash2(i, 3, 719) * palette.length)];
+      const sun = 0.80 + layer * 0.34;
+      const rad = 42 + hash2(i, 4, 727) * 22;
+      const leafAng = Math.atan2(cy - 310, cx - 256) + (hash2(i, 5, 733) - 0.5) * 0.6;
+      drawMapleLeaf(cx, cy, leafAng, rad, col[0] * sun, col[1] * sun, col[2] * sun, 0.35 + layer * 0.52);
+    }
+  } else if (variant === 'pine') {
+    // Gnarled Japanese Black Pine branch (黒松の枝ぶり) + dense needle fascicle fans
+    drawTwig(256, 486, 248, 148, 8.0, 3.6, -22);
+    drawTwig(252, 376, 118, 268, 5.5, 2.8, -14);
+    drawTwig(252, 356, 396, 256, 5.5, 2.8, 14);
+    drawTwig(248, 252, 138, 154, 4.5, 2.4, -10);
+    drawTwig(248, 242, 374, 148, 4.5, 2.4, 10);
+
+    const hubs = [
+      [118, 268, -2.25], [168, 312, -2.0], [396, 256, -0.88], [344, 304, -1.1],
+      [138, 154, -2.05], [202, 198, -1.75], [374, 148, -1.08], [312, 192, -1.35],
+      [248, 138, -1.57], [210, 128, -1.85], [292, 128, -1.28],
+      [182, 254, -1.65], [326, 248, -1.45], [254, 224, -1.57],
+    ];
+    hubs.forEach(([hx, hy, ha], idx) => {
+      drawPineFan(hx, hy, ha, 82 + (idx % 3) * 10, 1.95, 22, 0.42 + (idx / hubs.length) * 0.42);
+    });
+  } else {
+    // 'shrub': Lush evergreen Japanese Nandina / Aralia rosette for storefront ceramic pots & hedge fringes
+    drawTwig(256, 496, 256, 136, 4.6, 1.6, 6);
+    drawTwig(256, 446, 126, 224, 3.6, 1.3, -12);
+    drawTwig(256, 446, 386, 224, 3.6, 1.3, 12);
+    for (let i = 0; i < 38; i++) {
+      const layer = i / 38;
+      const spreadA = -Math.PI * 0.5 + (hash2(i, 1, 809) - 0.5) * 2.35;
+      const rDist = 28 + hash2(i, 2, 811) * 165;
+      const bx = 256 + Math.cos(spreadA) * rDist * 0.85;
+      const by = 432 + Math.sin(spreadA) * rDist * 0.88;
+      const lLen = 64 + hash2(i, 3, 821) * 28;
+      const sun = 0.76 + layer * 0.38;
+      drawOvateLeaf(bx, by, spreadA, lLen, lLen * 0.30, 62 * sun, 108 * sun, 46 * sun, 0.03, 0.35 + layer * 0.52);
+    }
+    // Small festive red Nandina winter berry clusters (南天の赤い実)
+    for (const [cx, cy] of [[256, 118], [154, 198], [362, 192]]) {
+      for (let b = 0; b < 9; b++) {
+        const ox = cx + (hash2(b, cx, 827) - 0.5) * 26;
+        const oy = cy + (hash2(b, cy, 829) - 0.5) * 26;
+        for (let dy = -5; dy <= 5; dy++) {
+          for (let dx = -5; dx <= 5; dx++) {
+            const d = Math.hypot(dx, dy);
+            if (d <= 4.6) {
+              const spec = Math.max(0, 1 - Math.hypot(dx + 1.5, dy + 1.5) / 3.5);
+              writePixel(Math.round(ox + dx), Math.round(oy + dy), 205 + spec * 45, 38 + spec * 35, 30 + spec * 25, 255, 0.92);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 4-pass RGB color-bleeding into transparent (alpha === 0) border pixels so bilinear mipmaps have ZERO dark fringes!
+  const tmpRGB = new Uint8ClampedArray(S * S * 3);
+  const hasColor = new Uint8Array(S * S);
+  for (let i = 0; i < S * S; i++) {
+    if (data[i * 4 + 3] >= 64) {
+      hasColor[i] = 1;
+      tmpRGB[i * 3] = data[i * 4];
+      tmpRGB[i * 3 + 1] = data[i * 4 + 1];
+      tmpRGB[i * 3 + 2] = data[i * 4 + 2];
+    }
+  }
+  for (let pass = 0; pass < 5; pass++) {
+    const nextHas = new Uint8Array(hasColor);
+    for (let y = 1; y < S - 1; y++) {
+      for (let x = 1; x < S - 1; x++) {
+        const idx = y * S + x;
+        if (hasColor[idx]) continue;
+        let sr = 0, sg = 0, sb = 0, cnt = 0;
+        for (const nIdx of [idx - 1, idx + 1, idx - S, idx + S]) {
+          if (hasColor[nIdx]) {
+            sr += tmpRGB[nIdx * 3];
+            sg += tmpRGB[nIdx * 3 + 1];
+            sb += tmpRGB[nIdx * 3 + 2];
+            cnt++;
+          }
+        }
+        if (cnt > 0) {
+          tmpRGB[idx * 3] = Math.round(sr / cnt);
+          tmpRGB[idx * 3 + 1] = Math.round(sg / cnt);
+          tmpRGB[idx * 3 + 2] = Math.round(sb / cnt);
+          data[idx * 4] = tmpRGB[idx * 3];
+          data[idx * 4 + 1] = tmpRGB[idx * 3 + 1];
+          data[idx * 4 + 2] = tmpRGB[idx * 3 + 2];
+          nextHas[idx] = 1;
+        }
+      }
+    }
+    hasColor.set(nextHas);
+  }
+
+  ctx.putImageData(img, 0, 0);
+  const map = finalizeTexture(canvas, { repeat: false, srgb: true });
+  const { normalMap } = buildNormalAndRoughnessMaps(S, S, hField, null, { strength: 2.1, repeat: false });
+  return { map, normalMap };
+}
+
+// ------------------------------------------------------------------ 7. DUAL-LAYER CORRUGATED WASHI CHOCHIN (提灯)
+
+/**
+ * Traditional Japanese Washi Paper Lantern (和紙提灯) PBR + Vertically-Attenuated Emissive Set:
+ * - 14 horizontal bamboo hoop pleats (竹骨・ひご) in diffuse, normalMap, and emissiveMap
+ * - Bold sumi-ink vertical calligraphy on front (u=0.50) & sidewalk sides (u=0.23, u=0.77) + 三つ巴 crest on back
+ * - Low-luminance outer Washi cavity glow (strictly #000000 on ink & collars) paired with a 3D central filament bulb!
+ */
+export function createChochinTextureSet({
+  style = 'red', // 'red' (赤提灯) | 'warm' (白提灯)
+  text = '居酒屋',
+  sideText = '炭火焼',
+} = {}) {
+  const W = 512;
+  const H = 512;
+  const ribs = 14;
+  const hField = new Float32Array(W * H);
+
+  for (let y = 0; y < H; y++) {
+    const v = 1.0 - y / H;
+    const pleat = Math.abs(Math.sin(v * ribs * Math.PI));
+    for (let x = 0; x < W; x++) {
+      const fiber = (hash2(x >> 1, y, 911) - 0.5) * 0.08 + (hash2(x, y >> 2, 919) - 0.5) * 0.06;
+      hField[y * W + x] = Math.max(0, Math.min(1, 0.34 + pleat * 0.54 + fiber));
+    }
+  }
+  const { normalMap } = buildNormalAndRoughnessMaps(W, H, hField, null, { strength: 2.2, repeat: false });
+
+  const drawVerticalBrushText = (g, str, cx, topY, botY, maxFont, fillStyle) => {
+    const chars = [...str];
+    const span = botY - topY;
+    const fontSize = Math.min(maxFont, Math.floor(span / Math.max(chars.length * 1.04, 1)));
+    const step = Math.min(fontSize * 1.08, span / Math.max(chars.length, 1));
+    const startY = (topY + botY) * 0.5 - ((chars.length - 1) * step) * 0.5;
+    g.fillStyle = fillStyle;
+    g.font = `900 ${fontSize}px "Hiragino Mincho ProN", "YuMincho", "Hiragino Kaku Gothic ProN", serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    chars.forEach((ch, idx) => {
+      g.fillText(ch, cx, startY + idx * step);
+    });
+  };
+
+  const drawCrest = (g, cx, cy, r, color) => {
+    g.strokeStyle = color;
+    g.lineWidth = 5.5;
+    g.beginPath();
+    g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.stroke();
+    g.fillStyle = color;
+    for (let i = 0; i < 3; i++) {
+      const a = (i * Math.PI * 2) / 3 - Math.PI * 0.5;
+      g.beginPath();
+      g.arc(cx + Math.cos(a) * (r * 0.44), cy + Math.sin(a) * (r * 0.44), r * 0.26, 0, Math.PI * 2);
+      g.fill();
+    }
+  };
+
+  const drawChochin = (g, w, h, isMask) => {
+    const isRed = style === 'red';
+    if (isMask) {
+      g.fillStyle = '#000000';
+      g.fillRect(0, 0, w, h);
+      // Soft internal cavity glow (peaks gently at equator, drops to dark near top/bottom wooden rims!)
+      const vGrad = g.createLinearGradient(0, 0, 0, h);
+      if (isRed) {
+        vGrad.addColorStop(0.00, '#000000');
+        vGrad.addColorStop(0.10, '#360804');
+        vGrad.addColorStop(0.32, '#9e2214');
+        vGrad.addColorStop(0.50, '#cc321e');
+        vGrad.addColorStop(0.68, '#9e2214');
+        vGrad.addColorStop(0.90, '#360804');
+        vGrad.addColorStop(1.00, '#000000');
+      } else {
+        vGrad.addColorStop(0.00, '#000000');
+        vGrad.addColorStop(0.10, '#382510');
+        vGrad.addColorStop(0.32, '#ad7839');
+        vGrad.addColorStop(0.50, '#d99e52');
+        vGrad.addColorStop(0.68, '#ad7839');
+        vGrad.addColorStop(0.90, '#382510');
+        vGrad.addColorStop(1.00, '#000000');
+      }
+      g.fillStyle = vGrad;
+      g.fillRect(0, 14, w, h - 28);
+    } else {
+      // Dyed translucent Washi paper base (vermilion-orange dye passes warm incandescent bulb light!)
+      const bgGrad = g.createLinearGradient(0, 0, 0, h);
+      if (isRed) {
+        bgGrad.addColorStop(0.00, '#781910');
+        bgGrad.addColorStop(0.12, '#bd2f1e');
+        bgGrad.addColorStop(0.50, '#e34c33');
+        bgGrad.addColorStop(0.88, '#bd2f1e');
+        bgGrad.addColorStop(1.00, '#781910');
+      } else {
+        bgGrad.addColorStop(0.00, '#a8906c');
+        bgGrad.addColorStop(0.12, '#dec9a4');
+        bgGrad.addColorStop(0.50, '#f5e6c8');
+        bgGrad.addColorStop(0.88, '#dec9a4');
+        bgGrad.addColorStop(1.00, '#a8906c');
+      }
+      g.fillStyle = bgGrad;
+      g.fillRect(0, 0, w, h);
+
+      // Subtle Washi kozo fiber flecks
+      g.fillStyle = isRed ? 'rgba(255, 220, 185, 0.055)' : 'rgba(120, 92, 56, 0.05)';
+      for (let fy = 16; fy < h - 16; fy += 7) {
+        for (let fx = 0; fx < w; fx += 23) {
+          const jx = (fx + Math.round(hash2(fx, fy, 929) * 17)) % w;
+          g.fillRect(jx, fy, 11, 1.5);
+        }
+      }
+    }
+
+    // 14 horizontal bamboo rib hoops (竹骨)
+    for (let r = 1; r < ribs; r++) {
+      const ry = (r / ribs) * h;
+      if (isMask) {
+        g.fillStyle = 'rgba(0, 0, 0, 0.58)';
+        g.fillRect(0, ry - 1.8, w, 3.6);
+      } else {
+        g.fillStyle = isRed ? 'rgba(48, 10, 6, 0.42)' : 'rgba(72, 50, 28, 0.36)';
+        g.fillRect(0, ry - 1.5, w, 3.0);
+        g.fillStyle = 'rgba(255, 240, 215, 0.10)';
+        g.fillRect(0, ry + 1.5, w, 1.5);
+      }
+    }
+
+    // Black lacquer neck collar shadow bands at top & bottom
+    g.fillStyle = isMask ? '#000000' : '#181311';
+    g.fillRect(0, 0, w, 16);
+    g.fillRect(0, h - 16, w, 16);
+
+    // Sumi-ink vertical brush calligraphy (front u=0.50 + sidewalk sides u=0.23, u=0.77 -> #000000 in mask!)
+    const inkColor = isMask ? '#000000' : '#171311';
+    drawVerticalBrushText(g, text, w * 0.50, 74, h - 74, 86, inkColor);
+    if (sideText) {
+      drawVerticalBrushText(g, sideText, w * 0.22, 104, h - 104, 62, inkColor);
+      drawVerticalBrushText(g, sideText, w * 0.78, 104, h - 104, 62, inkColor);
+    }
+
+    // Traditional crest on back seam (u = 0.0 & u = 1.0) + small red seal stamp beside front calligraphy
+    drawCrest(g, 0, h * 0.5, 42, inkColor);
+    drawCrest(g, w, h * 0.5, 42, inkColor);
+    if (!isMask) {
+      g.strokeStyle = isRed ? '#fff0d8' : '#b8291e';
+      g.lineWidth = 2.5;
+      g.strokeRect(w * 0.50 + 42, h - 118, 22, 26);
+    }
+  };
+
+  return {
+    map: makeCanvasTexture(W, H, (g, w, h) => drawChochin(g, w, h, false), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => drawChochin(g, w, h, true), { repeat: false }),
+    normalMap,
+  };
+}

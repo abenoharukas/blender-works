@@ -36,7 +36,21 @@
         applied += 1;
       }
     });
-    await log(`built ${street.children.length} meshes, ${applied} emissive overrides`);
+    // Strip dummy all-zero UVs on untextured solid-color meshes so the binary GLB stays well
+    // under Chromium's 512 MiB FileReader/Blob cap (keep UV0 on all textured & window_* meshes!).
+    let strippedUvs = 0;
+    scene.traverse((object) => {
+      if (!object.isMesh || !object.geometry?.attributes?.uv) return;
+      const m = Array.isArray(object.material) ? object.material[0] : object.material;
+      if (!m) return;
+      const hasTex = Boolean(m.map || m.normalMap || m.roughnessMap || m.metalnessMap || m.emissiveMap || m.alphaMap);
+      const keepUv = hasTex || (m.name && m.name.startsWith('window_'));
+      if (!keepUv) {
+        object.geometry.deleteAttribute('uv');
+        strippedUvs += 1;
+      }
+    });
+    await log(`built ${street.children.length} meshes, ${applied} emissive overrides, stripped ${strippedUvs} dummy UVs`);
 
     const glb = await new GLTFExporter().parseAsync(scene, { binary: true });
     await log(`glb ${glb.byteLength} bytes`);

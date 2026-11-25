@@ -41,15 +41,630 @@ const PROTO_CYL8 = ensureIndexedClean(new THREE.CylinderGeometry(1, 1, 1, 8));
 const PROTO_CYL12 = ensureIndexedClean(new THREE.CylinderGeometry(1, 1, 1, 12));
 const PROTO_CONE10 = ensureIndexedClean(new THREE.ConeGeometry(1, 1, 10));
 const PROTO_TAPER_POLE = ensureIndexedClean(new THREE.CylinderGeometry(0.65, 1.0, 1, 12));
-const PROTO_PINE_PAD = ensureIndexedClean(new THREE.CylinderGeometry(0.82, 1.0, 1, 7));
-const PROTO_CROWN = ensureIndexedClean(new THREE.DodecahedronGeometry(1, 0));
+const PROTO_TAPER_TRUNK = ensureIndexedClean(new THREE.CylinderGeometry(0.58, 1.0, 1, 10));
+const PROTO_TAPER_LIMB = ensureIndexedClean(new THREE.CylinderGeometry(0.46, 1.0, 1, 7));
+const PROTO_POT_BODY = ensureIndexedClean(new THREE.CylinderGeometry(1.0, 0.74, 1, 14));
 const PROTO_SPHERE = ensureIndexedClean(new THREE.SphereGeometry(1, 16, 12));
+const PROTO_BULB_CORE = ensureIndexedClean(new THREE.SphereGeometry(1, 10, 7));
 const PROTO_BELL_CAP = ensureIndexedClean(new THREE.CylinderGeometry(0.28, 1.0, 1, 12));
 const PROTO_WHEEL = (() => {
   const g = new THREE.CylinderGeometry(1, 1, 1, 14);
   g.rotateZ(Math.PI / 2);
   return ensureIndexedClean(g);
 })();
+
+/**
+ * Smooth rotational chamfered tire + recessed alloy rim geometries oriented along ±X axle.
+ */
+function buildChamferedTireGeometry(segs = 20) {
+  // Profile in (r, x) rotated around X axis: inner sidewall -> tread shoulder -> flat tread -> outer shoulder -> rim lip
+  const profile = [
+    [0.56, -0.46],
+    [0.88, -0.50],
+    [0.98, -0.40],
+    [1.00, -0.22],
+    [1.00, 0.22],
+    [0.98, 0.40],
+    [0.88, 0.50],
+    [0.56, 0.46],
+  ];
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  const ringLen = profile.length;
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs;
+    const a = u * Math.PI * 2;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    for (let j = 0; j < ringLen; j++) {
+      const [r, x] = profile[j];
+      pos.push(x, r * ca, r * sa);
+      uv.push(u, j / (ringLen - 1));
+    }
+  }
+  for (let i = 0; i < segs; i++) {
+    for (let j = 0; j < ringLen - 1; j++) {
+      const a = i * ringLen + j;
+      const b = (i + 1) * ringLen + j;
+      const c = b + 1;
+      const d = a + 1;
+      idx.push(a, d, c, a, c, b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+function buildAlloyRimGeometry(segs = 14) {
+  // Recessed dish profile facing +X (mirror via negative/rotated placement on -X side)
+  const profile = [
+    [0.00, 0.34],
+    [0.20, 0.38],
+    [0.24, 0.28],
+    [0.48, 0.32],
+    [0.58, 0.44],
+    [0.62, 0.42],
+  ];
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  const ringLen = profile.length;
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs;
+    const a = u * Math.PI * 2;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    for (let j = 0; j < ringLen; j++) {
+      const [r, x] = profile[j];
+      pos.push(x, r * ca, r * sa);
+      uv.push(u, j / (ringLen - 1));
+    }
+  }
+  for (let i = 0; i < segs; i++) {
+    for (let j = 0; j < ringLen - 1; j++) {
+      const a = i * ringLen + j;
+      const b = (i + 1) * ringLen + j;
+      const c = b + 1;
+      const d = a + 1;
+      idx.push(a, d, c, a, c, b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+const PROTO_TIRE = buildChamferedTireGeometry(14);
+const PROTO_ALLOY_RIM = buildAlloyRimGeometry(10);
+
+/**
+ * Botanical bouquet of curved 2x2-quad branchlet cards with outward-spherized normals.
+ * Eliminates faceted Dodecahedron rock-balls while keeping triangle counts very low.
+ */
+function buildBotanicalCrownGeometry({
+  cards = 24,
+  radius = 1.0,
+  heightScale = 0.92,
+  cardSize = 0.88,
+  pineMode = false,
+  rosetteMode = false,
+} = {}) {
+  const pos = [];
+  const norm = [];
+  const uv = [];
+  const idx = [];
+  const golden = 2.39996323;
+  const _uAxis = new THREE.Vector3();
+  const _vAxis = new THREE.Vector3();
+  const _nCard = new THREE.Vector3();
+  const _up = new THREE.Vector3(0, 1, 0);
+  const _pt = new THREE.Vector3();
+  const _sph = new THREE.Vector3();
+
+  for (let c = 0; c < cards; c++) {
+    const frac = (c + 0.5) / cards;
+    const az = c * golden;
+    let polar;
+    if (rosetteMode) {
+      polar = 0.30 + frac * 1.05;
+    } else if (pineMode) {
+      polar = 0.42 + frac * 0.88;
+    } else {
+      polar = 0.22 + Math.pow(frac, 0.82) * 1.24;
+    }
+
+    const dirX = Math.sin(polar) * Math.cos(az);
+    const dirY = Math.cos(polar);
+    const dirZ = Math.sin(polar) * Math.sin(az);
+    _vAxis.set(dirX, pineMode ? dirY * 0.45 + 0.18 : dirY * 0.85 + 0.24, dirZ).normalize();
+
+    _uAxis.crossVectors(_up, _vAxis);
+    if (_uAxis.lengthSq() < 1e-4) _uAxis.set(1, 0, 0);
+    _uAxis.normalize();
+
+    // Twist each branchlet card slightly around its growth axis so no cards align edge-on
+    const twist = ((c % 5) - 2) * 0.21;
+    const ct = Math.cos(twist);
+    const st = Math.sin(twist);
+    _nCard.crossVectors(_uAxis, _vAxis).normalize();
+    const uTwisted = _uAxis.clone().multiplyScalar(ct).addScaledVector(_nCard, st).normalize();
+    const nTwisted = _nCard.clone().multiplyScalar(ct).addScaledVector(_uAxis, -st).normalize();
+    if (nTwisted.y < 0) nTwisted.negate();
+
+    const anchorR = rosetteMode ? radius * 0.06 : radius * (pineMode ? 0.22 : 0.20);
+    const ax = dirX * anchorR;
+    const ay = (dirY * anchorR) * heightScale - (rosetteMode ? radius * 0.15 : 0);
+    const azPos = dirZ * anchorR;
+
+    const cW = cardSize * radius * (0.86 + ((c * 7) % 5) * 0.07);
+    const cH = cardSize * radius * (pineMode ? 0.82 : 0.96);
+    const baseVert = pos.length / 3;
+
+    // 3x2 V-cambered vertex grid (2 quads = 4 tris/card) for 3D leaf-arch volume at half the triangle cost
+    for (let iv = 0; iv <= 1; iv++) {
+      const tv = iv; // 0 = twig base, 1 = outer leaf tip
+      const droop = tv * (pineMode ? 0.10 : 0.15) * radius;
+      for (let iu = 0; iu <= 2; iu++) {
+        const tu = iu / 2;
+        const su = (tu - 0.5) * cW;
+        const camber = (1.0 - (tu - 0.5) * (tu - 0.5) * 4.0) * 0.13 * radius;
+        _pt.set(ax, ay - droop, azPos)
+          .addScaledVector(uTwisted, su)
+          .addScaledVector(_vAxis, tv * cH)
+          .addScaledVector(nTwisted, camber);
+
+        pos.push(_pt.x, _pt.y, _pt.z);
+        _sph.set(_pt.x, _pt.y + 0.18 * radius, _pt.z).normalize();
+        _sph.lerp(nTwisted, 0.24).normalize();
+        norm.push(_sph.x, _sph.y, _sph.z);
+        uv.push(tu, tv);
+      }
+    }
+    for (let iu = 0; iu < 2; iu++) {
+      const a = baseVert + iu;
+      const b = a + 1;
+      const cVert = a + 4;
+      const d = a + 3;
+      idx.push(a, b, cVert, a, cVert, d);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+const PROTO_LEAF_CROWN_RICH = buildBotanicalCrownGeometry({ cards: 20, radius: 1.0, cardSize: 0.94 });
+const PROTO_LEAF_CROWN_LITE = buildBotanicalCrownGeometry({ cards: 8, radius: 1.0, cardSize: 1.06 });
+const PROTO_PINE_CROWN_RICH = buildBotanicalCrownGeometry({ cards: 14, radius: 1.0, heightScale: 0.52, cardSize: 0.92, pineMode: true });
+const PROTO_PINE_CROWN_LITE = buildBotanicalCrownGeometry({ cards: 7, radius: 1.0, heightScale: 0.52, cardSize: 1.04, pineMode: true });
+const PROTO_SHRUB_ROSETTE = buildBotanicalCrownGeometry({ cards: 11, radius: 1.0, heightScale: 0.85, cardSize: 0.98, rosetteMode: true });
+const PROTO_HEDGE_FRINGE = buildBotanicalCrownGeometry({ cards: 5, radius: 1.0, heightScale: 0.55, cardSize: 0.95, rosetteMode: true });
+
+/**
+ * Smooth corrugated Washi paper lantern shell (提灯火袋) with welded seam normals & 14 bamboo rib pleats.
+ */
+function buildChochinShellGeometry(segsU = 18, segsV = 14, ribs = 14) {
+  const pos = [];
+  const norm = [];
+  const uv = [];
+  const idx = [];
+
+  const radiusAt = (v) => {
+    const env = 0.42 + 0.58 * Math.pow(Math.sin(Math.PI * v), 0.68);
+    const rib = 1.0 + 0.024 * Math.abs(Math.sin(v * ribs * Math.PI));
+    return env * rib;
+  };
+
+  for (let iv = 0; iv <= segsV; iv++) {
+    const v = iv / segsV;
+    const y = (v - 0.5) * 2.0; // [-1..+1]
+    const r = radiusAt(v);
+    const eps = 0.004;
+    const drdv = (radiusAt(Math.min(1, v + eps)) - radiusAt(Math.max(0, v - eps))) / (2 * eps);
+    // Tangent along v is (drdv*sin, 2.0, drdv*cos); outward normal radial/y ratio is (2.0, -drdv)
+    const nrLen = Math.hypot(2.0, drdv);
+    const nRad = 2.0 / nrLen;
+    const nY = -drdv / nrLen;
+
+    for (let iu = 0; iu <= segsU; iu++) {
+      const u = iu / segsU;
+      const a = -Math.PI + u * Math.PI * 2;
+      const sa = Math.sin(a);
+      const ca = Math.cos(a);
+      pos.push(r * sa, y, r * ca);
+      norm.push(nRad * sa, nY, nRad * ca);
+      uv.push(u, v);
+    }
+  }
+
+  const stride = segsU + 1;
+  for (let iv = 0; iv < segsV; iv++) {
+    for (let iu = 0; iu < segsU; iu++) {
+      const p00 = iv * stride + iu;
+      const p10 = p00 + 1;
+      const p01 = p00 + stride;
+      const p11 = p01 + 1;
+      idx.push(p00, p10, p11, p00, p11, p01);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+const PROTO_CHOCHIN_RICH = buildChochinShellGeometry(20, 28, 14);
+const PROTO_CHOCHIN_LITE = buildChochinShellGeometry(12, 14, 7);
+
+/**
+ * Smooth cross-sectional lofted Japanese Kei-Car & Kei-Van coachwork:
+ * - Multi-station longitudinal silhouette (sloped hood, raked windshield, crowned roof, angled tailgate)
+ * - Tumblehome upper cabin + sculpted shoulder beltline + semicircular recessed wheel-arch cutouts
+ * - Shared-vertex curved automotive glazing + satin-black weatherstrip & B-pillar blackout trim
+ */
+function buildAutomotiveCoachwork({ isVan = false } = {}) {
+  const L = isVan ? 3.46 : 3.38;
+  const W = 1.48;
+  const H = isVan ? 1.72 : 1.56;
+  const halfL = L * 0.5;
+  const halfW = W * 0.5;
+  const zF = isVan ? 1.12 : 1.08;
+  const zR = isVan ? -1.08 : -1.10;
+  const archR = 0.345;
+
+  // Key longitudinal stations (from rear -halfL to front +halfL)
+  const zRearGlassBot = isVan ? -halfL + 0.09 : -halfL + 0.15;
+  const zRearRoof = isVan ? -halfL + 0.28 : -halfL + 0.44;
+  const zFrontRoof = isVan ? 0.54 : 0.34;
+  const zHoodCowl = isVan ? 1.16 : 1.00;
+
+  const smooth01 = (t) => {
+    const c = Math.max(0, Math.min(1, t));
+    return c * c * (3 - 2 * c);
+  };
+
+  const evalStation = (z) => {
+    let planTaper = 1.0;
+    if (z > halfL - 0.44) {
+      const u = (z - (halfL - 0.44)) / 0.44;
+      planTaper = 1.0 - 0.13 * u * u;
+    } else if (z < -halfL + 0.30) {
+      const u = ((-halfL + 0.30) - z) / 0.30;
+      planTaper = 1.0 - 0.08 * u * u;
+    }
+
+    let yBelt = isVan ? 0.86 : 0.82;
+    if (z > zHoodCowl) {
+      const u = (z - zHoodCowl) / Math.max(0.01, halfL - zHoodCowl);
+      yBelt = (isVan ? 0.86 : 0.82) - (isVan ? 0.16 : 0.14) * Math.pow(u, 1.25);
+      if (u > 0.84) {
+        const bu = (u - 0.84) / 0.16;
+        yBelt -= 0.14 * bu * bu;
+      }
+    } else if (z < zRearGlassBot) {
+      const u = (zRearGlassBot - z) / Math.max(0.01, zRearGlassBot + halfL);
+      yBelt -= 0.12 * u * u;
+    }
+
+    let yTop;
+    let cabinBlend = 0.0;
+    if (z >= zRearRoof && z <= zFrontRoof) {
+      const crown = Math.cos(((z - (zRearRoof + zFrontRoof) * 0.5) / ((zFrontRoof - zRearRoof) * 0.5)) * Math.PI * 0.5);
+      yTop = H - 0.03 + 0.032 * Math.max(0, crown);
+      cabinBlend = 1.0;
+    } else if (z > zFrontRoof && z < zHoodCowl) {
+      const u = smooth01((z - zFrontRoof) / (zHoodCowl - zFrontRoof));
+      yTop = H - 0.03 + (yBelt + 0.02 - (H - 0.03)) * u;
+      cabinBlend = 1.0 - u;
+    } else if (z > zHoodCowl) {
+      const u = (z - zHoodCowl) / Math.max(0.01, halfL - zHoodCowl);
+      yTop = yBelt + 0.034 * (1.0 - u * u);
+      cabinBlend = 0.0;
+    } else if (z < zRearRoof && z > zRearGlassBot) {
+      const u = smooth01((zRearRoof - z) / (zRearRoof - zRearGlassBot));
+      yTop = (H - 0.03) + (yBelt + 0.03 - (H - 0.03)) * u;
+      cabinBlend = 1.0 - u;
+    } else {
+      yTop = yBelt + 0.02;
+      cabinBlend = 0.0;
+    }
+
+    let yUnder = 0.21;
+    if (Math.abs(z) > halfL - 0.26) {
+      const u = (Math.abs(z) - (halfL - 0.26)) / 0.26;
+      yUnder = 0.21 + 0.06 * u * u;
+    }
+    let yBotSide = yUnder + 0.015;
+    for (const zAxle of [zF, zR]) {
+      const dz = z - zAxle;
+      if (Math.abs(dz) < archR) {
+        const archY = 0.285 + Math.sqrt(Math.max(0, archR * archR - dz * dz)) * 0.88;
+        if (archY > yBotSide) yBotSide = archY;
+      }
+    }
+
+    const wMax = halfW * planTaper;
+    const wBot = wMax * 0.93;
+    const wBelt = wMax * 0.97;
+    const wRoof = wMax * (1.0 - cabinBlend * (isVan ? 0.12 : 0.155));
+    return { yUnder, yBotSide, yBelt, yTop, wMax, wBot, wBelt, wRoof, cabinBlend };
+  };
+
+  // Smooth transverse roof/cowl arch drop shared by body cross-sections and flush glazing
+  const crownDrop = (uFrac, s) => (0.028 * s.cabinBlend + 0.008) * (uFrac * uFrac);
+
+  const zSet = new Set([
+    -halfL, -halfL + 0.05, zRearGlassBot, (zRearGlassBot + zRearRoof) * 0.5, zRearRoof,
+    -0.55, -0.10, 0.20, zFrontRoof, (zFrontRoof + zHoodCowl) * 0.5, zHoodCowl,
+    zHoodCowl + (halfL - zHoodCowl) * 0.45, halfL - 0.14, halfL - 0.04, halfL,
+  ]);
+  for (const zAx of [zR, zF]) {
+    for (let k = -4; k <= 4; k++) {
+      const zz = zAx + (k / 4) * archR;
+      if (zz > -halfL + 0.06 && zz < halfL - 0.06) zSet.add(Number(zz.toFixed(4)));
+    }
+  }
+  const zStations = [...zSet].sort((a, b) => a - b);
+
+  const ringOf = (z) => {
+    const s = evalStation(z);
+    const yMidLow = Math.min(s.yBelt - 0.05, Math.max(s.yBotSide + 0.04, 0.50));
+    const yPillar = s.yBelt + (s.yTop - s.yBelt) * 0.54;
+    const wPillar = s.wBelt + (s.wRoof - s.wBelt) * 0.58;
+    const yRoof36 = Math.max(s.yBelt + 0.01, s.yTop - crownDrop(0.36, s));
+    const yRoof72 = Math.max(s.yBelt + 0.009, s.yTop - crownDrop(0.72, s));
+    const yRoofRail = Math.max(s.yBelt + 0.008, s.yTop - crownDrop(1.0, s));
+    return [
+      [0, s.yUnder],
+      [s.wBot * 0.82, s.yUnder],
+      [s.wBot, s.yBotSide],
+      [s.wMax, yMidLow],
+      [s.wBelt, s.yBelt],
+      [wPillar, yPillar],
+      [s.wRoof, yRoofRail],
+      [s.wRoof * 0.72, yRoof72],
+      [s.wRoof * 0.36, yRoof36],
+      [-s.wRoof * 0.36, yRoof36],
+      [-s.wRoof * 0.72, yRoof72],
+      [-s.wRoof, yRoofRail],
+      [-wPillar, yPillar],
+      [-s.wBelt, s.yBelt],
+      [-s.wMax, yMidLow],
+      [-s.wBot, s.yBotSide],
+      [-s.wBot * 0.82, s.yUnder],
+    ];
+  };
+
+  const NP = 17;
+  const NZ = zStations.length;
+  const bPos = [];
+  const bUv = [];
+  const bIdx = [];
+
+  for (let iz = 0; iz < NZ; iz++) {
+    const z = zStations[iz];
+    const ring = ringOf(z);
+    const vCoord = (z + halfL) / L;
+    for (let ip = 0; ip < NP; ip++) {
+      bPos.push(ring[ip][0], ring[ip][1], z);
+      bUv.push(ip / NP, vCoord);
+    }
+  }
+
+  for (let iz = 0; iz < NZ - 1; iz++) {
+    for (let ip = 0; ip < NP; ip++) {
+      const ipNext = (ip + 1) % NP;
+      const a = iz * NP + ip;
+      const b = (iz + 1) * NP + ip;
+      const c = (iz + 1) * NP + ipNext;
+      const d = iz * NP + ipNext;
+      bIdx.push(a, d, c, a, c, b);
+    }
+  }
+
+  const rearCenterIdx = bPos.length / 3;
+  const sRear = evalStation(zStations[0]);
+  bPos.push(0, (sRear.yUnder + sRear.yTop) * 0.5, zStations[0] - 0.015);
+  bUv.push(0.5, 0.0);
+  for (let ip = 0; ip < NP; ip++) {
+    const ipNext = (ip + 1) % NP;
+    bIdx.push(rearCenterIdx, ipNext, ip);
+  }
+
+  const frontCenterIdx = bPos.length / 3;
+  const sFront = evalStation(zStations[NZ - 1]);
+  const frontRingBase = (NZ - 1) * NP;
+  bPos.push(0, (sFront.yUnder + sFront.yTop) * 0.5, zStations[NZ - 1] + 0.02);
+  bUv.push(0.5, 1.0);
+  for (let ip = 0; ip < NP; ip++) {
+    const ipNext = (ip + 1) % NP;
+    bIdx.push(frontCenterIdx, frontRingBase + ip, frontRingBase + ipNext);
+  }
+
+  const bodyGeo = new THREE.BufferGeometry();
+  bodyGeo.setAttribute('position', new THREE.Float32BufferAttribute(bPos, 3));
+  bodyGeo.setAttribute('uv', new THREE.Float32BufferAttribute(bUv, 2));
+  bodyGeo.setIndex(bIdx);
+  bodyGeo.computeVertexNormals();
+
+  // Inner dark recessed wheel-well fender liners (ホイールハウスインナー)
+  const aPos = [];
+  const aUv = [];
+  const aIdx = [];
+  for (const sx of [-1, 1]) {
+    for (const zAx of [zF, zR]) {
+      const segs = 10;
+      const baseV = aPos.length / 3;
+      const xOuter = sx * (halfW * 0.92);
+      const xInner = sx * (halfW * 0.44);
+      for (let i = 0; i <= segs; i++) {
+        const ang = (i / segs) * Math.PI;
+        const dz = Math.cos(ang) * (archR * 0.98);
+        const py = 0.27 + Math.sin(ang) * (archR * 0.90);
+        aPos.push(xOuter, py, zAx + dz, xInner, py, zAx + dz);
+        aUv.push(i / segs, 0, i / segs, 1);
+      }
+      for (let i = 0; i < segs; i++) {
+        const k = baseV + i * 2;
+        if (sx > 0) {
+          aIdx.push(k, k + 2, k + 3, k, k + 3, k + 1);
+          if (i < segs - 1) aIdx.push(baseV + 1, k + 1, k + 3);
+        } else {
+          aIdx.push(k, k + 3, k + 2, k, k + 1, k + 3);
+          if (i < segs - 1) aIdx.push(baseV + 1, k + 3, k + 1);
+        }
+      }
+    }
+  }
+  const archGeo = new THREE.BufferGeometry();
+  archGeo.setAttribute('position', new THREE.Float32BufferAttribute(aPos, 3));
+  archGeo.setAttribute('uv', new THREE.Float32BufferAttribute(aUv, 2));
+  archGeo.setIndex(aIdx);
+  archGeo.computeVertexNormals();
+
+  // Shared-vertex grid builder so curved windshields & windows have seamless smooth normals!
+  const appendSharedGrid = (posArr, uvArr, idxArr, nx, nz, evalPt, flipWinding = false) => {
+    const base = posArr.length / 3;
+    for (let iz = 0; iz <= nz; iz++) {
+      const vz = iz / nz;
+      for (let ix = 0; ix <= nx; ix++) {
+        const ux = ix / nx;
+        const p = evalPt(ux, vz);
+        posArr.push(p[0], p[1], p[2]);
+        uvArr.push(ux, vz);
+      }
+    }
+    const stride = nx + 1;
+    for (let iz = 0; iz < nz; iz++) {
+      for (let ix = 0; ix < nx; ix++) {
+        const a = base + iz * stride + ix;
+        const b = a + 1;
+        const c = a + stride + 1;
+        const d = a + stride;
+        if (flipWinding) {
+          idxArr.push(a, d, c, a, c, b);
+        } else {
+          idxArr.push(a, b, c, a, c, d);
+        }
+      }
+    }
+  };
+
+  // Satin-black window weatherstrip surround + B-pillar blackout (`trimGeo`) & smooth dark glass (`glassGeo`)
+  const tPos = [];
+  const tUv = [];
+  const tIdx = [];
+  const gPos = [];
+  const gUv = [];
+  const gIdx = [];
+
+  // 1. Curved raked front windshield (shared-vertex 8x5 grid, crowned flush with A-pillars!)
+  const wsZTop = zFrontRoof + 0.045;
+  const wsZBot = zHoodCowl - 0.045;
+  const evalWindshield = (uSpan, yLift, zLift) => (ux, vz) => {
+    const zBase = wsZBot + (wsZTop - wsZBot) * vz;
+    const s = evalStation(zBase);
+    const uFrac = (ux * 2 - 1) * uSpan;
+    const normU = ux * 2 - 1;
+    const bow = (1.0 - normU * normU) * 0.018 * Math.sin(Math.PI * (0.15 + 0.75 * vz));
+    const y = s.yTop - crownDrop(Math.abs(uFrac), s) + yLift;
+    return [uFrac * s.wRoof, y, zBase + bow + zLift];
+  };
+  appendSharedGrid(tPos, tUv, tIdx, 8, 4, evalWindshield(0.84, 0.0035, 0.003), false);
+  appendSharedGrid(gPos, gUv, gIdx, 8, 5, evalWindshield(0.79, 0.0065, 0.006), false);
+
+  // 2. Angled rear tailgate window (shared-vertex 6x3 grid)
+  const rwZBot = zRearGlassBot + 0.035;
+  const rwZTop = zRearRoof - 0.035;
+  const evalRearWindow = (uSpan, yLift, zLift) => (ux, vz) => {
+    const zBase = rwZBot + (rwZTop - rwZBot) * vz;
+    const s = evalStation(zBase);
+    const uFrac = (1 - ux * 2) * uSpan;
+    const normU = 1 - ux * 2;
+    const bow = -(1.0 - normU * normU) * 0.010 * Math.sin(Math.PI * vz);
+    const y = s.yTop - crownDrop(Math.abs(uFrac), s) + yLift;
+    return [uFrac * s.wRoof, y, zBase + bow - zLift];
+  };
+  appendSharedGrid(tPos, tUv, tIdx, 6, 3, evalRearWindow(0.82, 0.0035, 0.004), false);
+  appendSharedGrid(gPos, gUv, gIdx, 6, 3, evalRearWindow(0.77, 0.0065, 0.007), false);
+
+  // 3. Side greenhouse: continuous black sash/B-pillar surround + flush front & rear side windows
+  const zBpil = isVan ? 0.08 : -0.14;
+  const sideSurfacePoint = (sx, z, vGlass, xOut, yPadLo, yPadHi) => {
+    const s = evalStation(z);
+    const yLo = s.yBelt + yPadLo;
+    const yRoofEdge = s.yTop - crownDrop(1.0, s);
+    const yHi = Math.max(yLo + 0.06, yRoofEdge - yPadHi);
+    const y = yLo + (yHi - yLo) * vGlass;
+    const tSide = Math.max(0, Math.min(1, (y - s.yBelt) / Math.max(0.05, yRoofEdge - s.yBelt)));
+    const wMidPillar = s.wBelt + (s.wRoof - s.wBelt) * 0.58;
+    const xBody = tSide <= 0.54
+      ? s.wBelt + (wMidPillar - s.wBelt) * (tSide / 0.54)
+      : wMidPillar + (s.wRoof - wMidPillar) * ((tSide - 0.54) / 0.46);
+    return [sx * (xBody + xOut), y, z];
+  };
+
+  for (const sx of [-1, 1]) {
+    const flip = sx < 0;
+    appendSharedGrid(tPos, tUv, tIdx, 4, 2, (ux, vz) => {
+      const zBot = (zRearRoof + 0.05) + ((zHoodCowl - 0.09) - (zRearRoof + 0.05)) * ux;
+      const zTop = (zRearRoof + 0.09) + ((zFrontRoof - 0.01) - (zRearRoof + 0.09)) * ux;
+      const z = zBot + (zTop - zBot) * vz;
+      return sideSurfacePoint(sx, z, vz, 0.004, 0.018, 0.022);
+    }, flip);
+
+    appendSharedGrid(gPos, gUv, gIdx, 3, 2, (ux, vz) => {
+      const zBot = (zBpil + 0.038) + ((zHoodCowl - 0.13) - (zBpil + 0.038)) * ux;
+      const zTop = (zBpil + 0.038) + ((zFrontRoof - 0.035) - (zBpil + 0.038)) * ux;
+      const z = zBot + (zTop - zBot) * vz;
+      return sideSurfacePoint(sx, z, vz, 0.0075, 0.042, 0.046);
+    }, flip);
+
+    appendSharedGrid(gPos, gUv, gIdx, 3, 2, (ux, vz) => {
+      const zBot = (zRearRoof + 0.085) + ((zBpil - 0.038) - (zRearRoof + 0.085)) * ux;
+      const zTop = (zRearRoof + 0.125) + ((zBpil - 0.038) - (zRearRoof + 0.125)) * ux;
+      const z = zBot + (zTop - zBot) * vz;
+      return sideSurfacePoint(sx, z, vz, 0.0075, 0.042, 0.046);
+    }, flip);
+  }
+
+  const trimGeo = new THREE.BufferGeometry();
+  trimGeo.setAttribute('position', new THREE.Float32BufferAttribute(tPos, 3));
+  trimGeo.setAttribute('uv', new THREE.Float32BufferAttribute(tUv, 2));
+  trimGeo.setIndex(tIdx);
+  trimGeo.computeVertexNormals();
+
+  const glassGeo = new THREE.BufferGeometry();
+  glassGeo.setAttribute('position', new THREE.Float32BufferAttribute(gPos, 3));
+  glassGeo.setAttribute('uv', new THREE.Float32BufferAttribute(gUv, 2));
+  glassGeo.setIndex(gIdx);
+  glassGeo.computeVertexNormals();
+
+  return {
+    bodyGeo: ensureIndexedClean(bodyGeo),
+    trimGeo: ensureIndexedClean(trimGeo),
+    glassGeo: ensureIndexedClean(glassGeo),
+    archGeo: ensureIndexedClean(archGeo),
+  };
+}
+
+const KEI_HATCH_PROTO = buildAutomotiveCoachwork({ isVan: false });
+const KEI_VAN_PROTO = buildAutomotiveCoachwork({ isVan: true });
 
 export function cloneTransformed(proto, matrix) {
   const g = proto.clone();
@@ -483,6 +1098,28 @@ export class LotContext {
     g.computeVertexNormals();
     bucket.geometries.push(g);
   }
+
+  /** Connects two 3D local points [x0,y0,z0] -> [x1,y1,z1] with a smooth tapered cylindrical tree limb. */
+  addLimb(bucket, a, b, rBase = 0.07) {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const dz = b[2] - a[2];
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-4) return;
+    const mx = (a[0] + b[0]) * 0.5;
+    const my = (a[1] + b[1]) * 0.5;
+    const mz = (a[2] + b[2]) * 0.5;
+    const dir = new THREE.Vector3(dx / len, dy / len, dz / len);
+    _quat.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    _pos.set(mx, my, mz);
+    _scale.set(rBase, len, rBase);
+    _localMat.compose(_pos, _quat, _scale);
+    _mat4.multiplyMatrices(this.worldMatrix, _localMat);
+    const g = PROTO_TAPER_LIMB.clone();
+    g.applyMatrix4(_mat4);
+    g.computeVertexNormals();
+    bucket.geometries.push(g);
+  }
 }
 
 // ------------------------------------------------------------------ ARCHITECTURAL MICRO-DETAILS (基礎巾木・雨樋・破風・窓・室外機)
@@ -594,7 +1231,7 @@ function addWindowAssembly(lot, mats, rnd, {
 
   const paneW = w - ft * (rich ? 1.4 : 1.8);
   const paneH = h - ft * (rich ? 1.4 : 1.8);
-  const cellX = Math.floor(rnd() * 128);
+  const cellX = Math.abs(Math.imul(Math.round(sub.cx * 19), 73856093) ^ Math.imul(Math.round(sub.cz * 23 + sub.baseY * 37), 19349663)) & 127;
   const cellY = Math.round(Math.min(Math.max(paneW / Math.max(paneH, 0.25), 0.4), 3.6) * 10);
 
   if (!rich) {
@@ -825,62 +1462,148 @@ function buildLeanToEave(lot, mats, { x, y, z, w, depth = 1.15, drop = 0.28, roo
   }
 }
 
-// ------------------------------------------------------------------ YARD, CARPORT, VEHICLES & TREES
+// ------------------------------------------------------------------ YARD, CARPORT, VEHICLES & BOTANICAL TREES
 
+/**
+ * Botanical Japanese garden & street tree (ケヤキ・モミジ・黒松):
+ * - Root-flared tapered fissured-bark trunk + upward-sweeping forked limbs
+ * - Overlapping alpha-cutout botanical leaf-cluster crowns with outward-spherized normals (zero faceted polyhedra!)
+ */
 export function addGardenTree(lot, mats, lx, lz, scale = 1.0, style = 'leafy', rich = true) {
-  const trunkH = 1.65 * scale;
-  lot.addProto(mats.trunk, PROTO_CYL8, lx, trunkH * 0.5, lz, 0.13 * scale, trunkH, 0.13 * scale);
   const foliage = style === 'autumn' ? mats.foliageWarm : (style === 'pine' ? mats.foliagePine : mats.foliageFresh);
+  const yawSpin = ((Math.abs(Math.round(lx * 13 + lz * 29)) % 12) / 12) * Math.PI * 2;
+  const sub = lot.subContext(lx, lz, yawSpin, 0);
+
+  const forkY = (style === 'pine' ? 1.18 : 1.35) * scale;
+  // Root-flared primary trunk with slight natural lean
+  sub.addProto(mats.trunk, PROTO_TAPER_TRUNK, 0.02 * scale, forkY * 0.5, 0, 0.145 * scale, forkY + 0.08 * scale, 0.145 * scale, 0.035, 0, -0.03);
 
   if (style === 'pine') {
-    lot.addProto(foliage, PROTO_PINE_PAD, lx, trunkH + 0.15 * scale, lz, 0.88 * scale, 0.44 * scale, 0.88 * scale);
-    if (rich) {
-      lot.addProto(foliage, PROTO_PINE_PAD, lx - 0.26 * scale, trunkH + 0.62 * scale, lz + 0.16 * scale, 0.66 * scale, 0.38 * scale, 0.66 * scale);
-      lot.addProto(foliage, PROTO_PINE_PAD, lx + 0.2 * scale, trunkH + 0.98 * scale, lz - 0.12 * scale, 0.54 * scale, 0.36 * scale, 0.54 * scale);
+    // Sculpted Japanese garden Black Pine (庭木黒松: 玉散らし仕立 cloud-pruned pads on gnarled limbs)
+    const crownProto = rich ? PROTO_PINE_CROWN_RICH : PROTO_PINE_CROWN_LITE;
+    const pads = rich
+      ? [
+          { p: [-0.36 * scale, forkY + 0.42 * scale, 0.18 * scale], r: 0.72 * scale, ry: 0.4 },  // Lower-left cloud pad
+          { p: [0.38 * scale, forkY + 0.66 * scale, -0.16 * scale], r: 0.66 * scale, ry: 2.1 },  // Mid-right cloud pad
+          { p: [-0.08 * scale, forkY + 1.08 * scale, 0.04 * scale], r: 0.62 * scale, ry: 4.0 },  // Upper apex pad
+        ]
+      : [
+          { p: [0, forkY + 0.58 * scale, 0], r: 0.92 * scale, ry: 0.8 },
+        ];
+    const forkOrigin = [0.02 * scale, forkY * 0.92, 0];
+    for (const pad of pads) {
+      sub.addLimb(mats.trunk, forkOrigin, [pad.p[0] * 0.92, pad.p[1] + 0.04 * scale, pad.p[2] * 0.92], 0.078 * scale);
+      sub.addProto(foliage, crownProto, pad.p[0], pad.p[1], pad.p[2], pad.r, pad.r, pad.r, 0, pad.ry, 0);
     }
   } else {
-    lot.addProto(foliage, PROTO_CROWN, lx, trunkH + 0.68 * scale, lz, 0.96 * scale, 0.88 * scale, 0.96 * scale);
-    if (rich) {
-      lot.addProto(foliage, PROTO_CROWN, lx + 0.42 * scale, trunkH + 0.48 * scale, lz + 0.24 * scale, 0.66 * scale, 0.62 * scale, 0.66 * scale);
-      lot.addProto(foliage, PROTO_CROWN, lx - 0.36 * scale, trunkH + 0.94 * scale, lz - 0.18 * scale, 0.6 * scale, 0.58 * scale, 0.6 * scale);
+    // Spreading Zelkova (ケヤキ) or Japanese Maple (イロハモミジ) with 4 forked limbs & layered botanical crowns
+    const crownProto = rich ? PROTO_LEAF_CROWN_RICH : PROTO_LEAF_CROWN_LITE;
+    const forkOrigin = [0.03 * scale, forkY * 0.92, 0];
+    const clusters = rich
+      ? [
+          { p: [0.02 * scale, forkY + 1.12 * scale, 0.02 * scale], r: 0.82 * scale, ry: 0.2 },
+          { p: [0.46 * scale, forkY + 0.64 * scale, 0.24 * scale], r: 0.68 * scale, ry: 1.9 },
+          { p: [-0.44 * scale, forkY + 0.72 * scale, 0.18 * scale], r: 0.66 * scale, ry: 3.6 },
+          { p: [-0.08 * scale, forkY + 0.68 * scale, -0.42 * scale], r: 0.64 * scale, ry: 5.1 },
+        ]
+      : [
+          { p: [0, forkY + 0.82 * scale, 0], r: 1.02 * scale, ry: 0.5 },
+        ];
+    for (const cl of clusters) {
+      sub.addLimb(mats.trunk, forkOrigin, [cl.p[0] * 0.88, cl.p[1] + 0.08 * scale, cl.p[2] * 0.88], 0.072 * scale);
+      sub.addProto(foliage, crownProto, cl.p[0], cl.p[1], cl.p[2], cl.r, cl.r * 0.92, cl.r, 0, cl.ry, 0);
     }
   }
 }
 
-export function addKeiCar(lot, mats, lx, lz, yaw = 0, bodyBucket = null, isVan = false, withWheels = true) {
+/**
+ * Storefront Shigaraki/terracotta ceramic pot + soil + lush evergreen botanical shrub rosette (鉢植え).
+ */
+export function addPottedPlant(lot, mats, { x, z, scale = 1.0, yaw = 0 }) {
+  const sub = lot.subContext(x, z, yaw, 0);
+  const potH = 0.36 * scale;
+  const potR = 0.20 * scale;
+  // Tapered ceramic pot body + rolled lip rim + dark soil bed
+  sub.addProto(mats.ceramicPot ?? mats.woodDark, PROTO_POT_BODY, 0, potH * 0.5, 0, potR, potH, potR);
+  sub.addProto(mats.ceramicPot ?? mats.woodDark, PROTO_CYL12, 0, potH - 0.02 * scale, 0, potR * 1.08, 0.045 * scale, potR * 1.08);
+  sub.addProto(mats.trunk, PROTO_CYL12, 0, potH - 0.03 * scale, 0, potR * 0.90, 0.025 * scale, potR * 0.90);
+  // Multi-layered evergreen Nandina/Aralia botanical rosette
+  const shrubMat = mats.foliageShrub ?? mats.foliageFresh;
+  sub.addProto(shrubMat, PROTO_SHRUB_ROSETTE, 0, potH + 0.14 * scale, 0, 0.38 * scale, 0.42 * scale, 0.38 * scale, 0, 0.4, 0);
+  sub.addProto(shrubMat, PROTO_HEDGE_FRINGE, 0, potH + 0.26 * scale, 0, 0.28 * scale, 0.30 * scale, 0.28 * scale, 0, 2.2, 0);
+}
+
+/**
+ * Smooth lofted Japanese Kei-Car & Kei-Van (軽自動車・軽バン) with clearcoat coachwork,
+ * recessed semicircular wheel-arch housings, raked flush glass cabin, and chamfered alloy wheels.
+ */
+export function addKeiCar(lot, mats, lx, lz, yaw = 0, bodyBucket = null, isVan = false, withWheels = true, isDriving = false) {
   const carBody = bodyBucket ?? mats.carWhite;
-  const cw = isVan ? 1.54 : 1.48;
-  const cl = isVan ? 3.52 : 3.38;
-  const ch = isVan ? 1.82 : 1.64;
+  const proto = isVan ? KEI_VAN_PROTO : KEI_HATCH_PROTO;
+  const cl = isVan ? 3.46 : 3.38;
+  const cw = 1.48;
+  const zF = isVan ? 1.12 : 1.08;
+  const zR = isVan ? -1.08 : -1.10;
 
   const sub = lot.subContext(lx, lz, yaw, 0);
 
-  // Lower body + bumpers + subtle wheel-well sill trim
-  sub.addBox(carBody, cw, 0.56, cl - 0.08, 0, 0.52, 0);
-  sub.addBox(mats.darkMetal, cw + 0.02, 0.16, cl + 0.04, 0, 0.29, 0);
-  // Greenhouse cabin + sloped windshield & dark reflective glass
-  const cabL = isVan ? cl * 0.78 : cl * 0.68;
-  const cabZ = isVan ? -0.10 : -0.18;
-  const cabH = ch - 0.76;
-  sub.addBox(carBody, cw - 0.08, cabH, cabL, 0, 0.80 + cabH * 0.5, cabZ);
-  sub.addBox(mats.windowUnlit, cw - 0.04, cabH * 0.62, cabL - 0.14, 0, 0.84 + cabH * 0.48, cabZ);
-  // Roof panel cap
-  sub.addBox(carBody, cw - 0.12, 0.06, cabL - 0.08, 0, 0.80 + cabH + 0.02, cabZ);
+  // 1. Sculpted smooth clearcoat body shell + recessed wheel-arch liners + satin-black sash trim + smooth curved glass
+  sub.add(carBody, proto.bodyGeo.clone(), 0, 0, 0);
+  sub.add(mats.carUndercarriage ?? mats.darkMetal, proto.archGeo.clone(), 0, 0, 0);
+  sub.add(mats.carTrimBlack ?? mats.darkMetal, proto.trimGeo.clone(), 0, 0, 0);
+  sub.add(mats.carGlass ?? mats.windowUnlit, proto.glassGeo.clone(), 0, 0, 0);
+  // Underbody chassis shadow pan
+  sub.addBox(mats.carUndercarriage ?? mats.darkMetal, cw * 0.80, 0.08, cl * 0.78, 0, 0.22, 0);
 
   if (withWheels) {
-    // Yellow Kei-car license plates (軽自動車黄色ナンバー) + headlights & red taillights
-    sub.addBox(mats.tactileYellow, 0.33, 0.165, 0.025, -0.28, 0.36, cl * 0.5 + 0.02);
-    sub.addBox(mats.tactileYellow, 0.33, 0.165, 0.025, 0, 0.38, -cl * 0.5 - 0.02);
+    // 2. Front radiator grille, lower air dam, bumper trim & yellow Kei-car license plates (軽自動車黄色ナンバー)
+    const noseZ = cl * 0.5;
+    sub.addBox(mats.darkMetal, 0.76, 0.13, 0.03, 0, isVan ? 0.62 : 0.58, noseZ - 0.015, -0.14, 0, 0);
+    sub.addBox(mats.darkMetal, 0.88, 0.09, 0.03, 0, 0.35, noseZ - 0.025);
+    sub.addBox(mats.silverMetal, 0.74, 0.025, 0.035, 0, isVan ? 0.68 : 0.64, noseZ - 0.012);
+    sub.addBox(mats.tactileYellow, 0.33, 0.165, 0.024, -0.24, 0.37, noseZ + 0.008);
+    sub.addBox(mats.tactileYellow, 0.33, 0.165, 0.024, 0, 0.42, -noseZ - 0.006);
+
+    const headMat = isDriving ? (mats.carHeadlampOn ?? mats.warmLamp) : (mats.carHeadlampOff ?? mats.silverMetal);
+    const tailMat = isDriving ? (mats.carTaillampOn ?? mats.accentRed) : (mats.carTaillampOff ?? mats.accentRed);
+    const mirrorZ = isVan ? 0.72 : 0.52;
+    const mirrorY = isVan ? 0.96 : 0.90;
+
     for (const sx of [-1, 1]) {
-      sub.addBox(mats.warmLamp, 0.24, 0.13, 0.03, sx * (cw * 0.34), 0.62, cl * 0.5 - 0.03);
-      sub.addBox(mats.lanternRed, 0.16, 0.26, 0.03, sx * (cw * 0.41), 0.72, -cl * 0.5 + 0.03);
-      // Side mirrors
-      sub.addBox(carBody, 0.12, 0.09, 0.14, sx * (cw * 0.5 + 0.05), 0.96, cabZ + cabL * 0.38);
+      // Wrap-around 3D polycarbonate headlamp housings + ruby rear combination taillamps
+      sub.addBox(mats.darkMetal, 0.25, 0.135, 0.06, sx * 0.49, isVan ? 0.68 : 0.63, noseZ - 0.055, -0.16, sx * 0.20, 0);
+      sub.addBox(headMat, 0.22, 0.11, 0.04, sx * 0.49, isVan ? 0.68 : 0.63, noseZ - 0.042, -0.16, sx * 0.20, 0);
+      sub.addBox(tailMat, 0.13, isVan ? 0.34 : 0.26, 0.045, sx * 0.58, isVan ? 0.84 : 0.82, -noseZ + 0.035, 0.08, -sx * 0.16, 0);
+
+      // Aerodynamic side mirrors on black A-pillar stalks + flush silver door handles
+      sub.addBox(mats.darkMetal, 0.08, 0.035, 0.05, sx * (cw * 0.46), mirrorY - 0.03, mirrorZ + 0.02);
+      sub.addBox(carBody, 0.11, 0.095, 0.15, sx * (cw * 0.50 + 0.02), mirrorY, mirrorZ, 0, sx * 0.15, 0);
+      sub.addBox(mats.silverMetal, 0.025, 0.032, 0.13, sx * (cw * 0.49), 0.78, isVan ? 0.32 : 0.04);
+      sub.addBox(mats.silverMetal, 0.025, 0.032, 0.13, sx * (cw * 0.49), 0.78, -0.58);
     }
-    // Smooth 14-sided tires + silver alloy hubcaps!
-    for (const [wx, wz] of [[-cw * 0.46, cl * 0.33], [cw * 0.46, cl * 0.33], [-cw * 0.46, -cl * 0.34], [cw * 0.46, -cl * 0.34]]) {
-      sub.addProto(mats.darkMetal, PROTO_WHEEL, wx, 0.28, wz, 0.18, 0.28, 0.28);
-      sub.addProto(mats.silverMetal, PROTO_WHEEL, wx + Math.sign(wx) * 0.02, 0.28, wz, 0.16, 0.17, 0.17);
+
+    // 3. Chamfered rubber tires + recessed 3D alloy rims + 5-spoke star spiders inside wheel arches!
+    const wheelTrackX = cw * 0.435;
+    for (const [wx, wz] of [[-wheelTrackX, zF], [wheelTrackX, zF], [-wheelTrackX, zR], [wheelTrackX, zR]]) {
+      const sgn = Math.sign(wx);
+      sub.addProto(mats.carTire ?? mats.darkMetal, PROTO_TIRE, wx, 0.285, wz, 0.185, 0.285, 0.285);
+      sub.addProto(
+        mats.silverMetal,
+        PROTO_ALLOY_RIM,
+        wx,
+        0.285,
+        wz,
+        0.185,
+        0.285,
+        0.285,
+        0,
+        sgn > 0 ? 0 : Math.PI,
+        0,
+      );
+      // 3 spoke bars across alloy dish for crisp wheel detail
+      for (let sp = 0; sp < 3; sp++) {
+        sub.addBox(mats.silverMetal, 0.022, 0.29, 0.038, wx + sgn * 0.068, 0.285, wz, (sp * Math.PI) / 3, 0, 0);
+      }
     }
   }
 }
@@ -903,12 +1626,16 @@ function buildLotExterior(lot, mats, rnd, {
 }) {
   lot.addBox(mats.lotPad, lotW - 0.25, 0.06, lotD - 0.25, 0, 0.03, 0);
 
-  const wallH = wallStyle === 'hedge' ? 1.05 : 1.18;
-  const wallThick = wallStyle === 'hedge' ? 0.38 : 0.15;
-  const perimBucket = wallStyle === 'hedge' ? mats.hedge : (wallStyle === 'wood' ? mats.woodDark : mats.blockWall);
-  const useBlockUV = wallStyle === 'block' && tier >= 1;
+  const isHedge = wallStyle === 'hedge';
+  const wallH = isHedge ? 1.04 : 1.18;
+  const wallThick = isHedge ? 0.42 : 0.15;
+  const perimBucket = isHedge ? mats.hedge : (wallStyle === 'wood' ? mats.woodDark : mats.blockWall);
 
-  const wallBox = (w, h, d) => (useBlockUV ? box(w, h, d, 1.6, 0.8) : box(w, h, d));
+  const wallBox = (w, h, d) => {
+    if (wallStyle === 'block' && tier >= 1) return box(w, h, d, 1.6, 0.8);
+    if (isHedge) return box(w, h, d, 1.15, 1.15);
+    return box(w, h, d);
+  };
 
   lot.add(perimBucket, wallBox(lotW - 0.3, wallH, wallThick), 0, wallH * 0.5, -lotD * 0.5 + 0.2);
   lot.add(perimBucket, wallBox(wallThick, wallH, lotD - 0.4), -lotW * 0.5 + 0.2, wallH * 0.5, 0);
@@ -917,10 +1644,24 @@ function buildLotExterior(lot, mats, rnd, {
   const openW = hasCarport || hasCar ? 3.8 : 2.1;
   const wallLen = Math.max(1.2, lotW - openW - 0.6);
   const wallX = -drivewaySide * ((lotW - wallLen) * 0.5 - 0.2);
-  lot.add(perimBucket, wallBox(wallLen, wallH * 0.88, wallThick), wallX, wallH * 0.44, lotD * 0.5 - 0.22);
-  // Concrete coping cap (笠木) on top of front block wall!
+  const frontH = wallH * 0.88;
+  const frontZ = lotD * 0.5 - 0.22;
+  lot.add(perimBucket, wallBox(wallLen, frontH, wallThick), wallX, frontH * 0.5, frontZ);
+
+  // Concrete coping cap (笠木) on block walls, or chamfered crown + organic leafy shoots on boxwood hedges!
   if (wallStyle === 'block' && tier >= 1) {
-    lot.addBox(mats.concrete, wallLen + 0.04, 0.055, wallThick + 0.05, wallX, wallH * 0.88 + 0.025, lotD * 0.5 - 0.22);
+    lot.addBox(mats.concrete, wallLen + 0.04, 0.055, wallThick + 0.05, wallX, frontH + 0.025, frontZ);
+  } else if (isHedge && tier >= 1) {
+    lot.add(perimBucket, wallBox(wallLen - 0.08, 0.08, wallThick * 0.74), wallX, frontH + 0.03, frontZ);
+    lot.add(perimBucket, wallBox(wallThick * 0.74, 0.08, lotD - 0.52), -lotW * 0.5 + 0.2, wallH + 0.03, 0);
+    lot.add(perimBucket, wallBox(wallThick * 0.74, 0.08, lotD - 0.52), lotW * 0.5 - 0.2, wallH + 0.03, 0);
+    if (tier >= 2 && mats.foliageShrub) {
+      const shootCount = Math.max(2, Math.floor(wallLen / 1.15));
+      for (let si = 0; si < shootCount; si++) {
+        const sx = wallX - wallLen * 0.42 + (wallLen * 0.84 * si) / Math.max(1, shootCount - 1);
+        lot.addProto(mats.foliageShrub, PROTO_HEDGE_FRINGE, sx, frontH + 0.02, frontZ, 0.30, 0.24, 0.30, 0, si * 1.7, 0);
+      }
+    }
   }
 
   if (tier === 0) return;
@@ -946,7 +1687,7 @@ function buildLotExterior(lot, mats, rnd, {
   }
   if (hasCar) {
     const carMat = mats.carPalette[Math.floor(rnd() * mats.carPalette.length)];
-    addKeiCar(lot, mats, carX, carZ, 0, carMat, rnd() < 0.28, tier >= 2);
+    addKeiCar(lot, mats, carX, carZ, 0, carMat, rnd() < 0.28, tier >= 2, false);
   }
 }
 
@@ -1330,7 +2071,8 @@ export function buildMachiyaHouse(lot, mats, rnd, { lotW, lotD, tier = 2 }) {
     });
     // Sliding hikido timber entrance door
     lot.addBox(mats.woodDark, 1.48, 2.15, 0.08, driveSide * (w * 0.24), 1.29, hz + d * 0.5 + 0.03);
-    lot.add(mats.windowLitAmber, windowPaneBox(1.26, 1.88, 0.04, Math.floor(rnd() * 128), 7), driveSide * (w * 0.24), 1.32, hz + d * 0.5 + 0.05);
+    const doorSeed = Math.abs(Math.imul(Math.round(lot.cx * 17), 73856093) ^ Math.imul(Math.round(lot.cz * 29), 19349663)) & 127;
+    lot.add(mats.windowLitAmber, windowPaneBox(1.26, 1.88, 0.04, doorSeed, 7), driveSide * (w * 0.24), 1.32, hz + d * 0.5 + 0.05);
     for (let kx = -0.52; kx <= 0.52; kx += 0.17) {
       lot.addBox(mats.woodWarm, 0.025, 1.9, 0.04, driveSide * (w * 0.24) + kx, 1.32, hz + d * 0.5 + 0.075);
     }
@@ -1473,16 +2215,52 @@ export function addSleeveSign(lot, mats, signIdx, { x, y, z }) {
   lot.add(signBucket, signBox(sw, sh, thick), x, y, sz, 0, Math.PI / 2, 0);
 }
 
-function addChochinRow(lot, mats, { x0, x1, y, z, count = 3, red = true }) {
-  const mat = red ? mats.lanternRed : mats.lanternWarm;
+/**
+ * Dual-Layer Physical Japanese Paper Lantern Row (和紙提灯):
+ * 1) Inner compact bright warm incandescent filament bulb (`chochinCore`) suspended at center
+ * 2) Outer rough-transmissive corrugated Washi paper shell (`PROTO_CHOCHIN_*`) with bamboo ribs & sumi calligraphy
+ * 3) Top & bottom black-lacquered wooden collars (`口輪`), gold trim rings, and iron hanging wire bail (`ツル`)
+ */
+export function addChochinRow(lot, mats, {
+  x0, x1, y, z, count = 3, red = true, rich = true, seed = 0, tall = false,
+}) {
+  const pool = red ? (mats.lanternReds ?? [mats.lanternRed]) : (mats.lanternWarms ?? [mats.lanternWarm]);
+  const useHeroShell = rich && Math.abs(lot.cx) < 96;
+  const shellProto = useHeroShell ? PROTO_CHOCHIN_RICH : PROTO_CHOCHIN_LITE;
+  const rx = tall ? 0.165 : 0.19;
+  const ry = tall ? 0.285 : 0.245;
+
   for (let i = 0; i < count; i++) {
     const t = count === 1 ? 0.5 : i / (count - 1);
     const lx = x0 + (x1 - x0) * t;
-    // Hanging wire stem from eave + top/bottom wooden caps + plump paper lantern body
-    lot.addProto(mats.darkMetal, PROTO_CYL6, lx, y + 0.34, z, 0.012, 0.18, 0.012);
-    lot.addProto(mat, PROTO_SPHERE, lx, y, z, 0.19, 0.25, 0.19);
-    lot.addProto(mats.darkMetal, PROTO_CYL8, lx, y + 0.24, z, 0.11, 0.045, 0.11);
-    lot.addProto(mats.darkMetal, PROTO_CYL8, lx, y - 0.24, z, 0.10, 0.045, 0.10);
+    const shellMat = pool[(seed + i) % pool.length];
+    const slightYaw = ((i % 2 === 0 ? 1 : -1) * 0.18);
+
+    // Hanging hook rod from wooden eave + top wire bail
+    lot.addProto(mats.darkMetal, PROTO_CYL6, lx, y + ry + 0.10, z, 0.009, 0.18, 0.009);
+    if (rich) {
+      lot.addBox(mats.darkMetal, rx * 0.92, 0.012, 0.012, lx, y + ry + 0.032, z, 0, slightYaw, 0);
+    }
+
+    // Inner hanging bulb socket stem + compact incandescent filament bulb core at lantern center!
+    if (mats.chochinCore) {
+      lot.addProto(mats.darkMetal, PROTO_CYL6, lx, y + ry * 0.56, z, 0.014, ry * 0.52, 0.014);
+      lot.addProto(mats.chochinCore, PROTO_BULB_CORE, lx, y + 0.015, z, 0.056, 0.082, 0.056);
+    }
+
+    // Outer corrugated translucent Washi paper shell
+    lot.addProto(shellMat, shellProto, lx, y, z, rx, ry, rx, 0, slightYaw, 0);
+
+    // Top & bottom black-lacquered wooden collars (口輪・重化) + thin gold trim bands
+    const rimRTop = rx * 0.48;
+    const rimRBot = rx * 0.45;
+    lot.addProto(mats.darkMetal, PROTO_CYL12, lx, y + ry + 0.012, z, rimRTop, 0.042, rimRTop);
+    lot.addProto(mats.darkMetal, PROTO_CYL12, lx, y - ry - 0.012, z, rimRBot, 0.042, rimRBot);
+    if (rich) {
+      lot.addProto(mats.archGoldTrim, PROTO_CYL12, lx, y + ry - 0.008, z, rimRTop * 1.03, 0.012, rimRTop * 1.03);
+      lot.addProto(mats.archGoldTrim, PROTO_CYL12, lx, y - ry + 0.008, z, rimRBot * 1.03, 0.012, rimRBot * 1.03);
+      lot.addProto(mats.darkMetal, PROTO_CYL6, lx, y - ry - 0.046, z, 0.022, 0.036, 0.022);
+    }
   }
 }
 
@@ -1523,11 +2301,328 @@ function addBeerCrateStack(lot, mats, { x, z, count = 2, blue = true }) {
 }
 
 /**
+ * Builds crisp 3D storefront mullions, wainscoting, wooden koushi lattice, and a single
+ * outward-facing clear architectural glass plane (zero double-glass backfaces!).
+ */
+function addShop3DFacade(lot, mats, {
+  w, h, x = 0, yBot = 0.14, z = 0, rotY = 0, shopKind = 'kissaten',
+}) {
+  const sub = lot.subContext(x, z, rotY, yBot);
+  const bayCount = Math.max(1, Math.round(w / (shopKind === 'konbini' ? 3.2 : 3.1)));
+  const bayW = w / bayCount;
+
+  // Single outward-facing (+Z) clear glass pane sitting cleanly inside the 3D framing
+  sub.add(mats.shopGlass, new THREE.PlaneGeometry(Math.max(0.4, w - 0.06), Math.max(0.4, h - 0.06)), 0, h * 0.5, 0);
+
+  if (shopKind === 'konbini') {
+    const frame = mats.silverMetal;
+    const kickH = 0.18;
+    sub.addBox(mats.darkMetal, w, kickH, 0.08, 0, kickH * 0.5, 0.01);
+    sub.addBox(frame, w, 0.10, 0.09, 0, h - 0.05, 0.01);
+    sub.addBox(frame, w, 0.055, 0.08, 0, h - 0.52, 0.01);
+    for (let i = 0; i <= bayCount; i++) {
+      const mx = -w * 0.5 + i * bayW;
+      sub.addBox(frame, i === 0 || i === bayCount ? 0.09 : 0.07, h, 0.09, mx, h * 0.5, 0.01);
+      if (i < bayCount) {
+        sub.addBox(frame, 0.055, h - kickH - 0.10, 0.08, mx + bayW * 0.5, kickH + (h - kickH - 0.10) * 0.5, 0.01);
+      }
+    }
+    return;
+  }
+
+  if (shopKind === 'izakaya' || shopKind === 'ramen') {
+    const wood = mats.woodDark;
+    const wainscot = mats.shop3dWoodDark;
+    const baseH = 0.12;
+    const wainH = Math.min(0.96, h * 0.34);
+    sub.addBox(mats.concrete, w, baseH, 0.10, 0, baseH * 0.5, 0.01);
+    sub.addBox(wood, w, 0.11, 0.10, 0, h - 0.055, 0.01);
+
+    for (let i = 0; i < bayCount; i++) {
+      const x0 = -w * 0.5 + i * bayW;
+      const x1 = x0 + bayW;
+      const splitX = x0 + bayW * 0.46;
+      sub.addBox(wood, 0.09, h, 0.10, x0 + 0.045, h * 0.5, 0.01);
+      if (i === bayCount - 1) sub.addBox(wood, 0.09, h, 0.10, x1 - 0.045, h * 0.5, 0.01);
+      sub.addBox(wood, 0.08, h, 0.10, splitX, h * 0.5, 0.01);
+
+      // Left sliding hikido door with 3D wooden koushi lattice (木格子)
+      const doorW = Math.max(0.4, splitX - x0 - 0.10);
+      const doorCx = (x0 + splitX) * 0.5;
+      const doorH = h - baseH - 0.11;
+      const doorCy = baseH + doorH * 0.5;
+      const vSlats = Math.max(3, Math.round(doorW / 0.24));
+      for (let s = 1; s < vSlats; s++) {
+        const sx = x0 + 0.05 + (doorW * s) / vSlats;
+        sub.addBox(wood, 0.030, doorH, 0.04, sx, doorCy, 0.025);
+      }
+      const hRails = 5;
+      for (let r = 1; r < hRails; r++) {
+        const ry = baseH + (doorH * r) / hRails;
+        sub.addBox(wood, doorW, 0.028, 0.04, doorCx, ry, 0.025);
+      }
+
+      // Right counter window above cedar wainscoting (腰壁)
+      const winW = Math.max(0.4, x1 - splitX - 0.10);
+      const winCx = (splitX + x1) * 0.5;
+      sub.addBox(wainscot, winW + 0.04, wainH, 0.09, winCx, baseH + wainH * 0.5, 0.01);
+      sub.addBox(wood, winW + 0.06, 0.05, 0.11, winCx, baseH + wainH, 0.015);
+      const upperH = Math.max(0.4, h - baseH - wainH - 0.11);
+      const upperCy = baseH + wainH + upperH * 0.5;
+      const wSlats = Math.max(3, Math.round(winW / 0.28));
+      for (let s = 1; s < wSlats; s++) {
+        const sx = splitX + 0.04 + (winW * s) / wSlats;
+        sub.addBox(wood, 0.030, upperH, 0.04, sx, upperCy, 0.025);
+      }
+      sub.addBox(wood, winW, 0.030, 0.04, winCx, upperCy, 0.025);
+    }
+    return;
+  }
+
+  // Kissaten / Bookstore / Pharmacy architectural framed display window + glazed door
+  const frame = shopKind === 'pharmacy' ? mats.silverMetal : mats.woodDark;
+  const wainscot = shopKind === 'pharmacy'
+    ? mats.concrete
+    : (shopKind === 'bookstore' ? mats.shop3dWoodWarm : mats.shop3dWoodDark);
+  const kickH = 0.12;
+  const wainH = Math.min(0.72, h * 0.25);
+  sub.addBox(mats.darkMetal, w, kickH, 0.09, 0, kickH * 0.5, 0.01);
+  sub.addBox(frame, w, 0.10, 0.09, 0, h - 0.05, 0.01);
+  sub.addBox(frame, w, 0.055, 0.08, 0, h - 0.48, 0.01);
+
+  for (let i = 0; i < bayCount; i++) {
+    const x0 = -w * 0.5 + i * bayW;
+    const x1 = x0 + bayW;
+    const splitX = x0 + bayW * 0.64;
+    sub.addBox(frame, 0.085, h, 0.09, x0 + 0.042, h * 0.5, 0.01);
+    if (i === bayCount - 1) sub.addBox(frame, 0.085, h, 0.09, x1 - 0.042, h * 0.5, 0.01);
+    sub.addBox(frame, 0.075, h, 0.09, splitX, h * 0.5, 0.01);
+
+    // Display window wainscoting + central mullion
+    const dispW = Math.max(0.4, splitX - x0 - 0.08);
+    const dispCx = (x0 + splitX) * 0.5;
+    sub.addBox(wainscot, dispW + 0.04, wainH, 0.085, dispCx, kickH + wainH * 0.5, 0.01);
+    sub.addBox(frame, dispW + 0.06, 0.045, 0.10, dispCx, kickH + wainH, 0.015);
+    sub.addBox(frame, 0.048, h - kickH - wainH - 0.10, 0.075, dispCx, kickH + wainH + (h - kickH - wainH - 0.10) * 0.5, 0.01);
+
+    // Glazed entrance door mid-rail & vertical handle
+    const doorW = Math.max(0.35, x1 - splitX - 0.08);
+    const doorCx = (splitX + x1) * 0.5;
+    sub.addBox(frame, doorW, 0.055, 0.08, doorCx, 1.02, 0.01);
+    sub.addBox(mats.archGoldTrim, 0.03, 0.28, 0.04, splitX + 0.12, 1.05, 0.06);
+  }
+}
+
+/**
+ * Builds a true 3D recessed ground-floor shop room (walls, ceiling, floor, counters/booths/shelves,
+ * colorful goods, and physical 3D light fixtures) directly inside the shared street geometry so Web,
+ * ThreeRT, and Blender Cycles all render the exact same 3D interiors!
+ */
+function addShop3DInterior(lot, mats, rnd, {
+  w, h, depth, maxHalfW, x = 0, yBot = 0.14, zFront = 0, shopKind = 'kissaten', openRightSide = false,
+}) {
+  const hw = Math.min(w * 0.5 + 0.14, maxHalfW);
+  const yTop = yBot + h;
+  const dStart = 0.04;
+  const wallT = 0.08;
+
+  // Helper placing a box in local room coordinates: u in [-hw, hw], v in [0, h], d in [0, depth] into -Z
+  const roomBox = (bucket, u0, u1, v0, v1, d0, d1) => {
+    const bx = Math.abs(u1 - u0);
+    const by = Math.abs(v1 - v0);
+    const bz = Math.abs(d1 - d0);
+    if (bx < 1e-4 || by < 1e-4 || bz < 1e-4) return;
+    lot.addBox(
+      bucket,
+      bx, by, bz,
+      x + (u0 + u1) * 0.5,
+      yBot + (v0 + v1) * 0.5,
+      zFront - (d0 + d1) * 0.5,
+    );
+  };
+
+  let wallM, ceilM, floorM, lampM, woodM, accentM;
+  if (shopKind === 'kissaten') {
+    wallM = mats.shop3dPlasterWarm;
+    ceilM = mats.shop3dCeilWood;
+    floorM = mats.shop3dFloorDark;
+    lampM = mats.shop3dLampWarm;
+    woodM = mats.shop3dWoodDark;
+    accentM = mats.shop3dWoodWarm;
+  } else if (shopKind === 'bookstore') {
+    wallM = mats.shop3dPlasterCream;
+    ceilM = mats.shop3dCeilWhite;
+    floorM = mats.shop3dWoodWarm;
+    lampM = mats.shop3dLampWarm;
+    woodM = mats.shop3dWoodDark;
+    accentM = mats.shop3dWoodWarm;
+  } else if (shopKind === 'konbini' || shopKind === 'pharmacy') {
+    wallM = mats.shop3dPlasterCool;
+    ceilM = mats.shop3dCeilWhite;
+    floorM = mats.shop3dFloorLight;
+    lampM = mats.shop3dLampCool;
+    woodM = mats.shop3dPlasterCool;
+    accentM = mats.shop3dCoolerGlow;
+  } else {
+    wallM = mats.shop3dPlasterWarm;
+    ceilM = mats.shop3dCeilWood;
+    floorM = mats.shop3dFloorDark;
+    lampM = mats.shop3dLampAmber;
+    woodM = mats.shop3dWoodDark;
+    accentM = mats.shop3dWoodWarm;
+  }
+
+  // 1. Enclosed room interior shell (thin manifold slabs tucked inside building exterior walls)
+  roomBox(wallM, -hw, hw, 0, h, depth, depth + wallT); // back wall
+  roomBox(wallM, -hw - wallT, -hw, 0, h, dStart, depth + wallT); // left wall
+  if (!openRightSide) {
+    roomBox(wallM, hw, hw + wallT, 0, h, dStart, depth + wallT); // right wall
+  }
+  roomBox(ceilM, -hw - wallT, hw + wallT, h, h + wallT, dStart, depth + wallT); // ceiling
+  roomBox(floorM, -hw - wallT, hw + wallT, -wallT, 0, dStart, depth + wallT); // floor
+
+  const goodsMats = [mats.shop3dGoodsRed, mats.shop3dGoodsBlue, mats.shop3dGoodsOchre, mats.shop3dGoodsGreen];
+  const nBays = Math.max(1, Math.round(w / 2.5));
+
+  // 2. Shop-specific 3D furniture, merchandise & hanging physical light fixtures
+  if (shopKind === 'kissaten') {
+    roomBox(woodM, -hw + 0.02, hw - 0.02, 0, 1.08, depth - 0.75, depth - 0.04);
+    roomBox(accentM, -hw + 0.02, hw - 0.02, 1.08, 1.15, depth - 0.82, depth - 0.04);
+    roomBox(woodM, -hw, -hw + 0.08, 0, 1.25, dStart, depth);
+    if (!openRightSide) roomBox(woodM, hw - 0.08, hw, 0, 1.25, dStart, depth);
+    // Warm backbar light strip + bottle shelves
+    if (h > 2.65) {
+      roomBox(lampM, -hw * 0.78, hw * 0.78, 2.38, 2.46, depth - 0.28, depth - 0.14);
+    }
+    for (const sy of [1.30, 1.68, 2.04]) {
+      if (sy < h - 0.28) {
+        roomBox(woodM, -hw * 0.82, hw * 0.82, sy, sy + 0.05, depth - 0.34, depth - 0.04);
+        for (let gx = 0; gx < 7; gx++) {
+          const uG = -hw * 0.74 + (hw * 1.48) * (gx + 0.5) / 7;
+          const gm = goodsMats[(gx + Math.round(sy * 10)) % goodsMats.length];
+          roomBox(gm, uG - 0.11, uG + 0.11, sy + 0.05, sy + 0.30, depth - 0.28, depth - 0.08);
+        }
+      }
+    }
+    // Hanging 3D spherical glass pendant globes (visible below exterior awnings!) + tall café booths
+    const lampDrop = Math.min(1.18, h * 0.38);
+    for (let i = 0; i < nBays; i++) {
+      const ux = -w * 0.5 + (i + 0.5) * (w / nBays);
+      for (const ld of [0.92, depth * 0.62]) {
+        roomBox(mats.shop3dMetalDark, ux - 0.022, ux + 0.022, h - lampDrop + 0.12, h, ld - 0.022, ld + 0.022);
+        lot.addProto(lampM, PROTO_BULB_CORE, x + ux, yTop - lampDrop, zFront - ld, 0.145, 0.145, 0.145);
+      }
+      roomBox(accentM, ux - 0.48, ux + 0.48, 0.78, 0.85, 0.78, 1.55);
+      roomBox(mats.shop3dMetalDark, ux - 0.08, ux + 0.08, 0, 0.78, 1.08, 1.24);
+      roomBox(woodM, ux - 0.72, ux - 0.52, 0, 1.36, 0.82, 1.50);
+      roomBox(woodM, ux + 0.52, ux + 0.72, 0, 1.36, 0.82, 1.50);
+    }
+  } else if (shopKind === 'bookstore') {
+    for (const sy of [0.45, 0.90, 1.35, 1.80, 2.25]) {
+      if (sy < h - 0.28) {
+        roomBox(woodM, -hw + 0.06, hw - 0.06, sy, sy + 0.04, depth - 0.36, depth - 0.04);
+        for (let gx = 0; gx < 7; gx++) {
+          const uG = -hw * 0.82 + (hw * 1.64) * (gx + 0.5) / 7;
+          const gm = goodsMats[(gx + Math.round(sy * 7)) % goodsMats.length];
+          roomBox(gm, uG - 0.17, uG + 0.17, sy + 0.04, sy + 0.36, depth - 0.30, depth - 0.06);
+        }
+      }
+    }
+    roomBox(accentM, -w * 0.36, w * 0.36, 0, 1.05, 0.92, 1.85);
+    roomBox(mats.shop3dMenuPlaque, -w * 0.32, w * 0.32, 1.05, 1.24, 0.98, 1.78);
+    for (let i = 0; i < nBays; i++) {
+      const ux = -w * 0.5 + (i + 0.5) * (w / nBays);
+      roomBox(lampM, ux - 0.14, ux + 0.14, h - 0.95, h - 0.85, 0.65, depth - 0.45);
+    }
+  } else if (shopKind === 'konbini' || shopKind === 'pharmacy') {
+    const nStrips = Math.max(2, nBays + 1);
+    for (let i = 0; i < nStrips; i++) {
+      const ux = -w * 0.44 + (w * 0.88) * i / Math.max(1, nStrips - 1);
+      roomBox(lampM, ux - 0.12, ux + 0.12, h - 0.09, h - 0.01, 0.35, depth - 0.35);
+    }
+    roomBox(accentM, -hw * 0.86, hw * 0.86, 0.25, Math.max(1.2, h - 0.38), depth - 0.28, depth - 0.05);
+    for (let i = 0; i < nBays; i++) {
+      const ux = -w * 0.5 + (i + 0.5) * (w / nBays);
+      roomBox(woodM, ux - 0.48, ux + 0.48, 0, 1.52, 0.95, 1.65);
+      const shelfYs = [0.55, 0.98, 1.40];
+      for (let sIdx = 0; sIdx < shelfYs.length; sIdx++) {
+        const sy = shelfYs[sIdx];
+        const gm = goodsMats[(i + sIdx) % goodsMats.length];
+        roomBox(gm, ux - 0.44, ux + 0.44, sy, sy + 0.28, 0.88, 1.72);
+      }
+    }
+  } else {
+    // Izakaya / Ramen: warm wooden counter, bar stools, hanging amber lanterns & tanzaku menu plaques
+    roomBox(accentM, -hw + 0.06, hw - 0.06, 0, 1.10, depth - 1.18, depth - 0.55);
+    const nPlq = Math.max(5, Math.floor(w * 2.4));
+    for (let k = 0; k < nPlq; k++) {
+      const ux = -hw * 0.84 + (hw * 1.68) * (k + 0.5) / nPlq;
+      roomBox(mats.shop3dMenuPlaque, ux - 0.075, ux + 0.075, h - 1.25, h - 0.58, depth - 0.09, depth - 0.04);
+    }
+    const nStools = Math.max(2, nBays * 2);
+    for (let i = 0; i < nStools; i++) {
+      const ux = -w * 0.42 + (w * 0.84) * (i + 0.5) / nStools;
+      roomBox(woodM, ux - 0.16, ux + 0.16, 0, 0.88, depth - 1.68, depth - 1.36);
+    }
+    for (let i = 0; i < nBays; i++) {
+      const ux = -w * 0.5 + (i + 0.5) * (w / nBays);
+      for (const ld of [0.85, depth - 0.95]) {
+        roomBox(mats.shop3dMetalDark, ux - 0.016, ux + 0.016, h - 1.02, h, ld - 0.016, ld + 0.016);
+        roomBox(lampM, ux - 0.13, ux + 0.13, h - 1.32, h - 1.00, ld - 0.13, ld + 0.13);
+      }
+    }
+  }
+}
+
+/**
+ * Builds a hollow 1F exterior shell (back, left, right walls, and top lintel/slab) so the ground floor
+ * encloses a real 3D shop interior cleanly from every street/alley angle with zero solid-wall occlusion.
+ */
+function addHollow1FShell(lot, wallBucket, {
+  bw, h1, bd, bz = 0, wallT = 0.20, openRightWindow = null,
+}) {
+  const frontZ = bz + bd * 0.5;
+  const backZ = bz - bd * 0.5;
+  // Back wall
+  lot.add(wallBucket, box(bw, h1, wallT, 3.0, h1), 0, h1 * 0.5, backZ + wallT * 0.5);
+  // Left exterior wall
+  lot.add(wallBucket, box(wallT, h1, bd, 3.0, h1), -bw * 0.5 + wallT * 0.5, h1 * 0.5, bz);
+  // Right exterior wall (optionally split around a corner return storefront window!)
+  if (!openRightWindow) {
+    lot.add(wallBucket, box(wallT, h1, bd, 3.0, h1), bw * 0.5 - wallT * 0.5, h1 * 0.5, bz);
+  } else {
+    const { zCenter, width, yBot, yTop } = openRightWindow;
+    const zMin = zCenter - width * 0.5;
+    const zMax = zCenter + width * 0.5;
+    const rearLen = zMin - backZ;
+    const frontLen = frontZ - zMax;
+    if (rearLen > 0.08) {
+      lot.add(wallBucket, box(wallT, h1, rearLen, 3.0, h1), bw * 0.5 - wallT * 0.5, h1 * 0.5, backZ + rearLen * 0.5);
+    }
+    if (frontLen > 0.08) {
+      lot.add(wallBucket, box(wallT, h1, frontLen, 3.0, h1), bw * 0.5 - wallT * 0.5, h1 * 0.5, zMax + frontLen * 0.5);
+    }
+    if (yTop < h1 - 0.05) {
+      const topH = h1 - yTop;
+      lot.add(wallBucket, box(wallT, topH, width, 3.0, topH), bw * 0.5 - wallT * 0.5, yTop + topH * 0.5, zCenter);
+    }
+    if (yBot > 0.05) {
+      lot.add(wallBucket, box(wallT, yBot, width, 3.0, yBot), bw * 0.5 - wallT * 0.5, yBot * 0.5, zCenter);
+    }
+  }
+  // Upper front lintel header & floor-separator ceiling slab at top of 1F
+  lot.add(wallBucket, box(bw, 0.48, 0.36, 3.0, 0.48), 0, h1 - 0.24, frontZ - 0.18);
+  lot.add(wallBucket, box(bw - wallT, 0.16, bd - wallT, 3.0, 3.0), 0, h1 - 0.08, bz);
+}
+
+/**
  * Builds a recessed ground-floor commercial shopfront bay (`recess = 0.32 m`) with corner pilasters,
+ * 3D mullions/koushi lattice + clear architectural glass, real 3D furnished shop interior behind it,
  * granite threshold, overhead roll-up shutter box, soffit downlights, and clamped 3D fascia signboard!
  */
-function addRecessedStorefront(lot, mats, {
-  bw, h1, frontZ, pierMat, shopBayMat, fasciaBucket, shutterMat = null, withFascia = true,
+function addRecessedStorefront(lot, mats, rnd, {
+  bw, h1, frontZ, pierMat, shopKind = 'kissaten', fasciaBucket, shutterMat = null, withFascia = true,
+  roomDepth = 3.4, openRightSide = false,
 }) {
   const pierW = 0.38;
   const recess = 0.32;
@@ -1535,13 +2630,18 @@ function addRecessedStorefront(lot, mats, {
   const bayCount = Math.max(1, Math.round(innerW / 3.1));
   const bayTileW = innerW / bayCount;
   const bayH = h1 - 0.62;
+  const zGlass = frontZ - recess;
 
   // Left & right structural facade pilasters (柱)
   lot.add(pierMat, box(pierW, h1, recess + 0.18, 1.2, 2.8), -bw * 0.5 + pierW * 0.5, h1 * 0.5, frontZ - recess * 0.5);
   lot.add(pierMat, box(pierW, h1, recess + 0.18, 1.2, 2.8), bw * 0.5 - pierW * 0.5, h1 * 0.5, frontZ - recess * 0.5);
 
-  // Recessed shopfront glazing/doorway wall (integer bays -> zero sliced text/doors!)
-  lot.add(shopBayMat, box(innerW, bayH, 0.14, bayTileW, bayH), 0, 0.14 + bayH * 0.5, frontZ - recess);
+  // Real 3D storefront framing + clear architectural glass + furnished 3D shop interior
+  addShop3DFacade(lot, mats, { w: innerW, h: bayH, x: 0, yBot: 0.14, z: zGlass, shopKind });
+  addShop3DInterior(lot, mats, rnd, {
+    w: innerW, h: bayH, depth: roomDepth, maxHalfW: bw * 0.5 - 0.22,
+    x: 0, yBot: 0.14, zFront: zGlass, shopKind, openRightSide,
+  });
 
   // Granite threshold step (沓石) & overhead alcove soffit ceiling + warm entrance downlights
   lot.addBox(mats.concrete, innerW + 0.08, 0.14, recess + 0.16, 0, 0.07, frontZ - recess * 0.5 + 0.04);
@@ -1565,20 +2665,36 @@ function addRecessedStorefront(lot, mats, {
 }
 
 export function buildKonbini(lot, mats, rnd, { w = 13.5, d = 11.5, twoStorey = false, detail = true }) {
-  lot.addBox(mats.asphaltApron, w + 1.6, 0.08, d + 2.4, 0, 0.04, 0.6);
+  lot.addBox(mats.asphaltApron, w + 1.4, 0.08, d + 2.0, 0, 0.04, 0.4);
 
   const isLawson = rnd() < 0.5;
   const bw = w - 1.8;
-  const bd = d - 3.4;
-  const bz = -1.1;
+  const bd = d - 4.4;
+  const bz = -1.65;
   const h1 = 3.95;
   const frontZ = bz + bd * 0.5;
+  const bayW = bw - 0.9;
+  const bayH = 2.95;
+  const sideW = bd * 0.58;
+  const sideZ = bz + bd * 0.12;
 
-  lot.add(mats.commUpperLight, box(bw, h1, bd, 3.0, 3.2), 0, h1 * 0.5, bz);
-  // Recessed bright Konbini plate-glass front & corner return window (masked emissive!)
-  const bayBays = Math.max(2, Math.round((bw - 0.9) / 3.2));
-  lot.add(mats.shopKonbiniBay, box(bw - 0.9, 2.95, 0.14, (bw - 0.9) / bayBays, 2.95), 0, 1.54, frontZ - 0.18);
-  lot.add(mats.shopKonbiniBay, box(0.14, 2.95, bd * 0.58, bd * 0.58, 2.95), bw * 0.5 - 0.12, 1.54, bz + bd * 0.12);
+  // Hollow 1F exterior shell opening to BOTH front plate-glass bay & +X corner return window!
+  addHollow1FShell(lot, mats.commUpperLight, {
+    bw, h1, bd, bz, wallT: 0.20,
+    openRightWindow: { zCenter: sideZ, width: sideW, yBot: 0.12, yTop: 0.12 + bayH },
+  });
+  // Front corner piers + upper fascia wall above the 2.95 m glass band
+  lot.add(mats.commUpperLight, box(0.45, h1, 0.36, 1.0, h1), -bw * 0.5 + 0.225, h1 * 0.5, frontZ - 0.18);
+  lot.add(mats.commUpperLight, box(0.45, h1, 0.36, 1.0, h1), bw * 0.5 - 0.225, h1 * 0.5, frontZ - 0.18);
+  lot.add(mats.commUpperLight, box(bayW, h1 - (0.12 + bayH), 0.36, 3.0, 1.0), 0, (0.12 + bayH + h1) * 0.5, frontZ - 0.18);
+
+  // Real 3D Konbini plate-glass front & corner return window + bright 3D interior room!
+  addShop3DFacade(lot, mats, { w: bayW, h: bayH, x: 0, yBot: 0.12, z: frontZ - 0.16, shopKind: 'konbini' });
+  addShop3DFacade(lot, mats, { w: sideW, h: bayH, x: bw * 0.5 - 0.10, yBot: 0.12, z: sideZ, rotY: Math.PI * 0.5, shopKind: 'konbini' });
+  addShop3DInterior(lot, mats, rnd, {
+    w: bayW, h: bayH, depth: Math.min(bd - 0.65, 4.2), maxHalfW: bw * 0.5 - 0.22,
+    x: 0, yBot: 0.12, zFront: frontZ - 0.16, shopKind: 'konbini', openRightSide: true,
+  });
   lot.addBox(mats.concrete, bw + 0.12, 0.14, 0.45, 0, 0.07, frontZ);
 
   // Iconic overhanging multi-stripe Konbini fascia canopy with silver aluminum trim!
@@ -1605,7 +2721,7 @@ export function buildKonbini(lot, mats, rnd, { w = 13.5, d = 11.5, twoStorey = f
   lot.addBox(mats.roofConcrete, bw + 0.3, 0.28, bd + 0.3, 0, topY + 0.14, bz);
   addAcWithDuct(lot, mats, { x: -bw * 0.25, y: topY + 0.28, z: bz - 0.8, ductH: 0.4, withVentHood: false });
 
-  // Framed roadside Konbini pylon sign (ポール看板 — replaces the blank cyan neon block!)
+  // Framed roadside Konbini pylon sign (ポール看板)
   const poleX = bw * 0.5 + 0.38;
   const poleZ = d * 0.5 - 0.58;
   lot.addProto(mats.concrete, PROTO_CYL8, poleX, 0.22, poleZ, 0.28, 0.44, 0.28);
@@ -1613,7 +2729,6 @@ export function buildKonbini(lot, mats, rnd, { w = 13.5, d = 11.5, twoStorey = f
   const pylonBucket = isLawson ? mats.konbiniPylonLawson : mats.konbiniPylonFamima;
   const pyW = 1.28;
   const pyH = 1.62;
-  // 3D aluminum outer frame + horizontal mounting collars + double-sided pylon lightbox
   lot.addBox(mats.silverMetal, pyW + 0.10, 0.08, 0.30, poleX - 0.72, 6.0 + pyH * 0.5 + 0.03, poleZ);
   lot.addBox(mats.silverMetal, pyW + 0.10, 0.08, 0.30, poleX - 0.72, 6.0 - pyH * 0.5 - 0.03, poleZ);
   lot.addBox(mats.silverMetal, 0.24, 0.10, 0.10, poleX - 0.1, 6.45, poleZ);
@@ -1621,25 +2736,36 @@ export function buildKonbini(lot, mats, rnd, { w = 13.5, d = 11.5, twoStorey = f
   lot.add(pylonBucket, signBox(pyW, pyH, 0.24), poleX - 0.72, 6.0, poleZ);
 
   if (detail) {
-    // Stainless steel parking bollards + trash/recycle bins + bicycles + parked Kei-van
-    for (let bx = -bw * 0.38; bx <= bw * 0.1; bx += 1.65) {
-      lot.addProto(mats.silverMetal, PROTO_CYL8, bx, 0.39, frontZ + 0.72, 0.06, 0.78, 0.06);
+    // Stainless steel parking bollards + recycle bins + painted parking stalls + backed-in Kei-car/van
+    for (let bx = -bw * 0.38; bx <= bw * 0.08; bx += 1.65) {
+      lot.addProto(mats.silverMetal, PROTO_CYL8, bx, 0.39, frontZ + 0.58, 0.06, 0.78, 0.06);
     }
     for (let gi = 0; gi < 3; gi++) {
       lot.addBox(mats.acUnit, 0.38, 0.76, 0.36, -bw * 0.38 + gi * 0.42, 0.38, frontZ + 0.08);
       lot.addBox(gi === 0 ? mats.vendBlue : mats.darkMetal, 0.36, 0.12, 0.34, -bw * 0.38 + gi * 0.42, 0.80, frontZ + 0.08);
     }
-    addBicycleCluster(lot, mats, bw * 0.25, frontZ + 1.05, 3, 0.15);
+    // Painted white parking stall lines (白線駐車枠) & concrete wheel stops (車止め)
+    const stallW = 2.35;
+    const stallBaseX = -bw * 0.34;
+    for (let si = 0; si <= 2; si++) {
+      lot.addBox(mats.roadPaint, 0.10, 0.015, 3.45, stallBaseX + si * stallW, 0.088, frontZ + 2.45);
+      if (si < 2) {
+        lot.addBox(mats.concrete, 1.45, 0.10, 0.16, stallBaseX + (si + 0.5) * stallW, 0.13, frontZ + 1.05);
+      }
+    }
+    addBicycleCluster(lot, mats, bw * 0.27, frontZ + 1.10, 3, 0.15);
     if (rnd() < 0.7) {
       const carMat = mats.carPalette[Math.floor(rnd() * mats.carPalette.length)];
-      addKeiCar(lot, mats, -bw * 0.22, frontZ + 2.35, Math.PI * 0.5, carMat, true, true);
+      const slot = Math.round(Math.abs(bw * 7)) % 2;
+      const isVan = (Math.round(Math.abs(bw * 13)) % 3) === 0;
+      addKeiCar(lot, mats, stallBaseX + (slot + 0.5) * stallW, frontZ + 2.52, 0, carMat, isVan, true, false);
     }
   }
 }
 
 export function buildMachiyaShop(lot, mats, rnd, { w = 7.4, d = 10.5, detail = true, signSeed = 0 }) {
   const isRamen = rnd() < 0.45;
-  const shopMat = isRamen ? mats.shopRamen : mats.shopIzakaya;
+  const shopKind = isRamen ? 'ramen' : 'izakaya';
   const fasciaPool = isRamen ? mats.fasciasRamen : mats.fasciasIzakaya;
   const fasciaBucket = fasciaPool[Math.floor(rnd() * fasciaPool.length)];
 
@@ -1650,10 +2776,11 @@ export function buildMachiyaShop(lot, mats, rnd, { w = 7.4, d = 10.5, detail = t
   const bz = -0.2;
   const frontZ = bz + bd * 0.5;
 
-  lot.add(mats.woodDark, box(bw, h1, bd, 3.0, 3.0), 0, h1 * 0.5, bz);
-  addRecessedStorefront(lot, mats, {
-    bw, h1, frontZ, pierMat: mats.woodDark, shopBayMat: shopMat,
+  addHollow1FShell(lot, mats.woodDark, { bw, h1, bd, bz, wallT: 0.20 });
+  addRecessedStorefront(lot, mats, rnd, {
+    bw, h1, frontZ, pierMat: mats.woodDark, shopKind,
     fasciaBucket: null, shutterMat: mats.woodDark, withFascia: false,
+    roomDepth: Math.min(bd - 0.9, 3.4),
   });
 
   // 2F traditional Machiya plaster/timber facade + 3D Koshido lattice windows!
@@ -1685,13 +2812,13 @@ export function buildMachiyaShop(lot, mats, rnd, { w = 7.4, d = 10.5, detail = t
 
   if (detail) {
     addChochinRow(lot, mats, {
-      x0: -bw * 0.34, x1: bw * 0.34, y: 2.58, z: frontZ + 0.68,
+      x0: -bw * 0.34, x1: bw * 0.34, y: 2.56, z: frontZ + 0.68,
       count: bw > 7.5 ? 3 : 2, red: isRamen || rnd() < 0.5,
+      rich: true, seed: signSeed, tall: !isRamen && (signSeed % 3 === 0),
     });
     addMenuBoardStand(lot, mats, { x: bw * 0.34, z: frontZ + 0.56, yaw: -0.24 });
     addBeerCrateStack(lot, mats, { x: -bw * 0.40, z: frontZ + 0.16, count: rnd() < 0.5 ? 2 : 3, blue: !isRamen });
-    lot.addProto(mats.woodDark, PROTO_CYL8, bw * 0.41, 0.19, frontZ + 0.22, 0.20, 0.38, 0.20);
-    lot.addProto(mats.foliageFresh, PROTO_CROWN, bw * 0.41, 0.52, frontZ + 0.22, 0.30, 0.30, 0.30);
+    addPottedPlant(lot, mats, { x: bw * 0.41, z: frontZ + 0.22, scale: 1.0, yaw: signSeed * 0.7 });
   }
 
   if (rnd() < 0.75) {
@@ -1727,10 +2854,13 @@ export function buildShotengaiBuilding(lot, mats, rnd, { w = 8.2, d = 11.5, stor
     lot.addBox(mats.concrete, bw + 0.12, 0.14, bd + 0.12, 0, h1 + f * floorH, bz);
   }
 
-  // Recessed ground-floor storefront + clamped 3D fascia signboard!
+  // Hollow 1F exterior shell + recessed ground-floor 3D storefront & furnished interior!
+  addHollow1FShell(lot, upperMat, { bw, h1, bd, bz, wallT: 0.20 });
   const fasciaBucket = shopEntry.fascias[Math.floor(rnd() * shopEntry.fascias.length)];
-  addRecessedStorefront(lot, mats, {
-    bw, h1, frontZ, pierMat: upperMat, shopBayMat: shopEntry.bay, fasciaBucket, withFascia: true,
+  const roomDepth = (shopEntry.kind === 'pharmacy' ? 3.8 : 3.4) + (rnd() - 0.5) * 0.6;
+  addRecessedStorefront(lot, mats, rnd, {
+    bw, h1, frontZ, pierMat: upperMat, shopKind: shopEntry.kind, fasciaBucket, withFascia: true,
+    roomDepth: Math.min(bd - 0.9, roomDepth),
   });
 
   // Canvas awning with steel support arms (テント庇)
@@ -1821,18 +2951,27 @@ export function buildKissatenCorner(lot, mats, rnd, { w = 9.2, d = 10.2, detail 
   const h1 = 3.78;
   const h2 = 3.05;
   const frontZ = bd * 0.5;
+  const sideW = bd * 0.58;
+  const sideH = h1 - 0.65;
+  const sideZ = bd * 0.08;
 
   const wall2F = mats.houseLightWalls[Math.floor(rnd() * mats.houseLightWalls.length)];
   const awning = rnd() < 0.5 ? mats.awningGreen : mats.awningBurgundy;
   const fasciaBucket = mats.fasciasKissaten[Math.floor(rnd() * mats.fasciasKissaten.length)];
 
-  lot.add(mats.houseTileWalls[1], box(bw, h1, bd, 3.2, 3.1), 0, h1 * 0.5, 0);
-  addRecessedStorefront(lot, mats, {
-    bw, h1, frontZ, pierMat: mats.houseTileWalls[1], shopBayMat: mats.shopKissaten, fasciaBucket, withFascia: true,
+  // Hollow 1F corner shell opening to BOTH front Kissaten bay and +X side corner window!
+  addHollow1FShell(lot, mats.houseTileWalls[1], {
+    bw, h1, bd, bz: 0, wallT: 0.20,
+    openRightWindow: { zCenter: sideZ, width: sideW, yBot: 0.14, yTop: 0.14 + sideH },
   });
-  // Side street corner return display window (integer 2 bays -> crisp proportions, masked emissive!)
-  const sideW = bd * 0.58;
-  lot.add(mats.shopKissaten, box(0.14, h1 - 0.65, sideW, sideW * 0.5, h1 - 0.65), bw * 0.5 - 0.08, 0.14 + (h1 - 0.65) * 0.5, bd * 0.08);
+  addRecessedStorefront(lot, mats, rnd, {
+    bw, h1, frontZ, pierMat: mats.houseTileWalls[1], shopKind: 'kissaten', fasciaBucket, withFascia: true,
+    roomDepth: Math.min(bd - 0.9, 4.4), openRightSide: true,
+  });
+  // Side street corner return 3D display window opening into the same 3D Kissaten room!
+  addShop3DFacade(lot, mats, {
+    w: sideW, h: sideH, x: bw * 0.5 - 0.08, yBot: 0.14, z: sideZ, rotY: Math.PI * 0.5, shopKind: 'kissaten',
+  });
 
   lot.addBox(awning, bw - 0.2, 0.08, 1.15, 0, 2.82, frontZ + 0.56, 0.25, 0, 0);
   lot.addBox(awning, 1.15, 0.08, sideW + 0.2, bw * 0.5 + 0.54, 2.82, bd * 0.08, 0, 0, -0.25);
@@ -1862,7 +3001,11 @@ export function buildKissatenCorner(lot, mats, rnd, { w = 9.2, d = 10.2, detail 
   if (detail) {
     for (const px of [-bw * 0.34, bw * 0.34]) {
       lot.addBox(mats.woodWarm, 0.78, 0.36, 0.34, px, 0.18, frontZ + 0.38);
-      lot.addBox(mats.hedge, 0.70, 0.34, 0.28, px, 0.48, frontZ + 0.38);
+      lot.add(mats.hedge, box(0.70, 0.28, 0.28, 0.9, 0.9), px, 0.45, frontZ + 0.38);
+      if (mats.foliageShrub) {
+        lot.addProto(mats.foliageShrub, PROTO_HEDGE_FRINGE, px - 0.18, 0.56, frontZ + 0.38, 0.24, 0.22, 0.24, 0, 0.5, 0);
+        lot.addProto(mats.foliageShrub, PROTO_HEDGE_FRINGE, px + 0.18, 0.56, frontZ + 0.38, 0.24, 0.22, 0.24, 0, 2.4, 0);
+      }
     }
     addMenuBoardStand(lot, mats, { x: bw * 0.12, z: frontZ + 0.62, yaw: -0.18 });
     // Bracketed brass globe sconce at corner
@@ -1878,13 +3021,21 @@ export function buildNeighborhoodSuper(lot, mats, rnd, { w = 16.5, d = 13.5, det
   const bd = d - 3.2;
   const bz = -1.0;
   const frontZ = bz + bd * 0.5;
+  const h1 = 3.9;
   const h = 5.4;
 
-  lot.add(mats.commUpperLight, box(bw, h, bd, 3.2, 2.8), 0, h * 0.5, bz);
+  // Hollow 1F exterior shell + upper parapet/header volume (`3.9..5.4 m`)
+  addHollow1FShell(lot, mats.commUpperLight, { bw, h1, bd, bz, wallT: 0.22 });
+  lot.add(mats.commUpperLight, box(bw, h - h1, bd, 3.2, h - h1), 0, h1 + (h - h1) * 0.5, bz);
+  // Left/right exterior cheek trims outside the slightly inset `bw - 0.4` storefront
+  lot.add(mats.commUpperLight, box(0.24, h1, 0.42, 0.5, h1), -bw * 0.5 + 0.12, h1 * 0.5, frontZ - 0.21);
+  lot.add(mats.commUpperLight, box(0.24, h1, 0.42, 0.5, h1), bw * 0.5 - 0.12, h1 * 0.5, frontZ - 0.21);
+
   const fasciaBucket = mats.fasciasPharmacy[Math.floor(rnd() * mats.fasciasPharmacy.length)];
-  addRecessedStorefront(lot, mats, {
-    bw: bw - 0.4, h1: 3.9, frontZ, pierMat: mats.commUpperLight,
-    shopBayMat: mats.shopPharmacy, fasciaBucket, withFascia: false,
+  addRecessedStorefront(lot, mats, rnd, {
+    bw: bw - 0.4, h1, frontZ, pierMat: mats.commUpperLight,
+    shopKind: 'pharmacy', fasciaBucket, withFascia: false,
+    roomDepth: Math.min(bd - 0.9, 4.4),
   });
 
   const headerMat = rnd() < 0.5 ? mats.konbiniFasciaFamima : mats.konbiniFasciaLawson;

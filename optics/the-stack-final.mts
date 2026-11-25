@@ -7,12 +7,10 @@
 //
 // Three adjustments over the raw browser export so the path-traced dusk tower stays crisp and noise-free:
 // 1. Restore physical dielectric glass (KHR_materials_transmission = 1, IOR = 1.52) instead of WebGL alpha blending.
-// 2. Add 1.25 m vertical curtain-wall mullions + floor-line transoms across the office diagrid glass (matching
-//    the_stack2's office curtain wall) so OIDN gets sharp first-hit normal/albedo edges instead of blurring across
-//    empty 5 m diamonds, and darken upper-floor concrete slabs (`y > 52 m`) so they stop scattering noisy 1-sample
-//    indirect grey smoke behind the glass (mall atrium slabs `y <= 52 m` stay bright).
-// 3. Keep the 3D 1.4 m ceiling light panels at warm dusk luminance (3400 / 3100 nits) in smooth 3D tenant clusters,
-//    paired with a subtle 75-nit warm ceiling halo tile right under the slab so lit rooms glow golden with zero noise.
+// 2. Darken upper-floor concrete slabs (`y > 52 m`) so they stop scattering noisy 1-sample
+//    indirect grey smoke behind the glass (mall atrium slabs `y <= 52 m` stay bright), while keeping
+//    all geometry 100% identical to Blender's web export (no extra mullions or ceiling halos).
+// 3. Keep the 3D 1.4 m ceiling light panels at warm dusk luminance (3400 / 3100 nits) in smooth 3D tenant clusters.
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -71,7 +69,7 @@ function encodeGlb(json: unknown, bin: Buffer): Buffer {
 const { json, bin: sourceBin } = readGlb(source);
 let bin = sourceBin;
 const byName = (n: string) => {
-  const m = json.materials.find((x) => x.name === n);
+  const m = json.materials.find((x) => x.name === n || x.name === `${n}_Web`);
   if (!m) throw new Error(`no material ${n} in ${source}`);
   return m;
 };
@@ -236,61 +234,7 @@ if (slabMeshIdx >= 0) {
   dropNodes.push(slabNodeIdx);
 }
 
-// ----------------------------------------------------------------------- add fine curtain-wall mullions like stack2
-const frameMatIdx = json.materials.findIndex((m) => m.name === "Stack_Frame");
-{
-  const mPos: number[] = [], mNor: number[] = [], mInd: number[] = [];
-  const addBox = (cx: number, cy: number, cz: number, dx: number, dy: number, dz: number) => {
-    const hx = dx / 2, hy = dy / 2, hz = dz / 2;
-    const faces: [number[], number[][]][] = [
-      [[0, 0, 1], [[-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]]],
-      [[0, 0, -1], [[hx, -hy, -hz], [-hx, -hy, -hz], [-hx, hy, -hz], [hx, hy, -hz]]],
-      [[1, 0, 0], [[hx, -hy, hz], [hx, -hy, -hz], [hx, hy, -hz], [hx, hy, hz]]],
-      [[-1, 0, 0], [[-hx, -hy, -hz], [-hx, -hy, hz], [-hx, hy, hz], [-hx, hy, -hz]]],
-      [[0, 1, 0], [[-hx, hy, hz], [hx, hy, hz], [hx, hy, -hz], [-hx, hy, -hz]]],
-      [[0, -1, 0], [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, -hy, hz], [-hx, -hy, hz]]],
-    ];
-    for (const [n, vs] of faces) {
-      const base = mPos.length / 3;
-      for (const v of vs) {
-        mPos.push(cx + v[0], cy + v[1], cz + v[2]);
-        mNor.push(n[0], n[1], n[2]);
-      }
-      mInd.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    }
-  };
-
-  const zFront = 20.28;
-  const xFront = 57.78;
-  const MULLION_STEP = 1.25;
-  for (const s of [-1, 1]) {
-    const nU = Math.round(115 / MULLION_STEP);
-    for (let i = 0; i <= nU; i++) {
-      const x = -57.5 + (i * 115) / nU;
-      addBox(x, (55 + 115) / 2, s * (zFront - 0.12), 0.12, 60 - 0.04, 0.24);
-    }
-    for (let y = 55; y <= 115; y += 5) {
-      addBox(0, y, s * (zFront - 0.11), 115, 0.18, 0.22);
-    }
-    for (let y = 120; y <= 170; y += 5) {
-      addBox(0, y, s * (zFront - 0.11), 115, 0.18, 0.22);
-    }
-    const nV = Math.round(40 / MULLION_STEP);
-    for (let i = 0; i <= nV; i++) {
-      const z = -20 + (i * 40) / nV;
-      addBox(s * (xFront - 0.12), (55 + 115) / 2, z, 0.24, 60 - 0.04, 0.12);
-    }
-    for (let y = 55; y <= 115; y += 5) {
-      addBox(s * (xFront - 0.11), y, 0, 0.22, 0.18, 40);
-    }
-  }
-  const pAcc = addAccessor(new Float32Array(mPos), "VEC3", 34962);
-  const nAcc = addAccessor(new Float32Array(mNor), "VEC3", 34962);
-  const iAcc = addAccessor(new Uint32Array(mInd), "SCALAR", 34963);
-  json.meshes.push({ name: "Web_Diagrid_Curtain_Grid", primitives: [{ attributes: { POSITION: pAcc, NORMAL: nAcc }, indices: iAcc, material: frameMatIdx, mode: 4 }] });
-  json.nodes.push({ mesh: json.meshes.length - 1, name: "Web_Diagrid_Curtain_Grid" });
-  json.scenes[json.scene ?? 0].nodes.push(json.nodes.length - 1);
-}
+// (Diagrid facade geometry is kept identical to model_viewer/assets/the_stack.glb — no extra curtain mullions.)
 
 // ------------------------------------------------------------------------------------------------------ window pattern
 function hash(i: number, j: number, k: number) {
@@ -421,24 +365,14 @@ function litMaterial(base: string, level: number) {
   return json.materials.length - 1;
 }
 
-const haloMat: Mat = {
-  name: "Stack_Ceiling_Halo_Warm",
-  doubleSided: true,
-  emissiveFactor: [1.0, 0.68, 0.36],
-  pbrMetallicRoughness: { baseColorFactor: [0.12, 0.09, 0.06, 1], metallicFactor: 0, roughnessFactor: 0.9 },
-  extensions: { KHR_materials_emissive_strength: { emissiveStrength: 75 } },
-};
-json.materials.push(haloMat);
-const haloMatIdx = json.materials.length - 1;
-const haloPos: number[] = [], haloNor: number[] = [], haloInd: number[] = [];
-
 const buckets = new Map<string, { material: number; parts: { m: number; tris: number[] }[] }>();
 const sources = new Map<number, ReturnType<typeof roomsOf>>();
 type RoomRef = { m: number; room: Room; f: number; src: string };
 const rooms: RoomRef[] = [];
 
 for (const name of ["Stack_Light_Warm", "Stack_Light_Daylight", "Stack_Light_Off"]) {
-  const meshIndex = json.meshes.findIndex((m) => json.materials[m.primitives[0].material!]?.name === name);
+  const mat = byName(name);
+  const meshIndex = json.meshes.findIndex((m) => json.materials[m.primitives[0].material!] === mat);
   if (meshIndex < 0) throw new Error(`no mesh for ${name}`);
   const nodeIndex = json.nodes.findIndex((n) => n.mesh === meshIndex);
   const node = json.nodes[nodeIndex];
@@ -475,16 +409,6 @@ for (let i = 0; i < rooms.length; i++) {
     }
     key = `${base}_L${level + 1}`;
     material = litMaterial(base, level);
-
-    const [cx, cy, cz] = room.c;
-    const hy = cy + 0.04; // panel is [cy-0.05, cy+0.05] (59.75..59.85), slab bottom is cy+0.06 (59.86)
-    const hw = 1.72;
-    const b = haloPos.length / 3;
-    for (const [px, pz] of [[cx - hw, cz - hw], [cx + hw, cz - hw], [cx + hw, cz + hw], [cx - hw, cz + hw]]) {
-      haloPos.push(px, hy, pz);
-      haloNor.push(0, -1, 0);
-    }
-    haloInd.push(b, b + 1, b + 2, b, b + 2, b + 3);
   }
   let bucket = buckets.get(key);
   if (!bucket) {
@@ -494,15 +418,6 @@ for (let i = 0; i < rooms.length; i++) {
   bucket.parts.push({ m, tris: room.tris });
 }
 console.log(`  ${rooms.length} panels, ${litCount} lit (${((litCount / rooms.length) * 100).toFixed(0)}%)`);
-
-if (haloInd.length > 0) {
-  const pAcc = addAccessor(new Float32Array(haloPos), "VEC3", 34962);
-  const nAcc = addAccessor(new Float32Array(haloNor), "VEC3", 34962);
-  const iAcc = addAccessor(new Uint32Array(haloInd), "SCALAR", 34963);
-  json.meshes.push({ name: "Web_Stack_Ceiling_Halo", primitives: [{ attributes: { POSITION: pAcc, NORMAL: nAcc }, indices: iAcc, material: haloMatIdx, mode: 4 }] });
-  json.nodes.push({ mesh: json.meshes.length - 1, name: "Web_Stack_Ceiling_Halo" });
-  json.scenes[json.scene ?? 0].nodes.push(json.nodes.length - 1);
-}
 
 for (const [name, bucket] of buckets) {
   const seen = new Map<string, number>();
