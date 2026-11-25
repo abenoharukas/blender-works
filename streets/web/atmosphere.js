@@ -118,16 +118,16 @@ const TIME_KEYFRAMES = [
     envIntensity: 0.6,
   },
   {
-    hour: 18.75, // Blue hour / Twilight (蓝调)
-    zenith: '#101d3b',
-    horizon: '#624869',
-    sunColor: '#ff6e48',
-    hemiSky: '#3b4a73',
-    hemiGround: '#1b1b24',
-    hemiIntensity: 0.42,
-    fogColor: '#36354d',
-    exposure: 0.74,
-    envIntensity: 0.46,
+    hour: 18.75, // Blue hour / Summer Twilight (蓝调)
+    zenith: '#20458a',
+    horizon: '#7a8fc4',
+    sunColor: '#ff8a5c',
+    hemiSky: '#7da7ec',
+    hemiGround: '#393e54',
+    hemiIntensity: 0.82,
+    fogColor: '#566b9b',
+    exposure: 0.76,
+    envIntensity: 0.78,
   },
   {
     hour: 20.0, // Nightfall
@@ -616,6 +616,12 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
     const sunUpFactor = THREE.MathUtils.smoothstep(sunElevDeg, -4, 14);
     const nightFactor = 1.0 - THREE.MathUtils.smoothstep(sunElevDeg, -6, 8);
     const moonUpFactor = THREE.MathUtils.smoothstep(-sunElevDeg, 1, 14);
+    // Summer civil-twilight blue hour (~18:15–19:30): sky is still luminous cobalt blue with no dense starfield yet.
+    const blueHourFactor =
+      THREE.MathUtils.smoothstep(h, 17.95, 18.55) * (1.0 - THREE.MathUtils.smoothstep(h, 19.15, 20.0));
+    const deepNightFactor =
+      (h < 5.2 ? 1.0 - THREE.MathUtils.smoothstep(h, 4.2, 5.1) : 0.0) +
+      (h > 19.1 ? THREE.MathUtils.smoothstep(h, 19.25, 20.3) : 0.0);
 
     // Weather modifiers
     const w = state.weather;
@@ -677,23 +683,35 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
     skyMaterial.uniforms.uSunColor.value.copy(kf.sunColor);
     skyMaterial.uniforms.uSunDirection.value.copy(sunDir);
     skyMaterial.uniforms.uMoonDirection.value.copy(moonDir);
-    skyMaterial.uniforms.uStarIntensity.value = nightFactor * (1.0 - Math.min(1, cloudCover * 1.1));
-    skyMaterial.uniforms.uMoonVisibility.value = moonUpFactor;
+    skyMaterial.uniforms.uStarIntensity.value =
+      Math.min(1, deepNightFactor) * (1.0 - Math.min(1, cloudCover * 1.1));
+    skyMaterial.uniforms.uMoonVisibility.value = moonUpFactor * (1.0 - blueHourFactor * 0.65);
     skyMaterial.uniforms.uCloudCover.value = cloudCover;
     skyMaterial.uniforms.uCloudDarkness.value = cloudDarkness;
 
-    // Cloud tint picks up warm sunrise/sunset glow!
+    // Cloud tint picks up warm sunrise/sunset glow, luminous periwinkle-rose in summer blue hour, and darkens at night
     const warmFactor = THREE.MathUtils.clamp(1.0 - Math.abs(sunElevDeg - 5) / 18, 0, 1) * (1 - nightFactor * 0.7);
     skyMaterial.uniforms.uCloudTint.value
       .set('#f6f8fc')
       .lerp(kf.sunColor, warmFactor * 0.55)
-      .lerp(new THREE.Color('#24304a'), nightFactor * 0.82);
+      .lerp(new THREE.Color('#24304a'), Math.min(1, deepNightFactor) * 0.82)
+      .lerp(new THREE.Color('#9fb0db'), blueHourFactor * 0.75);
 
-    // Directional Sun / Moon light
+    // Directional Sun / Blue-Hour Sky Key / Moon light
     if (sunElevDeg > -2.5) {
       sunLight.position.copy(sunDir).multiplyScalar(1800);
       sunLight.color.copy(kf.sunColor);
       sunLight.intensity = (0.4 + 2.75 * sunUpFactor) * sunDamp;
+    } else if (blueHourFactor > 0.05) {
+      // Soft cool-blue twilight sky key from the western horizon so facades & roofs model cleanly at 18:45
+      const twilightDir = new THREE.Vector3().setFromSphericalCoords(
+        1,
+        THREE.MathUtils.degToRad(90 - 24),
+        THREE.MathUtils.degToRad(-58),
+      );
+      sunLight.position.copy(twilightDir).multiplyScalar(1800);
+      sunLight.color.setHex(0x88b2f2);
+      sunLight.intensity = THREE.MathUtils.lerp(0.32 * moonUpFactor, 0.78, blueHourFactor) * sunDamp;
     } else {
       // Moonlight
       sunLight.position.copy(moonDir).multiplyScalar(1800);
