@@ -486,7 +486,7 @@ export function createUnlitWindowTexture({ style = 'curtain' } = {}) {
         g.fillRect(x, 12, 3, h - 20);
       }
     }
-  }, { repeat: false });
+  }, { repeat: true });
 }
 
 /**
@@ -545,8 +545,8 @@ export function createLitWindowTextureSet(variant = 'living_warm') {
   };
 
   return {
-    map: makeCanvasTexture(256, 256, (g, w, h) => drawRoom(g, w, h, false), { repeat: false }),
-    emissiveMap: makeCanvasTexture(256, 256, (g, w, h) => drawRoom(g, w, h, true), { repeat: false }),
+    map: makeCanvasTexture(256, 256, (g, w, h) => drawRoom(g, w, h, false), { repeat: true }),
+    emissiveMap: makeCanvasTexture(256, 256, (g, w, h) => drawRoom(g, w, h, true), { repeat: true }),
   };
 }
 

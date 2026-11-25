@@ -36,12 +36,14 @@ import {
   buildKissatenCorner,
   buildNeighborhoodSuper,
   addSleeveSign,
+  addChochinRow,
   addGardenTree,
   addKeiCar,
   addUtilityPole,
   addShotengaiLamp,
   addShotengaiArch,
 } from './japanese-buildings.js';
+import { applyInteriorMapping } from './interior-mapping.js';
 
 export const STREET = { road: 4.8, walk: 2.3, from: 136, to: 592 };
 const FRONT = STREET.road + STREET.walk;
@@ -234,27 +236,33 @@ function createMaterialLibrary() {
     ),
   );
 
-  // 3. True 3D Recessed Window Panes (Unlit smooth reflective architectural glass + 4 Lit interior room types)
+  // 3. True 3D Recessed Window Panes (Single-quad 3D Parallax Interior Mapping + glossy PBR glass reflections)
   const windowUnlit = std('window_unlit', {
     map: createUnlitWindowTexture({ style: 'curtain' }),
-    roughness: 0.07,
+    roughness: 0.06,
     metalness: 0.14,
   });
+  applyInteriorMapping(windowUnlit.material, 'unlit_curtain');
+
   const windowUnlitBlinds = std('window_unlit_blinds', {
     map: createUnlitWindowTexture({ style: 'blinds' }),
-    roughness: 0.07,
+    roughness: 0.06,
     metalness: 0.14,
   });
+  applyInteriorMapping(windowUnlitBlinds.material, 'unlit_blinds');
+
   const makeLitWin = (name, variant) => {
     const set = createLitWindowTextureSet(variant);
-    return std(name, {
+    const b = std(name, {
       map: set.map,
       emissive: 0xffffff,
       emissiveMap: set.emissiveMap,
       emissiveIntensity: 0,
-      roughness: 0.12,
-      metalness: 0.06,
+      roughness: 0.08,
+      metalness: 0.08,
     });
+    applyInteriorMapping(b.material, variant);
+    return b;
   };
   const windowLitWarm = makeLitWin('window_lit_warm', 'living_warm');
   const windowLitAmber = makeLitWin('window_lit_amber', 'amber_shoji');

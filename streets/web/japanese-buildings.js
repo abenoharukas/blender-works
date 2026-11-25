@@ -118,6 +118,36 @@ export function frontFaceBox(w, h, d, edgeU = 0.01, edgeV = 0.01) {
 }
 
 /**
+ * Window glass pane box for single-quad 3D parallax Interior Mapping:
+ * - Front (+Z) face encodes integer cell offsets [cellX, cellY] + inset [0.002..0.998] local UV
+ *   so merged Bucket meshes retain a deterministic per-window room seed and exact aspect ratio,
+ *   while avoiding floor()/fract() wrap seams at UV boundaries (and tiling cleanly with RepeatWrapping in GLB).
+ * - Side/back rim faces sample the cell center and stay tucked behind the 3D window jambs.
+ */
+export function windowPaneBox(w, h, d, cellX = 0, cellY = 12) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  const uv = g.attributes.uv;
+  // BoxGeometry face order: 0:+X, 1:-X, 2:+Y, 3:-Y, 4:+Z (front), 5:-Z (back)
+  for (const face of [0, 1, 2, 3, 5]) {
+    for (let corner = 0; corner < 4; corner++) {
+      uv.setXY(face * 4 + corner, cellX + 0.5, cellY + 0.5);
+    }
+  }
+  const base = 4 * 4;
+  for (let corner = 0; corner < 4; corner++) {
+    const u = uv.getX(base + corner);
+    const v = uv.getY(base + corner);
+    uv.setXY(
+      base + corner,
+      cellX + 0.002 + u * 0.996,
+      cellY + 0.002 + v * 0.996,
+    );
+  }
+  uv.needsUpdate = true;
+  return ensureIndexedClean(g);
+}
+
+/**
  * Watertight curved cylindrical sheet-metal sleeve for utility pole plaques & safety wraps.
  * Centered at y = 0, spanning theta in [-arcAngle/2, +arcAngle/2] around +Z with thickness `thick`.
  */
@@ -562,14 +592,19 @@ function addWindowAssembly(lot, mats, rnd, {
     paneMat = preferOffice ? mats.windowUnlitBlinds : mats.windowUnlit;
   }
 
+  const paneW = w - ft * (rich ? 1.4 : 1.8);
+  const paneH = h - ft * (rich ? 1.4 : 1.8);
+  const cellX = Math.floor(rnd() * 128);
+  const cellY = Math.round(Math.min(Math.max(paneW / Math.max(paneH, 0.25), 0.4), 3.6) * 10);
+
   if (!rich) {
     sub.addBox(fMat, w, h, 0.032, 0, 0, 0.016);
-    sub.add(paneMat, frontFaceBox(w - ft * 1.8, h - ft * 1.8, 0.016, 0.5, 0.5), 0, 0, 0.028);
+    sub.add(paneMat, windowPaneBox(paneW, paneH, 0.016, cellX, cellY), 0, 0, 0.028);
     return;
   }
 
   // 1. Recessed glass pane (1.2 cm ahead of main wall box, 5.6 cm recessed inside outer jamb!)
-  sub.add(paneMat, frontFaceBox(w - ft * 1.4, h - ft * 1.4, 0.016, 0.5, 0.5), 0, 0, 0.012);
+  sub.add(paneMat, windowPaneBox(paneW, paneH, 0.016, cellX, cellY), 0, 0, 0.012);
 
   // 2. 4-sided protruding window casing / reveal jambs (サッシ枠)
   sub.addBox(fMat, w, ft, jambDepth, 0, h * 0.5 - ft * 0.5, jambDepth * 0.5);
@@ -1295,7 +1330,7 @@ export function buildMachiyaHouse(lot, mats, rnd, { lotW, lotD, tier = 2 }) {
     });
     // Sliding hikido timber entrance door
     lot.addBox(mats.woodDark, 1.48, 2.15, 0.08, driveSide * (w * 0.24), 1.29, hz + d * 0.5 + 0.03);
-    lot.add(mats.windowLitAmber, frontFaceBox(1.26, 1.88, 0.04, 0.5, 0.5), driveSide * (w * 0.24), 1.32, hz + d * 0.5 + 0.05);
+    lot.add(mats.windowLitAmber, windowPaneBox(1.26, 1.88, 0.04, Math.floor(rnd() * 128), 7), driveSide * (w * 0.24), 1.32, hz + d * 0.5 + 0.05);
     for (let kx = -0.52; kx <= 0.52; kx += 0.17) {
       lot.addBox(mats.woodWarm, 0.025, 1.9, 0.04, driveSide * (w * 0.24) + kx, 1.32, hz + d * 0.5 + 0.075);
     }
