@@ -20,6 +20,7 @@ import {
   wetLayer,
 } from "@threert/scene";
 import { defineGame, host, hud, type FrameContext } from "@threert/gameplay";
+import { shopInterior, windowInterior } from "./rt-interior-mapping.ts";
 import tape from "./playground-scene.json";
 
 type Tape = typeof tape;
@@ -130,9 +131,9 @@ function sunAnglesAt(hour: number): { elevation: number; azimuth: number } {
 function evAt(elevation: number): number {
   return lerpKeys(elevation, [
     [-14, 4.2],
-    [-6, 5.6],
-    [-3.2, 7.4],
-    [0, 9.8],
+    [-6, 5.4],
+    [-3.2, 6.75],
+    [0, 9.6],
     [1.6, 10.6],
     [5, 11.8],
     [12, 13.0],
@@ -191,16 +192,36 @@ function applyLighting(
   pointLights: { obj: PointLight; baseIntensity: number }[],
   hour: number,
   weather: WeatherId,
+  sky?: SkyAtmosphere,
 ) {
   const { elevation, azimuth } = sunAnglesAt(hour);
   sun.setSunAngles(elevation, azimuth);
   // Keep sun at physical 100 klx above atmosphere; SkyAtmosphere attenuates & reddens it naturally at low elevation.
   sun.intensity = 100000;
 
+  // Summer civil-twilight blue hour (~18:10–19:30): shift SkyAtmosphere from warm sunset peach
+  // to luminous Japanese cobalt twilight blue so facades and sky read cleanly against warm shopfronts.
+  const h = ((hour % 24) + 24) % 24;
+  const blueHour = smoothstep(18.0, 18.6, h) * (1.0 - smoothstep(19.1, 20.0, h));
+  if (sky) {
+    sky.glow.setRGB(
+      0.85 * (1 - blueHour) + 0.36 * blueHour,
+      0.95 * (1 - blueHour) + 0.68 * blueHour,
+      1.45 * (1 - blueHour) + 1.95 * blueHour,
+    );
+    sky.glowIntensity = 0.08 + 0.16 * blueHour;
+    sky.horizonGlow.setRGB(
+      1.25 * (1 - blueHour) + 0.42 * blueHour,
+      0.90 * (1 - blueHour) + 0.68 * blueHour,
+      0.82 * (1 - blueHour) + 1.48 * blueHour,
+    );
+    sky.horizonGlowIntensity = 0.55 * (1 - blueHour) + 0.28 * blueHour;
+  }
+
   if (moon) {
     const moonElev = Math.max(18, -elevation * 0.85);
     moon.setSunAngles(moonElev, azimuth + 165);
-    moon.intensity = elevation < -5 ? 1.2 : 0;
+    moon.intensity = elevation < -5 ? 1.2 : (blueHour > 0.05 ? 3.5 * blueHour : 0);
   }
 
   const weatherEvShift = weather === "rain" ? -0.7 : weather === "cloudy" ? -0.35 : 0;
@@ -208,7 +229,7 @@ function applyLighting(
 
   const glow = nightGlowFactor(hour, weather);
   for (const pl of pointLights) {
-    pl.obj.intensity = pl.baseIntensity * (glow * 1.6);
+    pl.obj.intensity = pl.baseIntensity * (glow * 1.8);
   }
 }
 
@@ -245,17 +266,11 @@ function pushHud(state: Readonly<State>, displayHour: number) {
         highlight: viewHighlight,
       },
       {
-        type: "slider",
+        type: "bar",
         anchor: "right",
-        id: "time_slider",
         label: "TIME · 24H",
-        hint: phaseLabel(displayHour),
-        valueText: formatHour(displayHour),
-        min: 0,
-        max: 24,
-        step: 0.05,
-        value: displayHour,
-        gradient: "daylight",
+        text: `${formatHour(displayHour)} · ${phaseLabel(displayHour)}`,
+        value: displayHour / 24,
       },
       {
         type: "table",
@@ -323,6 +338,20 @@ export default defineGame<State>({
         asphalt: wetLayer({ wet: 1, puddles: 0.85, puddleScale: 7 }),
         sidewalk: wetLayer({ wet: 0.85, puddles: 0.45, puddleScale: 6 }),
         plaza: wetLayer({ wet: 0.9, puddles: 0.8, puddleScale: 9 }),
+        // 3D Parallax Interior Mapping (WGSL) for upper/residential windows & masked 1F storefronts
+        // Keep more-specific prefixes (window_unlit_blinds) ahead of shorter prefixes (window_unlit).
+        window_lit_warm: windowInterior("living_warm"),
+        window_lit_modern: windowInterior("modern_led"),
+        window_lit_office: windowInterior("office_cool"),
+        window_lit_amber: windowInterior("amber_shoji"),
+        window_unlit_blinds: windowInterior("unlit_blinds"),
+        window_unlit: windowInterior("unlit_curtain"),
+        shop_kissaten: shopInterior("kissaten"),
+        shop_bookstore: shopInterior("bookstore"),
+        shop_konbini_bay: shopInterior("konbini"),
+        shop_pharmacy: shopInterior("pharmacy"),
+        shop_izakaya: shopInterior("izakaya"),
+        shop_ramen: shopInterior("ramen"),
       },
     });
     street.name = "playground_street";
@@ -382,7 +411,7 @@ export default defineGame<State>({
     camera.lookAt(...v0.target);
     scene.add(camera);
 
-    applyLighting(sun, moon, camera, pointLights, DEFAULT_HOUR, "clear");
+    applyLighting(sun, moon, camera, pointLights, DEFAULT_HOUR, "clear", sky);
 
     return {
       scene,
@@ -487,7 +516,7 @@ export default defineGame<State>({
       }))
       .filter((p) => Boolean(p.obj));
 
-    applyLighting(sun, moon, f.camera, pointLights, liveHour, f.state.weather);
+    applyLighting(sun, moon, f.camera, pointLights, liveHour, f.state.weather, f.scene.environment as SkyAtmosphere | undefined);
 
     const wCfg = WEATHERS.find((w) => w.id === f.state.weather) ?? WEATHERS[0];
     const alpha = f.snap ? 1 : Math.min(1, f.dt / 0.8);
