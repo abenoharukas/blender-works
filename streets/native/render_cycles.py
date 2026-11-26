@@ -93,13 +93,19 @@ def clear_scene():
 def import_base():
     clear_scene()
     bpy.ops.import_scene.gltf(filepath=STREET_GLB)
+    before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=TOWER_GLB)
     with open(SCENE_JSON) as fh:
         data = json.load(fh)
     tower = bpy.data.objects.get("the_stack")
-    if tower:
-        tower.location = to_blender(data["tower"]["pos"])
-        tower.rotation_euler[2] = -data["tower"]["yaw"]
+    if not tower:
+        new_roots = [o for o in bpy.data.objects if o not in before and o.parent is None]
+        tower = bpy.data.objects.new("the_stack", None)
+        bpy.context.collection.objects.link(tower)
+        for o in new_roots:
+            o.parent = tower
+    tower.location = to_blender(data["tower"]["pos"])
+    tower.rotation_euler[2] = -data["tower"]["yaw"]
     bpy.ops.wm.save_as_mainfile(filepath=BASE_BLEND)
 
 

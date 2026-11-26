@@ -17,6 +17,55 @@
   const log = (msg) =>
     fetch('/__log', { method: 'POST', body: String(msg) }).catch(() => {});
 
+  // Chromium's Blob IPC storage fails on single Blobs > ~580 MB, causing GLTFExporter's
+  // FileReader.readAsArrayBuffer(blob) to return null. Keep large octet-stream Blob parts in
+  // JS typed-array memory and concatenate directly when readAsArrayBuffer() is called.
+  const OrigBlob = window.Blob;
+  const BIG_BLOB = 32 * 1024 * 1024;
+  function partByteLength(p) {
+    if (p instanceof ArrayBuffer) return p.byteLength;
+    if (ArrayBuffer.isView(p)) return p.byteLength;
+    return -1;
+  }
+  window.Blob = function (parts = [], opts = {}) {
+    if (opts && opts.type === 'application/octet-stream' && Array.isArray(parts)) {
+      let total = 0;
+      let allBufs = true;
+      for (const p of parts) {
+        const len = partByteLength(p);
+        if (len < 0) { allBufs = false; break; }
+        total += len;
+      }
+      if (allBufs && total > BIG_BLOB) {
+        return { size: total, type: opts.type, __parts: parts };
+      }
+    }
+    return new OrigBlob(parts, opts);
+  };
+  window.Blob.prototype = OrigBlob.prototype;
+
+  const origReadAsArrayBuffer = FileReader.prototype.readAsArrayBuffer;
+  FileReader.prototype.readAsArrayBuffer = function (blob) {
+    if (blob && blob.__parts) {
+      const out = new Uint8Array(blob.size);
+      let off = 0;
+      for (const p of blob.__parts) {
+        const view = p instanceof ArrayBuffer
+          ? new Uint8Array(p)
+          : new Uint8Array(p.buffer, p.byteOffset, p.byteLength);
+        out.set(view, off);
+        off += view.byteLength;
+      }
+      queueMicrotask(() => {
+        Object.defineProperty(this, 'result', { value: out.buffer, configurable: true });
+        if (typeof this.onload === 'function') this.onload({ target: this });
+        if (typeof this.onloadend === 'function') this.onloadend({ target: this });
+      });
+      return;
+    }
+    return origReadAsArrayBuffer.call(this, blob);
+  };
+
   window.__exportDone = false;
   window.__exportError = null;
   try {
