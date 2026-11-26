@@ -1938,7 +1938,1027 @@ export function createChochinTextureSet({
 
   return {
     map: makeCanvasTexture(W, H, (g, w, h) => drawChochin(g, w, h, false), { repeat: false }),
-    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => drawChochin(g, w, h, true), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h, ) => drawChochin(g, w, h, true), { repeat: false }),
+    normalMap,
+  };
+}
+
+// ------------------------------------------------------------------ 8. OSAKA DOTONBORI FLAGSHIP PROMENADE PBR & SIGNAGE SETS
+
+/**
+ * Interlocking Herringbone Granite Block Paver (道頓堀インターロッキング石畳) 512x512 seamless PBR set.
+ * Models honed charcoal-and-silver granite street pavers with crisp chamfered mortar joints.
+ */
+export function createPromenadePaverPBR() {
+  const S = 512;
+  const hField = new Float32Array(S * S);
+  const rField = new Float32Array(S * S);
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const data = img.data;
+
+  // 45-degree rotated 2:1 granite brick herringbone lattice: period 64 px along rotated (u, v) axes
+  const M = 32; // Brick width = 32 px, brick length = 64 px (2*M)
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      // Integer unimodular lattice u = x + y, v = x - y (mod 4*M = 128 wraps seamlessly on 512x512!)
+      const u = x + y;
+      const v = x - y + 1024;
+      const iu = Math.floor(u / M);
+      const iv = Math.floor(v / M);
+      const fu = u - iu * M;
+      const fv = v - iv * M;
+
+      // Standard 2:1 herringbone assignment: brick (k) spans either 2 cells in u or 2 cells in v
+      const parity = ((iu + iv) & 1);
+      let brickIdA, brickIdB, distEdge;
+      if (parity === 0) {
+        // Horizontal-in-uv brick spanning (iu, iv) + (iu + 1, iv) or (iu - 1, iv)
+        const pairBase = iu - (iu & 1);
+        brickIdA = pairBase * 131 + iv * 17;
+        brickIdB = iv * 53 + pairBase;
+        const localU = (u - pairBase * M); // 0..2M
+        const dU = Math.min(localU, 2 * M - localU);
+        const dV = Math.min(fv, M - fv);
+        distEdge = Math.min(dU, dV);
+      } else {
+        // Vertical-in-uv brick spanning (iu, iv) + (iu, iv + 1) or (iu, iv - 1)
+        const pairBase = iv - (iv & 1);
+        brickIdA = iu * 97 + pairBase * 29;
+        brickIdB = pairBase * 71 + iu;
+        const localV = (v - pairBase * M); // 0..2M
+        const dV = Math.min(localV, 2 * M - localV);
+        const dU = Math.min(fu, M - fu);
+        distEdge = Math.min(dU, dV);
+      }
+
+      const idx = y * S + x;
+      const p4 = idx * 4;
+      const isJoint = distEdge < 2.2;
+      const chamfer = Math.min(1.0, Math.max(0.0, (distEdge - 1.4) / 3.2));
+      const blockTone = (hash2(brickIdA, brickIdB, 1201) - 0.5) * 20;
+      const warmTint = (hash2(brickIdB, brickIdA, 1213) - 0.5) * 6;
+      const speckle = (hash2(x, y, 1223) - 0.5) * 9 + (hash2(x >> 1, y >> 1, 1229) - 0.5) * 6;
+
+      if (isJoint) {
+        data[p4] = 44;
+        data[p4 + 1] = 43;
+        data[p4 + 2] = 41;
+        data[p4 + 3] = 255;
+        hField[idx] = 0.14;
+        rField[idx] = 0.94;
+      } else {
+        const base = 98 + blockTone + speckle;
+        data[p4] = Math.max(48, Math.min(158, Math.round(base + warmTint)));
+        data[p4 + 1] = Math.max(48, Math.min(156, Math.round(base + warmTint * 0.4)));
+        data[p4 + 2] = Math.max(50, Math.min(160, Math.round(base - warmTint * 0.5 + 2)));
+        data[p4 + 3] = 255;
+        hField[idx] = 0.25 + chamfer * 0.65 + speckle * 0.006;
+        rField[idx] = Math.max(0.36, Math.min(0.78, 0.54 - blockTone * 0.004 + (hash2(x >> 1, y >> 1, 1237) - 0.5) * 0.08));
+      }
+    }
+  }
+
+  ctx.putImageData(img, 0, 0);
+  const map = finalizeTexture(canvas, { repeat: true, srgb: true });
+  const { normalMap, roughnessMap } = buildNormalAndRoughnessMaps(S, S, hField, rField, { strength: 2.5, repeat: true });
+  return { map, normalMap, roughnessMap };
+}
+
+/**
+ * Architectural warm LED cove wash texture behind 3D white vertical facade louvers (かに道楽スタイル).
+ */
+export function createCoveGlowTextureSet() {
+  const W = 256;
+  const H = 256;
+  const draw = (g, w, h, isMask) => {
+    const grad = g.createLinearGradient(0, 0, 0, h);
+    if (isMask) {
+      grad.addColorStop(0.00, '#fff4d4');
+      grad.addColorStop(0.22, '#ffd384');
+      grad.addColorStop(0.50, '#e39e46');
+      grad.addColorStop(0.78, '#ffd384');
+      grad.addColorStop(1.00, '#fff4d4');
+    } else {
+      grad.addColorStop(0.00, '#fbf3df');
+      grad.addColorStop(0.25, '#eed29e');
+      grad.addColorStop(0.50, '#d9b274');
+      grad.addColorStop(0.75, '#eed29e');
+      grad.addColorStop(1.00, '#fbf3df');
+    }
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, h);
+  };
+  return {
+    map: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, false), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, true), { repeat: false }),
+  };
+}
+
+/**
+ * Upscale Osaka Dotonbori Flagship Horizontal Fascia Signboard (768x192, clamped [0..1]):
+ * Styles:
+ *  - 'ivory_sumi': Warm backlit ivory panel with bold black sumi brush calligraphy & vermilion hanko seal (かに道楽 本店)
+ *  - 'lacquer_gold': Deep urushi black/crimson panel with metallic gold relief calligraphy (鉄板神社 / 鮨・割烹)
+ *  - 'chibo_neon': Sumi charcoal panel with emerald & vermilion neon-tube border + glowing channel kanji (千房)
+ *  - 'crimson_gold': Vibrant Osaka vermilion-crimson & gold crest banner (本家 大たこ / 串かつ横綱 / 免税百貨)
+ */
+export function createDotonboriFasciaSet({
+  style = 'ivory_sumi',
+  text = 'かに道楽',
+  badge = '',
+  sub = 'KANI DORAKU · 活かに会席',
+  seal = '道楽',
+  accent = '#c9a354',
+  bgHex = '#15181e',
+}) {
+  const W = 768;
+  const H = 192;
+
+  const draw = (g, w, h, isMask) => {
+    // Strictly non-emissive outer bezel margin so box edges never bleed light
+    g.fillStyle = isMask ? '#000000' : (style === 'ivory_sumi' || style === 'kabuki_theatre' ? '#3a322c' : '#1b1715');
+    g.fillRect(0, 0, w, h);
+
+    if (style === 'modern_minimal') {
+      // Sleek Shinsaibashi / Midosuji luxury curtain-wall boutique or Sukiya fascia
+      const isLight = bgHex.startsWith('#f') || bgHex.startsWith('#e');
+      if (isMask) {
+        g.fillStyle = isLight ? '#dcd6c8' : '#0a0c10';
+        g.fillRect(12, 12, w - 24, h - 24);
+      } else {
+        g.fillStyle = bgHex;
+        g.fillRect(10, 10, w - 20, h - 20);
+      }
+      g.strokeStyle = isMask ? accent : accent;
+      g.lineWidth = 2.5;
+      g.strokeRect(20, 20, w - 40, h - 40);
+
+      g.fillStyle = isMask ? (isLight ? '#080808' : '#fffaf0') : (isLight ? '#181614' : '#f7f3ea');
+      g.font = 'bold 64px "Hiragino Mincho ProN", "Hiragino Kaku Gothic ProN", serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, w * 0.5, h * 0.44);
+
+      g.fillStyle = isMask ? (isLight ? '#1a1815' : accent) : accent;
+      g.font = 'bold 20px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText(sub, w * 0.5, h * 0.80);
+      return;
+    }
+
+    if (style === 'kabuki_theatre') {
+      // Classical Osaka Shochikuza Neo-Renaissance theatre bronze-and-cream fascia plaque
+      if (isMask) {
+        const glow = g.createRadialGradient(w * 0.5, h * 0.5, 20, w * 0.5, h * 0.5, w * 0.5);
+        glow.addColorStop(0, '#fff2d0');
+        glow.addColorStop(1, '#78623c');
+        g.fillStyle = glow;
+        g.fillRect(14, 14, w - 28, h - 28);
+      } else {
+        g.fillStyle = '#f6efe0';
+        g.fillRect(10, 10, w - 20, h - 20);
+      }
+      g.strokeStyle = isMask ? '#d9ab4e' : '#9c7832';
+      g.lineWidth = 6;
+      g.strokeRect(18, 18, w - 36, h - 36);
+      g.lineWidth = 2;
+      g.strokeRect(27, 27, w - 54, h - 54);
+
+      g.fillStyle = isMask ? '#060504' : '#1c1510';
+      g.font = '900 76px "Hiragino Mincho ProN", "YuMincho", serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, w * 0.5, h * 0.45);
+
+      g.fillStyle = isMask ? '#1f160e' : '#7a2018';
+      g.font = 'bold 21px "Hiragino Mincho ProN", serif';
+      g.fillText(sub, w * 0.5, h * 0.81);
+      return;
+    }
+
+    if (style === 'ivory_sumi') {
+      if (isMask) {
+        const glow = g.createRadialGradient(w * 0.5, h * 0.5, 24, w * 0.5, h * 0.5, w * 0.52);
+        glow.addColorStop(0, '#fff4de');
+        glow.addColorStop(0.75, '#ebd2a9');
+        glow.addColorStop(1, '#8c7656');
+        g.fillStyle = glow;
+        g.fillRect(12, 12, w - 24, h - 24);
+      } else {
+        const bg = g.createLinearGradient(0, 10, 0, h - 10);
+        bg.addColorStop(0, '#fcf8ef');
+        bg.addColorStop(1, '#ede4d2');
+        g.fillStyle = bg;
+        g.fillRect(10, 10, w - 20, h - 20);
+        g.strokeStyle = '#b89b67';
+        g.lineWidth = 3;
+        g.strokeRect(18, 18, w - 36, h - 36);
+      }
+
+      g.fillStyle = isMask ? '#050404' : '#181412';
+      g.font = '900 80px "Hiragino Mincho ProN", "YuMincho", "Hiragino Kaku Gothic ProN", serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, badge ? w * 0.44 : w * 0.52, h * 0.46);
+
+      if (badge) {
+        g.font = '900 42px "Hiragino Mincho ProN", "YuMincho", serif';
+        g.fillText(badge, w * 0.80, h * 0.52);
+      }
+      g.fillStyle = isMask ? '#9e1c14' : '#c4261d';
+      g.fillRect(38, 36, 44, 44);
+      g.fillStyle = '#fff8ee';
+      g.font = 'bold 20px "Hiragino Mincho ProN", serif';
+      g.fillText(seal.slice(0, 2), 60, 58);
+
+      g.fillStyle = isMask ? '#1a1612' : '#4a3d31';
+      g.font = 'bold 20px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText(sub, w * 0.5, h * 0.84);
+      return;
+    }
+
+    if (style === 'chibo_neon') {
+      if (!isMask) {
+        g.fillStyle = '#141816';
+        g.fillRect(10, 10, w - 20, h - 20);
+        g.strokeStyle = 'rgba(80, 190, 120, 0.20)';
+        g.lineWidth = 1.5;
+        for (let x = 28; x < w - 28; x += 24) {
+          g.beginPath(); g.moveTo(x, 18); g.lineTo(x, h - 18); g.stroke();
+        }
+      }
+      g.strokeStyle = isMask ? '#36f582' : '#28c766';
+      g.lineWidth = 5;
+      g.strokeRect(18, 18, w - 36, h - 36);
+      g.strokeStyle = isMask ? '#ff4638' : '#d93226';
+      g.lineWidth = 3;
+      g.strokeRect(27, 27, w - 54, h - 54);
+
+      g.fillStyle = isMask ? '#fff8e8' : '#f7f2e4';
+      g.font = '900 74px "Hiragino Kaku Gothic ProN", "Hiragino Mincho ProN", sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, w * 0.5, h * 0.45);
+
+      g.fillStyle = isMask ? '#4dff98' : '#5ce892';
+      g.font = 'bold 22px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText(sub, w * 0.5, h * 0.81);
+      return;
+    }
+
+    if (style === 'lacquer_gold') {
+      if (!isMask) {
+        const bg = g.createLinearGradient(0, 10, 0, h - 10);
+        bg.addColorStop(0, '#241915');
+        bg.addColorStop(0.5, '#16110f');
+        bg.addColorStop(1, '#211612');
+        g.fillStyle = bg;
+        g.fillRect(10, 10, w - 20, h - 20);
+      }
+      g.strokeStyle = isMask ? '#e8bd64' : '#d4a84f';
+      g.lineWidth = 4;
+      g.strokeRect(18, 18, w - 36, h - 36);
+
+      g.fillStyle = isMask ? '#d92b22' : '#b8221a';
+      g.beginPath();
+      g.arc(76, h * 0.5, 34, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#fff8eb';
+      g.font = '900 28px "Hiragino Mincho ProN", serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(seal.slice(0, 2), 76, h * 0.51);
+
+      g.fillStyle = isMask ? '#ffe59e' : '#f5d584';
+      g.font = '900 72px "Hiragino Mincho ProN", "YuMincho", serif';
+      g.fillText(text, w * 0.53, h * 0.45);
+
+      g.fillStyle = isMask ? '#e8c982' : '#cfb06d';
+      g.font = 'bold 21px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText(sub, w * 0.53, h * 0.81);
+      return;
+    }
+
+    // 'crimson_gold': High-energy Osaka crimson & gold flagship signboard
+    if (isMask) {
+      const bgGlow = g.createRadialGradient(w * 0.5, h * 0.5, 30, w * 0.5, h * 0.5, w * 0.55);
+      bgGlow.addColorStop(0, '#cf291d');
+      bgGlow.addColorStop(1, '#4a0d08');
+      g.fillStyle = bgGlow;
+      g.fillRect(14, 14, w - 28, h - 28);
+    } else {
+      const bg = g.createLinearGradient(0, 10, 0, h - 10);
+      bg.addColorStop(0, '#c7261c');
+      bg.addColorStop(0.55, '#9e1912');
+      bg.addColorStop(1, '#75100b');
+      g.fillStyle = bg;
+      g.fillRect(10, 10, w - 20, h - 20);
+    }
+
+    g.strokeStyle = isMask ? '#ffe28a' : '#ebbf5b';
+    g.lineWidth = 5;
+    g.strokeRect(18, 18, w - 36, h - 36);
+
+    if (!isMask) {
+      g.fillStyle = 'rgba(20, 4, 2, 0.58)';
+      g.font = '900 72px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, w * 0.5 + 4, h * 0.45 + 4);
+    }
+    g.fillStyle = isMask ? '#fffdf5' : '#fff8e6';
+    g.font = '900 72px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(text, w * 0.5, h * 0.45);
+
+    g.fillStyle = isMask ? '#ffe394' : '#f7d070';
+    g.font = 'bold 22px "Hiragino Kaku Gothic ProN", sans-serif';
+    g.fillText(sub, w * 0.5, h * 0.81);
+  };
+
+  return {
+    map: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, false), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, true), { repeat: false }),
+  };
+}
+
+/**
+ * Multi-Tier Stacked Projecting Vertical Sign Tower (道頓堀・新世界 多段突き出し縦看板, 256x768):
+ * Renders 3 distinct stacked Osaka graphic sign compartments separated by dark steel mullions.
+ * Each tier item: { bg, fg, accent, text, sub, horizontal }.
+ */
+export function createTowerSignTextureSet(tiers) {
+  const W = 256;
+  const H = 768;
+
+  const draw = (g, w, h, isMask) => {
+    g.fillStyle = isMask ? '#000000' : '#181b20';
+    g.fillRect(0, 0, w, h);
+
+    const count = tiers.length;
+    const gap = 14;
+    const padX = 14;
+    const cellH = (h - gap * (count + 1)) / count;
+
+    tiers.forEach((tier, idx) => {
+      const y0 = gap + idx * (cellH + gap);
+      const cw = w - padX * 2;
+      const bg = tier.bg ?? '#b8261e';
+      const fg = tier.fg ?? '#fff8eb';
+      const accent = tier.accent ?? '#ebbf5b';
+
+      if (isMask) {
+        const tube = g.createLinearGradient(padX, 0, w - padX, 0);
+        tube.addColorStop(0, '#222222');
+        tube.addColorStop(0.2, bg);
+        tube.addColorStop(0.5, '#ffffff');
+        tube.addColorStop(0.8, bg);
+        tube.addColorStop(1, '#222222');
+        g.fillStyle = bg;
+        g.globalAlpha = 0.68;
+        g.fillRect(padX + 4, y0 + 4, cw - 8, cellH - 8);
+        g.globalAlpha = 0.30;
+        g.fillStyle = tube;
+        g.fillRect(padX + 4, y0 + 4, cw - 8, cellH - 8);
+        g.globalAlpha = 1.0;
+      } else {
+        g.fillStyle = bg;
+        g.fillRect(padX, y0, cw, cellH);
+      }
+
+      g.strokeStyle = isMask ? accent : accent;
+      g.lineWidth = 4;
+      g.strokeRect(padX + 7, y0 + 7, cw - 14, cellH - 14);
+
+      const isLightBg = bg.startsWith('#f') || bg.startsWith('#e') || bg.startsWith('#fff');
+      const textFill = isMask ? (isLightBg ? '#080808' : '#fffdf5') : fg;
+
+      if (tier.sub) {
+        g.fillStyle = isMask ? (isLightBg ? '#111111' : accent) : accent;
+        g.fillRect(padX + 12, y0 + 12, cw - 24, 32);
+        g.fillStyle = isMask ? (isLightBg ? '#fff8eb' : '#121212') : (accent.startsWith('#f') || accent.startsWith('#e') ? '#181412' : '#ffffff');
+        g.font = '900 20px "Hiragino Kaku Gothic ProN", sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(tier.sub, w * 0.5, y0 + 28);
+      }
+
+      const bodyTop = y0 + (tier.sub ? 50 : 18);
+      const bodyH = cellH - (tier.sub ? 64 : 36);
+
+      if (tier.horizontal) {
+        const lines = tier.text.split('\n');
+        const fSize = lines.length >= 3 ? 38 : 48;
+        g.fillStyle = textFill;
+        g.font = `900 ${fSize}px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        const lStep = fSize * 1.18;
+        const startY = bodyTop + bodyH * 0.5 - ((lines.length - 1) * lStep) * 0.5;
+        lines.forEach((ln, li) => g.fillText(ln, w * 0.5, startY + li * lStep));
+      } else {
+        const chars = [...tier.text];
+        const fSize = chars.length >= 6 ? 30 : (chars.length === 5 ? 35 : (chars.length === 4 ? 42 : 52));
+        const step = Math.min(fSize * 1.06, bodyH / Math.max(chars.length, 1));
+        const startY = bodyTop + bodyH * 0.5 - ((chars.length - 1) * step) * 0.5;
+        g.fillStyle = textFill;
+        g.font = `900 ${fSize}px "Hiragino Kaku Gothic ProN", "Hiragino Mincho ProN", sans-serif`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        chars.forEach((ch, ci) => g.fillText(ch, w * 0.5, startY + ci * step));
+      }
+    });
+  };
+
+  return {
+    map: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, false), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, true), { repeat: false }),
+  };
+}
+
+/**
+ * Rooftop Landmark Neon/LED Crown Billboard (道頓堀 屋上大型広告塔, 768x384):
+ * Variants: 'taxfree', 'kanidoraku', 'chibo', 'ebisu', 'asahi_gold'.
+ */
+export function createRooftopBillboardSet(variant = 'taxfree') {
+  const W = 768;
+  const H = 384;
+
+  const draw = (g, w, h, isMask) => {
+    g.fillStyle = isMask ? '#000000' : '#1b1e24';
+    g.fillRect(0, 0, w, h);
+
+    if (variant === 'taxfree') {
+      g.fillStyle = isMask ? '#e8291e' : '#cc1f16';
+      g.fillRect(14, 14, w - 28, h * 0.64);
+      g.fillStyle = isMask ? '#f5f2ec' : '#ffffff';
+      g.fillRect(14, 14 + h * 0.64, w - 28, h - 28 - h * 0.64);
+
+      g.fillStyle = '#ffffff';
+      g.font = '900 112px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.textAlign = 'left';
+      g.textBaseline = 'middle';
+      g.fillText('免 税', 46, h * 0.36);
+
+      g.font = 'bold 58px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('Tax Free', 418, h * 0.39);
+
+      g.fillStyle = isMask ? '#121212' : '#c41e16';
+      g.beginPath();
+      g.arc(w * 0.30, h * 0.81, 24, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = isMask ? '#080808' : '#1e2229';
+      g.font = '900 34px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.textAlign = 'center';
+      g.fillText('SUZURAN CENTRAL PLAZA', w * 0.56, h * 0.81);
+      return;
+    }
+
+    if (variant === 'kanidoraku') {
+      g.fillStyle = isMask ? '#fff6e8' : '#fcf8f0';
+      g.fillRect(14, 14, w - 28, h - 28);
+      g.strokeStyle = isMask ? '#ff3324' : '#d62318';
+      g.lineWidth = 18;
+      g.strokeRect(23, 23, w - 46, h - 46);
+      g.strokeStyle = isMask ? 'rgba(220,40,25,0.45)' : 'rgba(210,38,24,0.35)';
+      g.lineWidth = 4;
+      for (let i = 1; i < 4; i++) {
+        g.beginPath(); g.moveTo((w * i) / 4, 24); g.lineTo((w * i) / 4, h - 24); g.stroke();
+      }
+      g.beginPath(); g.moveTo(24, h * 0.5); g.lineTo(w - 24, h * 0.5); g.stroke();
+
+      g.fillStyle = isMask ? '#ff2418' : '#cc1d14';
+      g.font = '900 132px "Hiragino Mincho ProN", "YuMincho", serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText('かに道楽', w * 0.5, h * 0.46);
+
+      g.fillStyle = isMask ? '#111111' : '#241c18';
+      g.font = '900 32px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('総 本 店 · KANI DORAKU', w * 0.5, h * 0.82);
+      return;
+    }
+
+    if (variant === 'chibo') {
+      g.fillStyle = isMask ? '#050806' : '#121714';
+      g.fillRect(14, 14, w - 28, h - 28);
+      g.strokeStyle = isMask ? '#24c968' : '#1e7844';
+      g.lineWidth = 2;
+      for (let x = 32; x < w - 24; x += 32) {
+        g.beginPath(); g.moveTo(x, 20); g.lineTo(x, h - 20); g.stroke();
+      }
+      for (let y = 32; y < h - 24; y += 32) {
+        g.beginPath(); g.moveTo(20, y); g.lineTo(w - 20, y); g.stroke();
+      }
+      g.strokeStyle = isMask ? '#ff3d2e' : '#d92b1e';
+      g.lineWidth = 10;
+      g.strokeRect(22, 22, w - 44, h - 44);
+
+      g.fillStyle = isMask ? '#44ff8e' : '#4ce88b';
+      g.font = '900 116px "Hiragino Mincho ProN", "Hiragino Kaku Gothic ProN", serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText('千 房', w * 0.60, h * 0.44);
+
+      g.fillStyle = isMask ? '#ff5242' : '#ff5e4d';
+      g.font = '900 44px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('お好み焼', w * 0.24, h * 0.36);
+      g.fillText('鉄 板 焼', w * 0.24, h * 0.56);
+
+      g.fillStyle = '#fff8e8';
+      g.font = 'bold 28px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('OKONOMIYAKI & TEPPANYAKI CHIBO', w * 0.5, h * 0.84);
+      return;
+    }
+
+    if (variant === 'asahi_gold') {
+      // Classic Amber-Gold & Silver Crisp Draft Neon Billboard
+      const bg = g.createLinearGradient(0, 14, 0, h - 14);
+      bg.addColorStop(0, isMask ? '#fff2b2' : '#fce895');
+      bg.addColorStop(0.45, isMask ? '#f0a824' : '#e09819');
+      bg.addColorStop(1, isMask ? '#b8680c' : '#9e5608');
+      g.fillStyle = bg;
+      g.fillRect(14, 14, w - 28, h - 28);
+      g.fillStyle = isMask ? '#d9dadf' : '#eef1f5';
+      g.fillRect(14, 14, w - 28, 72);
+
+      g.fillStyle = '#141820';
+      g.font = '900 42px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText('PREMIUM DRAFT · 樽生', w * 0.5, 50);
+
+      g.fillStyle = isMask ? '#080808' : '#181410';
+      g.font = '900 108px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('辛口 生ビール', w * 0.5, h * 0.56);
+
+      g.fillStyle = '#fffaf0';
+      g.font = 'bold 28px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('SUZURAN BREWERY HALL', w * 0.5, h * 0.85);
+      return;
+    }
+
+    // 'ebisu': Royal Gold & Indigo Grand Promenade Landmark Neon Billboard
+    const bg = g.createLinearGradient(0, 14, w, h - 14);
+    bg.addColorStop(0, isMask ? '#122854' : '#102247');
+    bg.addColorStop(0.5, isMask ? '#1d3f7a' : '#183466');
+    bg.addColorStop(1, isMask ? '#0f2042' : '#0d1b38');
+    g.fillStyle = bg;
+    g.fillRect(14, 14, w - 28, h - 28);
+
+    g.strokeStyle = isMask ? '#ffdf78' : '#e6be53';
+    g.lineWidth = 10;
+    g.strokeRect(22, 22, w - 44, h - 44);
+    g.lineWidth = 3;
+    g.strokeRect(34, 34, w - 68, h - 68);
+
+    g.fillStyle = isMask ? '#fff6d6' : '#ffefc2';
+    g.font = '900 104px "Hiragino Mincho ProN", "Hiragino Kaku Gothic ProN", serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('すずらん本町', w * 0.5, h * 0.43);
+
+    g.fillStyle = isMask ? '#ffd262' : '#f2c45a';
+    g.font = 'bold 30px "Hiragino Kaku Gothic ProN", sans-serif';
+    g.fillText('SUZURAN GRAND PROMENADE · 歓迎', w * 0.5, h * 0.79);
+  };
+
+  return {
+    map: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, false), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, true), { repeat: false }),
+  };
+}
+
+/**
+ * Panoramic Podium LED / Media Wall / Shinsaibashi Neon Lightbox Showcase (512x288):
+ * Variants: 'wagyu', 'crab_feast', 'gourmet_fest', 'glico_sprinter', 'neon_ring', 'cosme_luxury', 'kabuki_bill'.
+ */
+export function createPodiumPosterSet(variant = 'wagyu') {
+  const W = 512;
+  const H = 288;
+
+  const draw = (g, w, h, isMask) => {
+    g.fillStyle = isMask ? '#000000' : '#16181c';
+    g.fillRect(0, 0, w, h);
+
+    if (variant === 'glico_sprinter') {
+      // Iconic Ebisubashi Cobalt-Blue Stadium Track, Crimson Sun & Triumphant Sprinter Neon Homage!
+      const sky = g.createLinearGradient(0, 12, 0, h - 12);
+      sky.addColorStop(0, isMask ? '#1270de' : '#0f5ec2');
+      sky.addColorStop(0.6, isMask ? '#1d9bf0' : '#1986d4');
+      sky.addColorStop(1, isMask ? '#0d3f8a' : '#0b3473');
+      g.fillStyle = sky;
+      g.fillRect(12, 12, w - 24, h - 24);
+
+      // Perspective white stadium track lanes converging to center
+      g.strokeStyle = 'rgba(255,255,255,0.68)';
+      g.lineWidth = 3;
+      for (const tx of [48, 128, 384, 464]) {
+        g.beginPath();
+        g.moveTo(w * 0.5 + (tx - w * 0.5) * 0.22, h * 0.52);
+        g.lineTo(tx, h - 14);
+        g.stroke();
+      }
+      // Giant crimson sun circle
+      g.fillStyle = isMask ? '#ff2b1f' : '#e02218';
+      g.beginPath();
+      g.arc(w * 0.5, h * 0.46, 82, 0, Math.PI * 2);
+      g.fill();
+
+      // Triumphant white sprinter silhouette with raised V-arms!
+      g.strokeStyle = '#ffffff';
+      g.fillStyle = '#ffffff';
+      g.lineWidth = 12;
+      g.beginPath();
+      g.arc(w * 0.5, h * 0.30, 16, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.moveTo(w * 0.5 - 46, h * 0.14);
+      g.lineTo(w * 0.5, h * 0.40);
+      g.lineTo(w * 0.5 + 46, h * 0.14);
+      g.moveTo(w * 0.5, h * 0.38);
+      g.lineTo(w * 0.5, h * 0.62);
+      g.lineTo(w * 0.5 - 24, h * 0.84);
+      g.moveTo(w * 0.5, h * 0.60);
+      g.lineTo(w * 0.5 + 28, h * 0.72);
+      g.stroke();
+
+      g.fillStyle = '#fff9eb';
+      g.font = '900 30px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.textAlign = 'left';
+      g.fillText('VICTORY', 28, 52);
+      g.textAlign = 'right';
+      g.fillText('300m', w - 28, 52);
+      return;
+    }
+
+    if (variant === 'neon_ring') {
+      // Fashion Flagship Neon Wireframe Globe
+      const bg = g.createLinearGradient(12, 12, w - 12, h - 12);
+      bg.addColorStop(0, isMask ? '#290826' : '#1f081d');
+      bg.addColorStop(0.5, isMask ? '#4a0e3e' : '#360c2e');
+      bg.addColorStop(1, isMask ? '#101836' : '#0e142b');
+      g.fillStyle = bg;
+      g.fillRect(12, 12, w - 24, h - 24);
+
+      g.strokeStyle = isMask ? '#ff42b8' : '#e635a3';
+      g.lineWidth = 5;
+      g.strokeRect(20, 20, w - 40, h - 40);
+
+      // Glowing white & cyan wireframe meridian rings
+      g.strokeStyle = '#ffffff';
+      g.lineWidth = 6;
+      g.beginPath();
+      g.arc(w * 0.5, h * 0.5, 96, 0, Math.PI * 2);
+      g.stroke();
+      g.strokeStyle = isMask ? '#5cebff' : '#4ad6eb';
+      g.lineWidth = 3.5;
+      g.beginPath();
+      g.arc(w * 0.5, h * 0.5, 64, 0, Math.PI * 2);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(w * 0.5 - 102, h * 0.5); g.lineTo(w * 0.5 + 102, h * 0.5);
+      g.moveTo(w * 0.5, h * 0.5 - 102); g.lineTo(w * 0.5, h * 0.5 + 102);
+      g.stroke();
+
+      g.fillStyle = '#ffffff';
+      g.font = '900 54px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText('LUMIÈRE', w * 0.5, h * 0.46);
+      g.fillStyle = '#ff6ec7';
+      g.font = 'bold 22px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('SUZURAN MODE', w * 0.5, h * 0.66);
+      return;
+    }
+
+    if (variant === 'cosme_luxury') {
+      // Bright Shinsaibashi Cosmetics, Luxury Watches & Tax-Free Department Lightbox
+      g.fillStyle = isMask ? '#f5f2ee' : '#ffffff';
+      g.fillRect(12, 12, w - 24, h - 24);
+      // Left crimson TAX FREE vertical ribbon
+      g.fillStyle = isMask ? '#eb261c' : '#d41f15';
+      g.fillRect(12, 12, 168, h - 24);
+      // Right champagne-navy luxury panel
+      g.fillStyle = isMask ? '#16284c' : '#122140';
+      g.fillRect(344, 12, w - 356, h - 24);
+
+      g.fillStyle = '#ffffff';
+      g.font = '900 44px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText('免 税', 96, 86);
+      g.font = '900 28px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('TAX FREE', 96, 148);
+      g.font = 'bold 22px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('化粧品・薬', 96, 214);
+
+      // Center beauty & skincare clean typography
+      g.fillStyle = isMask ? '#0a0a0c' : '#1a1c22';
+      g.font = '900 34px "Hiragino Mincho ProN", serif';
+      g.fillText('美肌コスメ', 262, 96);
+      g.fillStyle = isMask ? '#9e1c48' : '#b82255';
+      g.font = 'bold 24px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('COSME &', 262, 156);
+      g.fillText('SKINCARE', 262, 192);
+
+      // Right luxury watch dial emblem
+      g.strokeStyle = '#ebc265';
+      g.lineWidth = 4;
+      g.beginPath();
+      g.arc(422, 112, 46, 0, Math.PI * 2);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(422, 112); g.lineTo(422, 82);
+      g.moveTo(422, 112); g.lineTo(448, 122);
+      g.stroke();
+      g.fillStyle = '#ffe296';
+      g.font = 'bold 22px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('WATCH & JEWEL', 422, 212);
+      return;
+    }
+
+    if (variant === 'kabuki_bill') {
+      // Traditional Osaka Shochikuza Kabuki Theatre Edo Billing Board (歌舞伎絵看板・まねき)
+      g.fillStyle = isMask ? '#f2dfc0' : '#f7ead2';
+      g.fillRect(12, 12, w - 24, h - 24);
+      // Traditional Edo定式幕 (kuro-moegi-kaki: black, green, persimmon stripes) along top & bottom!
+      const stripes = ['#1c1917', '#266b44', '#c95624', '#1c1917', '#266b44', '#c95624'];
+      const sw = (w - 24) / stripes.length;
+      stripes.forEach((col, i) => {
+        g.fillStyle = col;
+        g.fillRect(12 + i * sw, 12, sw + 1, 26);
+        g.fillRect(12 + i * sw, h - 38, sw + 1, 26);
+      });
+      g.strokeStyle = '#5c3b1e';
+      g.lineWidth = 6;
+      g.strokeRect(12, 12, w - 24, h - 24);
+
+      g.fillStyle = isMask ? '#8f1812' : '#b01e16';
+      g.beginPath();
+      g.arc(w * 0.78, h * 0.50, 56, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#fff8eb';
+      g.font = '900 44px "Hiragino Mincho ProN", serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText('壽', w * 0.78, h * 0.51);
+
+      g.fillStyle = isMask ? '#080605' : '#18120e';
+      g.font = '900 48px "Hiragino Mincho ProN", serif';
+      g.textAlign = 'left';
+      g.fillText('大歌舞伎公演', 34, 108);
+      g.fillStyle = isMask ? '#1c1410' : '#5e2418';
+      g.font = 'bold 28px "Hiragino Mincho ProN", serif';
+      g.fillText('名代 すずらん松竹座', 36, 174);
+      return;
+    }
+
+    if (variant === 'wagyu') {
+      const grad = g.createLinearGradient(12, 12, w - 12, h - 12);
+      grad.addColorStop(0, isMask ? '#3d100c' : '#2b0d0a');
+      grad.addColorStop(0.6, isMask ? '#8f2218' : '#6e1912');
+      grad.addColorStop(1, isMask ? '#24140e' : '#1c100c');
+      g.fillStyle = grad;
+      g.fillRect(12, 12, w - 24, h - 24);
+
+      g.fillStyle = isMask ? '#ff9c45' : '#e88b38';
+      g.beginPath();
+      g.ellipse(w * 0.72, h * 0.56, 108, 68, -0.12, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = isMask ? '#ff4f3b' : '#d93b2b';
+      g.beginPath();
+      g.ellipse(w * 0.72, h * 0.54, 82, 46, -0.12, 0, Math.PI * 2);
+      g.fill();
+
+      g.strokeStyle = isMask ? '#ffd875' : '#d9b252';
+      g.lineWidth = 4;
+      g.strokeRect(18, 18, w - 36, h - 36);
+
+      g.fillStyle = '#fff8eb';
+      g.font = '900 46px "Hiragino Mincho ProN", serif';
+      g.textAlign = 'left';
+      g.fillText('黒毛和牛 A5', 36, 92);
+      g.fillStyle = '#ffd875';
+      g.font = 'bold 28px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('極上鉄板ステーキ', 36, 146);
+      g.fillStyle = '#ffffff';
+      g.font = 'bold 20px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('PREMIUM WAGYU TEPPAN STEAK', 36, 224);
+      return;
+    }
+
+    if (variant === 'crab_feast') {
+      const grad = g.createLinearGradient(12, 12, w - 12, h - 12);
+      grad.addColorStop(0, isMask ? '#102c44' : '#0d253b');
+      grad.addColorStop(1, isMask ? '#1d5478' : '#184766');
+      g.fillStyle = grad;
+      g.fillRect(12, 12, w - 24, h - 24);
+
+      g.fillStyle = isMask ? '#ffd978' : '#ebc25e';
+      g.beginPath();
+      g.arc(w * 0.74, h * 0.50, 74, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = isMask ? '#ff3624' : '#d92818';
+      g.beginPath();
+      g.ellipse(w * 0.74, h * 0.52, 58, 38, 0, 0, Math.PI * 2);
+      g.fill();
+
+      g.strokeStyle = '#f2cf74';
+      g.lineWidth = 4;
+      g.strokeRect(18, 18, w - 36, h - 36);
+
+      g.fillStyle = '#ffffff';
+      g.font = '900 46px "Hiragino Mincho ProN", serif';
+      g.textAlign = 'left';
+      g.fillText('旬魚・天然本鮪', 36, 94);
+      g.fillStyle = '#ffe28a';
+      g.font = 'bold 28px "Hiragino Mincho ProN", serif';
+      g.fillText('本格江戸前鮨・割烹', 36, 148);
+      g.fillStyle = '#d8eefc';
+      g.font = 'bold 20px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.fillText('SEASONAL OMAKASE KAISEKI', 36, 224);
+      return;
+    }
+
+    // 'gourmet_fest': Vibrant Osaka Gourmet & Duty-Free LED Showcase
+    const grad = g.createLinearGradient(12, 12, w - 12, h - 12);
+    grad.addColorStop(0, isMask ? '#b82218' : '#9c1b12');
+    grad.addColorStop(0.5, isMask ? '#d96b1c' : '#bd5915');
+    grad.addColorStop(1, isMask ? '#243b6b' : '#1d3059');
+    g.fillStyle = grad;
+    g.fillRect(12, 12, w - 24, h - 24);
+    g.strokeStyle = '#ffe484';
+    g.lineWidth = 5;
+    g.strokeRect(18, 18, w - 36, h - 36);
+
+    g.fillStyle = '#fffdf5';
+    g.font = '900 50px "Hiragino Kaku Gothic ProN", sans-serif';
+    g.textAlign = 'center';
+    g.fillText('名代 食い倒れ横丁', w * 0.5, 108);
+    g.fillStyle = '#ffe885';
+    g.font = 'bold 28px "Hiragino Kaku Gothic ProN", sans-serif';
+    g.fillText('たこ焼 · 串かつ · お好み焼 · 寿司', w * 0.5, 168);
+    g.fillStyle = '#ffffff';
+    g.font = 'bold 20px "Hiragino Kaku Gothic ProN", sans-serif';
+    g.fillText('SUZURAN GOURMET DINING HALL', w * 0.5, 226);
+  };
+
+  return {
+    map: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, false), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, true), { repeat: false }),
+  };
+}
+
+/**
+ * 4-Quarter Stacked Giant Calligraphy Lantern Atlas (`元` / `祖` / `王` / `将`, 256x1024)
+ * for the signature 4-lantern steel tower rack in a single draw call!
+ */
+export function createOhshoLanternStackSet() {
+  const W = 256;
+  const H = 1024;
+  const chars = ['元', '祖', '王', '将'];
+  const cellH = H / 4;
+
+  const draw = (g, w, h, isMask) => {
+    g.fillStyle = '#000000';
+    g.fillRect(0, 0, w, h);
+
+    chars.forEach((ch, idx) => {
+      const y0 = idx * cellH;
+      if (isMask) {
+        const glow = g.createLinearGradient(0, y0, 0, y0 + cellH);
+        glow.addColorStop(0.00, '#000000');
+        glow.addColorStop(0.14, '#7a4a18');
+        glow.addColorStop(0.50, '#ffd480');
+        glow.addColorStop(0.86, '#7a4a18');
+        glow.addColorStop(1.00, '#000000');
+        g.fillStyle = glow;
+        g.fillRect(0, y0 + 10, w, cellH - 20);
+      } else {
+        const bg = g.createLinearGradient(0, y0, 0, y0 + cellH);
+        bg.addColorStop(0.00, '#9e7c52');
+        bg.addColorStop(0.15, '#faebd0');
+        bg.addColorStop(0.50, '#fff7e6');
+        bg.addColorStop(0.85, '#faebd0');
+        bg.addColorStop(1.00, '#9e7c52');
+        g.fillStyle = bg;
+        g.fillRect(0, y0, w, cellH);
+        // Bold crimson Osaka Ohsho lantern brush strokes at top & bottom shoulders
+        g.fillStyle = '#cf2419';
+        g.fillRect(0, y0 + 18, w, 24);
+        g.fillRect(0, y0 + cellH - 42, w, 24);
+      }
+      g.fillStyle = isMask ? '#000000' : '#181310';
+      g.fillRect(0, y0, w, 12);
+      g.fillRect(0, y0 + cellH - 12, w, 12);
+
+      // Giant crimson-edged black calligraphy character on front (u=0.5) & sides (u=0.24, u=0.76)
+      for (const ux of [0.24, 0.50, 0.76]) {
+        if (!isMask) {
+          g.fillStyle = '#cf2419';
+          g.font = `900 ${ux === 0.50 ? 128 : 96}px "Hiragino Mincho ProN", "YuMincho", serif`;
+          g.textAlign = 'center';
+          g.textBaseline = 'middle';
+          g.fillText(ch, w * ux + 3, y0 + cellH * 0.52 + 3);
+        }
+        g.fillStyle = isMask ? '#000000' : '#171210';
+        g.font = `900 ${ux === 0.50 ? 124 : 92}px "Hiragino Mincho ProN", "YuMincho", serif`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(ch, w * ux, y0 + cellH * 0.52);
+      }
+    });
+  };
+
+  return {
+    map: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, false), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, true), { repeat: false }),
+  };
+}
+
+/**
+ * Dotonbori Canal-Style Golden Festival Lantern (道頓堀献灯提灯, 256x384, Reference 2!):
+ * Warm cream-gold Washi paper lantern with vermilion festival bands & vertical calligraphy.
+ */
+export function createFestivalLanternSet({
+  text = 'すずらん',
+  sub = '本町筋',
+} = {}) {
+  const W = 256;
+  const H = 384;
+  const ribs = 12;
+  const hField = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const v = 1.0 - y / H;
+    const pleat = Math.abs(Math.sin(v * ribs * Math.PI));
+    for (let x = 0; x < W; x++) {
+      hField[y * W + x] = 0.36 + pleat * 0.52;
+    }
+  }
+  const { normalMap } = buildNormalAndRoughnessMaps(W, H, hField, null, { strength: 1.9, repeat: false });
+
+  const draw = (g, w, h, isMask) => {
+    if (isMask) {
+      g.fillStyle = '#000000';
+      g.fillRect(0, 0, w, h);
+      const glow = g.createLinearGradient(0, 0, 0, h);
+      glow.addColorStop(0.00, '#000000');
+      glow.addColorStop(0.10, '#6e4214');
+      glow.addColorStop(0.35, '#ebaa4b');
+      glow.addColorStop(0.50, '#ffd078');
+      glow.addColorStop(0.65, '#ebaa4b');
+      glow.addColorStop(0.90, '#6e4214');
+      glow.addColorStop(1.00, '#000000');
+      g.fillStyle = glow;
+      g.fillRect(0, 14, w, h - 28);
+    } else {
+      const bg = g.createLinearGradient(0, 0, 0, h);
+      bg.addColorStop(0.00, '#9c7848');
+      bg.addColorStop(0.12, '#f5dfb2');
+      bg.addColorStop(0.50, '#fff2d4');
+      bg.addColorStop(0.88, '#f5dfb2');
+      bg.addColorStop(1.00, '#9c7848');
+      g.fillStyle = bg;
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = '#cc291e';
+      g.fillRect(0, 22, w, 22);
+      g.fillRect(0, h - 44, w, 22);
+    }
+
+    for (let r = 1; r < ribs; r++) {
+      const ry = (r / ribs) * h;
+      g.fillStyle = isMask ? 'rgba(0,0,0,0.42)' : 'rgba(90,58,28,0.28)';
+      g.fillRect(0, ry - 1.2, w, 2.4);
+    }
+
+    g.fillStyle = isMask ? '#000000' : '#181310';
+    g.fillRect(0, 0, w, 16);
+    g.fillRect(0, h - 16, w, 16);
+
+    const ink = isMask ? '#000000' : '#1a1411';
+    const drawV = (str, cx, maxF) => {
+      const chars = [...str];
+      const span = h - 136;
+      const fSize = Math.min(maxF, Math.floor(span / Math.max(chars.length * 1.05, 1)));
+      const step = fSize * 1.08;
+      const startY = h * 0.5 - ((chars.length - 1) * step) * 0.5;
+      g.fillStyle = ink;
+      g.font = `900 ${fSize}px "Hiragino Mincho ProN", "YuMincho", serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      chars.forEach((ch, idx) => g.fillText(ch, cx, startY + idx * step));
+    };
+    drawV(text, w * 0.50, 64);
+    drawV(sub, w * 0.22, 46);
+    drawV(sub, w * 0.78, 46);
+  };
+
+  return {
+    map: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, false), { repeat: false }),
+    emissiveMap: makeCanvasTexture(W, H, (g, w, h) => draw(g, w, h, true), { repeat: false }),
     normalMap,
   };
 }

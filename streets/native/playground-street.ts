@@ -55,7 +55,7 @@ const WEATHERS: { id: WeatherId; label: string; cloud: number; rain: number; fog
 
 const VIEWS: Record<ViewId, { label: string; pos: [number, number, number]; target: [number, number, number] }> = {
   street: { label: "街道 Street", pos: [4.9, 1.7, 438], target: [0, 120, 90] },
-  shotengai: { label: "商店街 Shotengai", pos: [3.6, 8.8, 366], target: [-12, 4.6, 308] },
+  shotengai: { label: "商店街 Shotengai", pos: [3.8, 6.2, 398], target: [-9.5, 7.2, 304] },
   ikkodate: { label: "住宅区 Ikkodate", pos: [36, 3.2, 380.0], target: [106, 2.8, 379.2] },
   overview: { label: "俯瞰 Overview", pos: [560, 410, 790], target: [0, 95, -210] },
 };
@@ -337,6 +337,7 @@ export default defineGame<State>({
         lane: wetLayer({ wet: 1, puddles: 0.7, puddleScale: 8 }),
         asphalt: wetLayer({ wet: 1, puddles: 0.85, puddleScale: 7 }),
         sidewalk: wetLayer({ wet: 0.85, puddles: 0.45, puddleScale: 6 }),
+        promenade_paver: wetLayer({ wet: 0.92, puddles: 0.65, puddleScale: 7 }),
         plaza: wetLayer({ wet: 0.9, puddles: 0.8, puddleScale: 9 }),
         // 3D Parallax Interior Mapping (WGSL) ONLY for windows without 3D interior geometry
         // (1F commercial storefronts now have real 3D furnished rooms behind clear transmissive `shop_glass`).

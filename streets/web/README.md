@@ -6,10 +6,12 @@ A procedural Japanese townscape built with plain Three.js, hosting any of the
 repository's architectural models at real 1:1 scale across nine civic plots
 (three rows of three).
 
-The district pairs a station-front *Shotengai* and neighborhood commercial
-sub-centers (convenience stores, timber *machiya* izakayas and ramen shops with
-*noren* curtains and *chochin* lanterns, corner *kissaten* cafes, pharmacies,
-bookstores, and local supermarkets with projecting *sode-kanban* sleeve signs)
+The district pairs an Osaka Dotonbori & Shinsaibashi-inspired flagship
+*Shotengai* promenade (herringbone granite pavers, undergrounded utilities,
+one-of-a-kind 3D culinary & theatre landmarks, luxury glass boutiques, Taisho
+heritage brick dining, timber *machiya* izakayas with *noren* curtains and
+*chochin* lanterns, corner *kissaten* cafes, and neighborhood commercial
+sub-centers)
 with subdivided residential blocks of six *ikkodate* detached-house archetypes
 (*kirizuma* clay-tile roofs, *katanagare* galvalume monoslopes with rooftop PV,
 two-tone *yosemune* hipped roofs, 3-storey urban *kyosho-jutaku*, traditional

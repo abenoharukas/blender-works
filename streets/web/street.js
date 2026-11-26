@@ -28,6 +28,14 @@ import {
   createHedgePBR,
   createFoliageClusterTextureSet,
   createChochinTextureSet,
+  createPromenadePaverPBR,
+  createCoveGlowTextureSet,
+  createDotonboriFasciaSet,
+  createTowerSignTextureSet,
+  createRooftopBillboardSet,
+  createPodiumPosterSet,
+  createOhshoLanternStackSet,
+  createFestivalLanternSet,
 } from './japanese-textures.js';
 import {
   box,
@@ -38,6 +46,8 @@ import {
   buildShotengaiBuilding,
   buildKissatenCorner,
   buildNeighborhoodSuper,
+  buildDotonboriFlagship,
+  addDotonboriLanternGarland,
   addSleeveSign,
   addChochinRow,
   addGardenTree,
@@ -460,7 +470,7 @@ function createMaterialLibrary() {
     });
   };
   const shotengaiBanner = makeArchBanner('shotengai_banner', {
-    bg: '#8c1d18', fg: '#fff8e8', text: 'すずらん通り', sub: 'SUZURAN SHOPPING STREET', accent: '#d4af5a',
+    bg: '#8c1d18', fg: '#fff8e8', text: 'すずらん本通り', sub: 'SUZURAN GRAND PROMENADE', accent: '#e6c167',
   });
   const sideArchBanners = [
     makeArchBanner('arch_banner_ichibangai', {
@@ -590,7 +600,229 @@ function createMaterialLibrary() {
     roughness: 0.20,
   });
 
+  // 9. Osaka Dotonbori & Shinsaibashi Diverse Promenade Claddings, Unique Landmarks & Signage
+  const promenadePaver = stdPbr('promenade_paver', createPromenadePaverPBR());
+  const ivoryStone = stdPbr(
+    'ivory_stone',
+    createWallCladdingPBR({ baseHex: 0xf4efe4, style: 'plaster', seed: 1301 }),
+    { roughness: 0.58 },
+  );
+  const warmTravertine = stdPbr(
+    'warm_travertine',
+    createWallCladdingPBR({ baseHex: 0xded3c1, style: 'comm_tile', accentHex: 0xbfb29e, seed: 1327 }),
+    { roughness: 0.52 },
+  );
+  const charcoalGranite = stdPbr(
+    'charcoal_granite',
+    createWallCladdingPBR({ baseHex: 0x262930, style: 'comm_tile', accentHex: 0x1a1c21, seed: 1361 }),
+    { metalness: 0.20, roughness: 0.40 },
+  );
+  const kaniRed = phys('kani_red', {
+    color: 0xd11d15,
+    roughness: 0.16,
+    metalness: 0.05,
+    clearcoat: 0.96,
+    clearcoatRoughness: 0.05,
+  });
+  const dragonJade = phys('dragon_jade', {
+    color: 0x168a52,
+    roughness: 0.18,
+    metalness: 0.08,
+    clearcoat: 0.92,
+    clearcoatRoughness: 0.06,
+  });
+  const gyozaCrust = std('gyoza_crust', { color: 0xba6a26, roughness: 0.54 });
+  const kaniCream = std('kani_cream', { color: 0xf6efe0, roughness: 0.32, metalness: 0.04 });
+  const kaniGold = std('kani_gold', { color: 0xe0b34c, roughness: 0.24, metalness: 0.74 });
+  const canopyCrimson = std('canopy_crimson', { color: 0xa61c16, roughness: 0.68 });
+  const fuguGlow = phys('fugu_glow', {
+    color: 0xfff0cc,
+    emissive: 0xffc86b,
+    emissiveIntensity: 0.32,
+    transmission: 0.72,
+    roughness: 0.38,
+    ior: 1.28,
+  });
+  const marqueeBulb = std('marquee_bulb', {
+    color: 0xfff6e0,
+    emissive: 0xffd280,
+    emissiveIntensity: 1.8,
+    roughness: 0.18,
+  });
+  const coveGlowSet = createCoveGlowTextureSet();
+  const coveWarm = std('cove_warm', {
+    map: coveGlowSet.map,
+    emissive: 0xffffff,
+    emissiveMap: coveGlowSet.emissiveMap,
+    emissiveIntensity: 0.35,
+    roughness: 0.55,
+  });
+
+  const ohshoSet = createOhshoLanternStackSet();
+  const ohshoLantern = phys('ohsho_lantern', {
+    map: ohshoSet.map,
+    emissive: 0xffffff,
+    emissiveMap: ohshoSet.emissiveMap,
+    emissiveIntensity: 0.30,
+    transmission: 0.70,
+    roughness: 0.42,
+    ior: 1.28,
+  });
+
+  const dotonboriFasciaDefs = [
+    { style: 'ivory_sumi', text: 'かに道楽', badge: '本店', sub: 'KANI DORAKU · 活かに会席', seal: '道楽' },
+    { style: 'lacquer_gold', text: '鉄板神社 総本店', sub: 'TEPPAN JINJYA · 黒毛和牛串焼', seal: '神社' },
+    { style: 'crimson_gold', text: '本家 大たこ', sub: 'HONKE ŌTAKO · 名物たこ焼', seal: '本家' },
+    { style: 'chibo_neon', text: 'お好み焼 千房', sub: 'OKONOMIYAKI CHIBO · 鉄板焼', seal: '千房' },
+    { style: 'ivory_sumi', text: '名代 ふぐ料理 玄品', badge: '本店', sub: 'TORA-FUGU KAISEKI · てっちり', seal: '玄品' },
+    { style: 'crimson_gold', text: '元祖串かつ だるま', sub: 'KUSHIKATSU DARUMA · 二度漬け禁止', seal: '元祖' },
+    { style: 'lacquer_gold', text: '鮨・割烹 橘本陣', sub: 'OMAKASE SUSHI & KAPPŌ · 天然本鮪', seal: '本陣' },
+    { style: 'crimson_gold', text: '中央 マルチビジョン館', sub: 'SUZURAN GRAND VISION · PLAZA', seal: '中央' },
+    { style: 'crimson_gold', text: '金龍ラーメン 本店', sub: 'KINRYU RAMEN · 秘伝豚骨スープ', seal: '金龍' },
+    { style: 'ivory_sumi', text: '餃子専門 元祖王将', badge: '本店', sub: 'GYOZA OHSHO · 元祖焼餃子', seal: '王将' },
+    { style: 'lacquer_gold', text: '元祖 廻る元禄寿司', sub: 'GENROKU SUSHI · 創業昭和三十三年', seal: '元禄' },
+    { style: 'modern_minimal', bgHex: '#13161c', accent: '#e0ba67', text: 'LUMIÈRE MODE', sub: 'LUXURY BOUTIQUE & ATELIER' },
+    { style: 'lacquer_gold', text: 'すき焼・和牛 はり重', sub: 'SUKIYAKI HARIJU · 創業大正八年', seal: 'はり' },
+    { style: 'modern_minimal', bgHex: '#1b2b21', accent: '#d8be78', text: '宇治茶 辻利兵衛本店', sub: 'UJI MATCHA & WAGASHI SALON' },
+    { style: 'modern_minimal', bgHex: '#f5f2eb', accent: '#c92218', text: '中央 免税コスメ館', sub: 'COSMETICS · WATCHES · TAX FREE' },
+    { style: 'ivory_sumi', text: '北極星 洋食本店', badge: '老舗', sub: 'HOKKYOKUSEI · 大正オムライス', seal: '洋食' },
+    { style: 'kabuki_theatre', text: 'すずらん松竹座', sub: 'SUZURAN SHOCHIKUZA · 歌舞伎・演劇殿堂' },
+    { style: 'modern_minimal', bgHex: '#f6f0e2', accent: '#6b4e2e', text: 'うどん 粋家 今井', sub: 'UDON SUKIYA IMAI · 創業昭和二十一年' },
+  ];
+  const dotonboriFascias = dotonboriFasciaDefs.map((cfg, i) => {
+    const set = createDotonboriFasciaSet(cfg);
+    return std(`dotonbori_fascia_${i}`, {
+      map: set.map,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0.28,
+      roughness: 0.36,
+    });
+  });
+  const kabukiFascia = dotonboriFascias[16];
+  const imaiFascia = dotonboriFascias[17];
+
+  const towerSignDefs = [
+    [
+      { bg: '#186b42', fg: '#fff8e8', accent: '#f2c955', text: '元祖串かつ', sub: '名代' },
+      { bg: '#f0be37', fg: '#181410', accent: '#9e1c14', text: '24時間\n営業', sub: '年中無休', horizontal: true },
+      { bg: '#b82018', fg: '#fff8eb', accent: '#f2c955', text: 'だるま本店', sub: '串かつ' },
+    ],
+    [
+      { bg: '#faf4e6', fg: '#171311', accent: '#c42218', text: 'かに道楽', sub: '活かに' },
+      { bg: '#c42218', fg: '#fff8eb', accent: '#f2cf70', text: '炭火かにすき', sub: '会席' },
+      { bg: '#1e2c44', fg: '#f5dfb0', accent: '#d9b256', text: '個室予約承り', sub: '2F〜4F' },
+    ],
+    [
+      { bg: '#181311', fg: '#f5d27a', accent: '#cf261d', text: '鉄板神社', sub: '総本店' },
+      { bg: '#b82218', fg: '#fff8eb', accent: '#f5d27a', text: '黒毛和牛', sub: 'A5等級' },
+      { bg: '#f5ecd8', fg: '#181311', accent: '#181311', text: 'お好み焼', sub: '鉄板焼' },
+    ],
+    [
+      { bg: '#cc1f16', fg: '#ffffff', accent: '#ffe078', text: '免税\nTAX FREE', sub: 'DUTY FREE', horizontal: true },
+      { bg: '#193561', fg: '#fff6e0', accent: '#ebbf57', text: '時計・宝飾品', sub: 'LUXURY' },
+      { bg: '#187050', fg: '#ffffff', accent: '#cbe8d8', text: '医薬品・化粧品', sub: 'COSME' },
+    ],
+    [
+      { bg: '#14241b', fg: '#52f290', accent: '#ff4838', text: '千房本店', sub: 'お好み焼' },
+      { bg: '#d94c1e', fg: '#fffaf0', accent: '#ffe078', text: '特製ねぎ焼', sub: '名物' },
+      { bg: '#f2c23d', fg: '#171411', accent: '#171411', text: '鉄板ステーキ', sub: '和牛' },
+    ],
+    [
+      { bg: '#1b3054', fg: '#fff8eb', accent: '#e6be58', text: 'とらふぐ亭', sub: '活ふぐ' },
+      { bg: '#faf5ea', fg: '#181412', accent: '#1b3054', text: 'てっちり鍋', sub: '名代' },
+      { bg: '#9e2219', fg: '#fff6e2', accent: '#e6be58', text: '白子・てっさ', sub: '季節味覚' },
+    ],
+    [
+      { bg: '#c9281d', fg: '#fff8eb', accent: '#ffd86b', text: '金龍ラーメン', sub: '24H営業' },
+      { bg: '#f2be38', fg: '#181410', accent: '#b81f17', text: '豚骨・焼豚', sub: '秘伝' },
+      { bg: '#212e42', fg: '#fff5df', accent: '#f2be38', text: '生ビール・酒', sub: '酒処' },
+    ],
+    [
+      { bg: '#1c2433', fg: '#f5d482', accent: '#d4ab4e', text: '元禄寿司', sub: '回転寿司' },
+      { bg: '#f7f2e6', fg: '#192230', accent: '#b8241a', text: '天然本鮪', sub: '大トロ' },
+      { bg: '#1e5c45', fg: '#fff8ec', accent: '#e8c468', text: '活魚にぎり', sub: 'SUSHI' },
+    ],
+  ];
+  const towerSigns = towerSignDefs.map((tiers, i) => {
+    const set = createTowerSignTextureSet(tiers);
+    return std(`tower_sign_${i}`, {
+      map: set.map,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0.30,
+      roughness: 0.38,
+    });
+  });
+
+  const rooftopSigns = ['taxfree', 'kanidoraku', 'chibo', 'ebisu', 'asahi_gold'].map((v, i) => {
+    const set = createRooftopBillboardSet(v);
+    return std(`rooftop_sign_${i}`, {
+      map: set.map,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0.34,
+      roughness: 0.35,
+    });
+  });
+
+  const podiumPosters = [
+    'wagyu', 'crab_feast', 'gourmet_fest', 'glico_sprinter', 'neon_ring', 'cosme_luxury', 'kabuki_bill',
+  ].map((v, i) => {
+    const set = createPodiumPosterSet(v);
+    return std(`podium_poster_${i}`, {
+      map: set.map,
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0.30,
+      roughness: 0.34,
+    });
+  });
+
+  const festivalLanterns = [
+    { text: 'すずらん', sub: '中央本通り' },
+    { text: '本町筋', sub: '歓迎・商店街' },
+  ].map((cfg, i) => {
+    const set = createFestivalLanternSet(cfg);
+    return phys(`festival_lantern_${i}`, {
+      map: set.map,
+      normalMap: set.normalMap,
+      normalScale: new THREE.Vector2(0.80, 0.80),
+      emissive: 0xffffff,
+      emissiveMap: set.emissiveMap,
+      emissiveIntensity: 0.28,
+      transmission: 0.72,
+      roughness: 0.42,
+      ior: 1.28,
+    });
+  });
+
   return {
+    promenadePaver,
+    ivoryStone,
+    warmTravertine,
+    charcoalGranite,
+    kaniRed,
+    dragonJade,
+    gyozaCrust,
+    kaniCream,
+    kaniGold,
+    canopyCrimson,
+    fuguGlow,
+    marqueeBulb,
+    coveWarm,
+    ohshoLantern,
+    dotonboriFascias,
+    kabukiFascia,
+    imaiFascia,
+    towerSigns,
+    rooftopSigns,
+    podiumPosters,
+    sprinterPoster: podiumPosters[3],
+    neonRingPoster: podiumPosters[4],
+    cosmePoster: podiumPosters[5],
+    kabukiPoster: podiumPosters[6],
+    festivalLanterns,
     houseLightWalls,
     houseLightBlanks: houseLightWalls,
     houseSlitWalls,
@@ -741,31 +973,45 @@ function addZebraCrosswalk(mats, cx, cz, width, alongX = false) {
   }
 }
 
-function addNorthSouthAvenue(mats, x, z0, z1, roadHalf = 4.6, walkW = 2.1, tactile = false, withDrainGrates = false) {
+function addNorthSouthAvenue(
+  mats, x, z0, z1, roadHalf = 4.6, walkW = 2.1, tactile = false, withDrainGrates = false, promenade = false,
+) {
   const len = z1 - z0;
   if (len <= 2) return;
   const midZ = (z0 + z1) * 0.5;
-  mats.road.add(box(roadHalf * 2, 0.1, len), x, 0.05, midZ);
+  if (promenade && mats.promenadePaver) {
+    // Honed granite interlocking herringbone stone carriageway & wide pedestrian promenade!
+    mats.promenadePaver.add(box(roadHalf * 2, 0.105, len, 3.4, 3.4), x, 0.052, midZ);
+  } else {
+    mats.road.add(box(roadHalf * 2, 0.1, len), x, 0.05, midZ);
+  }
 
   for (const s of [-1, 1]) {
-    mats.sidewalk.add(box(walkW, 0.2, len), x + s * (roadHalf + walkW * 0.5), 0.1, midZ);
-    // Concrete curb + street gutter apron (L型側溝)
+    if (promenade && mats.promenadePaver) {
+      mats.promenadePaver.add(box(walkW, 0.2, len, 2.6, 2.6), x + s * (roadHalf + walkW * 0.5), 0.1, midZ);
+      mats.archGoldTrim.add(box(0.05, 0.02, len - 2), x + s * (roadHalf + 0.22), 0.205, midZ);
+    } else {
+      mats.sidewalk.add(box(walkW, 0.2, len), x + s * (roadHalf + walkW * 0.5), 0.1, midZ);
+    }
+    // Granite/concrete curb + street gutter apron (L型側溝)
     mats.concrete.add(box(0.18, 0.22, len), x + s * (roadHalf + 0.09), 0.11, midZ);
-    mats.concrete.add(box(0.32, 0.015, len - 2), x + s * (roadHalf - 0.16), 0.104, midZ);
-    // Outer white lane edge line (外側線)
-    mats.roadPaint.add(box(0.14, 0.02, len - 4), x + s * (roadHalf - 0.55), 0.108, midZ);
+    mats.concrete.add(box(0.32, 0.015, len - 2), x + s * (roadHalf - 0.16), 0.106, midZ);
+    if (!promenade) {
+      mats.roadPaint.add(box(0.14, 0.02, len - 4), x + s * (roadHalf - 0.55), 0.108, midZ);
+    }
     if (tactile) {
-      mats.tactileYellow.add(box(0.3, 0.02, len - 2), x + s * (roadHalf + 0.75), 0.208, midZ);
+      mats.tactileYellow.add(box(0.28, 0.02, len - 2), x + s * (roadHalf + 0.82), 0.208, midZ);
     }
     if (withDrainGrates) {
       for (let gz = z0 + 12; gz < z1 - 12; gz += 15) {
-        mats.drainGrate.add(box(0.30, 0.02, 0.86, 0.30, 0.86), x + s * (roadHalf - 0.16), 0.108, gz);
+        mats.drainGrate.add(box(0.30, 0.02, 0.86, 0.30, 0.86), x + s * (roadHalf - 0.16), 0.110, gz);
       }
     }
   }
-  // Center dashed line
-  for (let z = z0 + 9; z < z1 - 9; z += 9.5) {
-    mats.roadPaint.add(box(0.14, 0.02, 3.8), x, 0.108, z);
+  if (!promenade) {
+    for (let z = z0 + 9; z < z1 - 9; z += 9.5) {
+      mats.roadPaint.add(box(0.14, 0.02, 3.8), x, 0.108, z);
+    }
   }
 }
 
@@ -800,13 +1046,92 @@ function addResidentialLaneEW(mats, z, x0, x1) {
 let _globalSignSeq = 0;
 
 /**
- * Populates a commercial frontage strip (小商圈 / 商店街) from startPos to endPos.
+ * Curated Zero-Repetition Osaka Minami Promenade Planner:
+ * Mixes strictly ONE-OF-A-KIND Dotonbori landmarks (1 Crab, 1 Shochikuza Theatre, 1 Kinryu Dragon,
+ * 1 Osaka Ohsho Gyoza+Lanterns, 1 Dotonbori Imai Willow Sukiya, 1 Genroku Sushi, 1 Fugu, 1 Octopus,
+ * 1 Ebisu Sprinter Media Wall, 1 Teppan Crest) with 6 upscale Shinsaibashi/Taisho architectural styles
+ * AND classic 2F clay-roofed Machiya, Corner Kissaten cafés, and 3F–4F Porcelain Zakkyo shops!
+ */
+function resolvePromenadeSlot(sideKey, blockIdx, lotInBlock, atCorner) {
+  const key = `${sideKey}:${blockIdx}:${lotInBlock}`;
+  const UNIQUE_SLOTS = {
+    // Block 4 (z = 534..586): South approach & `street` camera foreground
+    'west:4:0': { kind: 'kissaten', w: 9.6 },
+    'west:4:1': { kind: 'flagship', archStyle: 1, storeys: 4, w: 10.6, fasciaIdx: 12 }, // はり重 Taisho Brick
+    'west:4:2': { kind: 'shotengai', storeys: 3, w: 8.4 },
+    'west:4:3': { kind: 'flagship', archStyle: 5, storeys: 5, w: 10.2, fasciaIdx: 6 },
+    'east:4:0': { kind: 'flagship', archStyle: 0, storeys: 4, w: 10.8, fasciaIdx: 11 }, // Shinsaibashi Luxury Glass
+    'east:4:1': { kind: 'machiya', w: 7.8 },
+    'east:4:2': { kind: 'shotengai', storeys: 3, w: 8.6 },
+    'east:4:3': { kind: 'flagship', archStyle: 2, storeys: 4, w: 10.2, fasciaIdx: 13 },
+
+    // Block 3 (z = 444..518): Grand Entrance Block framed inside z = 514 道頓堀 戎橋通り Arch!
+    'west:3:0': { kind: 'flagship', archStyle: 3, storeys: 5, w: 10.4, fasciaIdx: 14 },
+    'west:3:1': { kind: 'machiya', w: 7.6 },
+    'west:3:2': { kind: 'flagship', landmark: 'teppan_shrine', storeys: 4, w: 10.2 },   // Unique 鉄板神社!
+    'west:3:3': { kind: 'shotengai', storeys: 3, w: 8.4 },
+    'west:3:4': { kind: 'flagship', archStyle: 2, storeys: 4, w: 9.6, fasciaIdx: 13 },
+    'west:3:5': { kind: 'flagship', landmark: 'ebisu_media', storeys: 6, w: 12.2, crown: 3 }, // Unique Sprinter Media Wall!
+    'east:3:0': { kind: 'kissaten', w: 9.4 },
+    'east:3:1': { kind: 'flagship', archStyle: 4, storeys: 5, w: 10.2, fasciaIdx: 5 },
+    'east:3:2': { kind: 'shotengai', storeys: 4, w: 8.6 },
+    'east:3:3': { kind: 'machiya', w: 7.6 },
+    'east:3:4': { kind: 'flagship', archStyle: 1, storeys: 4, w: 9.8, fasciaIdx: 15 },
+    'east:3:5': { kind: 'flagship', landmark: 'shochikuza', storeys: 5, w: 13.2 },      // Unique 大阪松竹座 Theatre!
+
+    // Block 2 (z = 332..428): Central Dotonbori Culinary & Luxury Heart (`shotengai_walk` & `shotengai`)
+    'west:2:0': { kind: 'kissaten', w: 9.4 },
+    'west:2:1': { kind: 'flagship', archStyle: 2, storeys: 4, w: 9.8, fasciaIdx: 13 },  // 宇治茶 辻利 Cedar Louvers
+    'west:2:2': { kind: 'flagship', landmark: 'genroku_sushi', storeys: 3, w: 9.8 },    // Unique 元禄寿司 Giant Nigiri!
+    'west:2:3': { kind: 'shotengai', storeys: 3, w: 8.2 },
+    'west:2:4': { kind: 'flagship', landmark: 'osaka_ohsho', storeys: 4, w: 10.6 },     // Unique 大阪王将 Gyoza + 4 Lanterns!
+    'west:2:5': { kind: 'flagship', archStyle: 1, storeys: 4, w: 10.0, fasciaIdx: 15 }, // 北極星 Taisho Heritage Brick
+    'west:2:6': { kind: 'machiya', w: 7.6 },
+    'west:2:7': { kind: 'flagship', archStyle: 5, storeys: 5, w: 10.4, fasciaIdx: 6, crown: 0 },
+    'east:2:0': { kind: 'flagship', archStyle: 4, storeys: 5, w: 10.6, fasciaIdx: 3, crown: 2 }, // 千房 Neon Tower
+    'east:2:1': { kind: 'machiya', w: 7.8 },
+    'east:2:2': { kind: 'flagship', landmark: 'kinryu_dragon', storeys: 3, w: 10.6 },   // Unique 金龍 Emerald Dragon!
+    'east:2:3': { kind: 'flagship', archStyle: 0, storeys: 4, w: 10.2, fasciaIdx: 11 }, // Shinsaibashi Glass + Neon Ring
+    'east:2:4': { kind: 'flagship', landmark: 'imai', storeys: 3, w: 9.8 },             // Unique 道頓堀 今井 Willow Sukiya!
+    'east:2:5': { kind: 'flagship', landmark: 'kani_doraku', storeys: 4, w: 10.8 },     // THE ONE & ONLY かに道楽 Crab!
+    'east:2:6': { kind: 'flagship', archStyle: 3, storeys: 5, w: 10.4, fasciaIdx: 14 }, // 心斎橋 免税コスメ館
+    'east:2:7': { kind: 'shotengai', storeys: 3, w: 8.6 },
+
+    // Block 1 (z = 240..316): Mid-North Promenade
+    'west:1:5': { kind: 'flagship', landmark: 'otako_octopus', storeys: 4, w: 10.4 },   // Unique 本家 大たこ Octopus!
+    'east:1:3': { kind: 'flagship', landmark: 'zuboraya_fugu', storeys: 4, w: 10.2 },   // Unique 名代 とらふぐ Lantern!
+  };
+  if (UNIQUE_SLOTS[key]) return UNIQUE_SLOTS[key];
+
+  // Diverse fallback mix across Blocks 0 & 1 (zero repeated 3D mascots!)
+  const mixHash = (blockIdx * 7 + lotInBlock * 3 + (sideKey === 'east' ? 5 : 0)) % 9;
+  if (atCorner && mixHash % 3 === 0) return { kind: 'kissaten', w: 9.4 };
+  if (mixHash === 1) return { kind: 'machiya', w: 7.6 };
+  if (mixHash === 3 || mixHash === 7) return { kind: 'shotengai', storeys: mixHash === 3 ? 3 : 4, w: 8.6 };
+  const archStyle = (blockIdx * 2 + lotInBlock + (sideKey === 'east' ? 3 : 0)) % 6;
+  const storeys = [4, 3, 4, 5, 5, 4][archStyle];
+  const fasciaMap = [11, 12, 13, 14, 6, 15];
+  return {
+    kind: 'flagship',
+    archStyle,
+    storeys,
+    w: 9.8 + (lotInBlock % 3) * 0.6,
+    fasciaIdx: fasciaMap[archStyle],
+    crown: (atCorner && storeys >= 5) ? ((blockIdx + lotInBlock) % 5) : null,
+  };
+}
+
+/**
+ * Populates a commercial frontage strip (小商圈 / 大阪ミナミ・道頓堀商店街) from startPos to endPos.
  */
 function populateCommercialStrip(mats, rnd, {
-  axis = 'z', fixedCoord, from, to, yaw, crossCoords = [], detail = true, allowSuper = false, mode = 'retail',
+  axis = 'z', fixedCoord, from, to, yaw, crossCoords = [], detail = true, allowSuper = false, mode = 'retail', sideKey = 'west',
 }) {
   let cursor = from;
-  const depth = 11.4;
+  const depth = mode === 'dotonbori' ? 12.2 : 11.4;
+  let stripSeq = sideKey === 'east' ? 17 : 0;
+  let currentBlock = -1;
+  let lotInBlock = 0;
 
   while (cursor < to - 5.5) {
     const nearCross = crossCoords.find((c) => cursor + 8 > c - 7.5 && cursor < c + 7.5);
@@ -824,11 +1149,23 @@ function populateCommercialStrip(mats, rnd, {
       continue;
     }
 
+    const blockIdx = crossCoords.filter((c) => c < cursor).length - 1;
+    if (blockIdx !== currentBlock) {
+      currentBlock = blockIdx;
+      lotInBlock = 0;
+    }
+
     const atCorner = crossCoords.some((c) => Math.abs(cursor - (c + 8.0)) < 2.2 || Math.abs((cursor + 12) - (c - 7.5)) < 3.5);
     let lotW;
     let builderType;
+    let slotSpec = null;
 
-    if (mode === 'yokocho') {
+    if (mode === 'dotonbori') {
+      slotSpec = resolvePromenadeSlot(sideKey, Math.max(0, blockIdx), lotInBlock, atCorner);
+      lotW = Math.min(slotSpec.w ?? 10.0, distToNextCross);
+      builderType = slotSpec.kind;
+      lotInBlock += 1;
+    } else if (mode === 'yokocho') {
       if (atCorner && distToNextCross >= 9.2 && rnd() < 0.55) {
         lotW = Math.min(9.4, distToNextCross);
         builderType = 'kissaten';
@@ -865,11 +1202,23 @@ function populateCommercialStrip(mats, rnd, {
 
     if (!insideAnyPlotPlaza(cx, cz, 5)) {
       const lot = new LotContext(cx, cz, yaw, 0);
-      // Coprime stride (+5) across 16 sleeve signs guarantees adjacent buildings never share a sign!
       _globalSignSeq = (_globalSignSeq + 5) % mats.sleeveSigns.length;
       const signSeed = _globalSignSeq;
 
-      if (builderType === 'konbini') {
+      if (builderType === 'flagship') {
+        const crownIdx = slotSpec?.crown ?? null;
+        buildDotonboriFlagship(lot, mats, rnd, {
+          w: lotW - 0.18,
+          d: depth,
+          storeys: slotSpec?.storeys ?? 4,
+          seq: crownIdx !== null ? crownIdx : stripSeq,
+          landmark: slotSpec?.landmark ?? null,
+          archStyle: slotSpec?.archStyle ?? 0,
+          fasciaIdx: slotSpec?.fasciaIdx ?? null,
+          withRooftopCrown: crownIdx !== null,
+        });
+        stripSeq += 1;
+      } else if (builderType === 'konbini') {
         buildKonbini(lot, mats, rnd, { w: lotW - 0.3, d: depth, twoStorey: rnd() < 0.42, detail });
       } else if (builderType === 'super') {
         buildNeighborhoodSuper(lot, mats, rnd, { w: lotW - 0.4, d: depth + 1.5, detail });
@@ -901,7 +1250,7 @@ function populateCommercialStrip(mats, rnd, {
       }
     }
 
-    cursor += lotW + 0.3 + rnd() * 0.35;
+    cursor += lotW + (mode === 'dotonbori' ? 0.16 : 0.3 + rnd() * 0.35);
   }
 }
 
@@ -1040,8 +1389,8 @@ export function buildStreet(scene) {
   const northEwZs = [-122, -198, -362, -452, -538, -714];
   const nsAvenueXs = [-600, -460, -182, 182, 460, 600];
 
-  // Main North-South Ekimae Shotengai (with tactile paving & storm drain grates!)
-  addNorthSouthAvenue(mats, 0, STREET.from, STREET.to + 4, STREET.road, STREET.walk, true, true);
+  // Main North-South Osaka Dotonbori Flagship Promenade (herringbone granite stone pavers & undergrounded utilities!)
+  addNorthSouthAvenue(mats, 0, STREET.from, STREET.to + 4, STREET.road, 2.42, true, true, true);
 
   for (const ax of nsAvenueXs) {
     addNorthSouthAvenue(mats, ax, -716, 598, 4.4, 1.8, Math.abs(ax) === 182, false);
@@ -1063,23 +1412,24 @@ export function buildStreet(scene) {
     }
   }
 
-  // Fix #3: Main Suzuran Shotengai Entrance Arch + Distinct Side-Street Truss Arches!
+  // Main Dotonbori Ebisu Grand Entrance Archway + Central Promenade Arch + Side-Street Arches!
   addShotengaiArch(mats, 514, STREET.road + 1.15, mats.shotengaiBanner, 0, 0);
+  addShotengaiArch(mats, 240, STREET.road + 1.15, mats.shotengaiBanner, 0, 0);
   for (const side of [-1, 1]) {
     addShotengaiArch(mats, 324, 4.85, mats.sideArchBanners[0], side * 13.0, Math.PI * 0.5);
   }
 
-  // 4. COMMERCIAL DISTRICTS & BAR/YOKOCHO STREETS
+  // 4. OSAKA DOTONBORI FLAGSHIP PROMENADE & COMMERCIAL DISTRICTS
   const mainFrontX = FRONT + 5.85;
   const allCrossZs = [...northEwZs, ...ewCrossZs].sort((a, b) => a - b);
 
   populateCommercialStrip(mats, rnd, {
     axis: 'z', fixedCoord: -mainFrontX, from: 152, to: 586, yaw: Math.PI * 0.5,
-    crossCoords: ewCrossZs, detail: true, allowSuper: false,
+    crossCoords: ewCrossZs, detail: true, allowSuper: false, mode: 'dotonbori', sideKey: 'west',
   });
   populateCommercialStrip(mats, rnd, {
     axis: 'z', fixedCoord: mainFrontX, from: 152, to: 586, yaw: -Math.PI * 0.5,
-    crossCoords: ewCrossZs, detail: true, allowSuper: false,
+    crossCoords: ewCrossZs, detail: true, allowSuper: false, mode: 'dotonbori', sideKey: 'east',
   });
 
   for (const dir of [-1, 1]) {
@@ -1241,24 +1591,46 @@ export function buildStreet(scene) {
     }
   }
 
-  // 6. MAIN SHOTENGAI STREET FURNITURE, UTILITY POLES, OVERHEAD WIRES & KEI-CARS
-  // Fix #2: Suzuran decorative bell lamps cycling cleanly across 4 non-emissive woven Shotengai flags!
+  // 6. PROMENADE STREETSCAPE RHYTHM: CENTRAL DOTONBORI LANTERN COLONNADE + SHINSAIBASHI STREET TREES!
+  // Reserve the continuous golden festival lantern colonnade exclusively for the central culinary heart [336..424]
+  // while framing the entrance & boutique blocks with manicured Zelkova/Maple street trees in granite curb planters!
+  const garlandSegments = [
+    [336, 424],
+  ];
+  const treePlanterZs = [168, 198, 258, 294, 458, 488, 574];
   for (const side of [-1, 1]) {
+    const gx = side * (STREET.road + 0.48);
+    for (const [gz0, gz1] of garlandSegments) {
+      addDotonboriLanternGarland(mats, { x: gx, z0: gz0, z1: gz1, side });
+    }
+    for (let ti = 0; ti < treePlanterZs.length; ti++) {
+      const tz = treePlanterZs[ti];
+      const tx = side * (STREET.road + 0.62);
+      mats.concrete.add(box(0.96, 0.28, 1.32), tx, 0.22, tz);
+      mats.archGoldTrim.add(box(1.02, 0.04, 1.38), tx, 0.37, tz);
+      const tLot = new LotContext(tx, tz, 0, 0.18);
+      addGardenTree(tLot, mats, 0, 0, 0.92, (ti + (side > 0 ? 1 : 0)) % 4 === 0 ? 'autumn' : 'leafy', true);
+    }
     let lampSeq = 0;
-    for (let z = STREET.from + 14; z < STREET.to - 8; z += 26) {
-      if (ewCrossZs.some((cz) => Math.abs(z - cz) < 8.5)) continue;
-      const lx = side * (STREET.road + 0.55);
+    for (const lz of [152, 184, 218, 244, 276, 312, 332, 379, 428, 444, 474, 506, 534, 586]) {
+      const lx = side * (STREET.road + 0.52);
       const flagBucket = mats.streetFlags[(lampSeq + (side > 0 ? 0 : 2)) % mats.streetFlags.length];
       const breeze = Math.sin(lampSeq * 1.9 + side) * 0.04;
-      addShotengaiLamp(mats, lx, z, side, flagBucket, breeze);
-      lampSpots.push({ x: lx, y: 4.5, z, radius: 22 });
+      addShotengaiLamp(mats, lx, lz, side, flagBucket, breeze);
+      lampSpots.push({ x: lx, y: 4.5, z: lz, radius: 25 });
       lampSeq += 1;
     }
   }
+  for (const side of [-1, 1]) {
+    for (let z = 348; z <= 416; z += 28) {
+      lampSpots.push({ x: side * (STREET.road + 0.5), y: 3.1, z, radius: 22 });
+    }
+  }
 
-  // Fix #1: Concrete utility poles with curved non-emissive enameled chome plaques & safety wraps!
-  const rightPoleX = STREET.road + 1.65;
-  const leftPoleX = -(STREET.road + 1.65);
+  // Secondary commercial avenue (x = 182): authentic Japanese concrete utility poles, overhead wires & vending corners
+  const secAvenueX = 182;
+  const rightPoleX = secAvenueX + 4.4 + 1.45;
+  const leftPoleX = secAvenueX - (4.4 + 1.45);
   const rightPoles = [];
   const leftPoles = [];
 
@@ -1273,7 +1645,6 @@ export function buildStreet(scene) {
     addUtilityPole(mats, leftPoleX, snappedZ, leftPoles.length % 2 === 0, 0, -1, leftPoles.length + 1);
   }
 
-  // Longitudinal 3-phase high-voltage & low-voltage telecom catenary wires
   for (let i = 0; i < rightPoles.length - 1; i++) {
     const zA = rightPoles[i];
     const zB = rightPoles[i + 1];
@@ -1294,9 +1665,9 @@ export function buildStreet(scene) {
     mats.wire.add(wireGeometry([leftPoleX, yCross, zCross], [rightPoleX, yCross + 0.25, zCross + 2.5], 0.42, 0.02));
   }
 
-  // Street-side Vending Machine Corners (自販機コーナー)
+  // Street-side Vending Machine Corners along secondary commercial streets
   for (const [side, z] of [[-1, 376], [1, 344], [-1, 276], [1, 194]]) {
-    const vx = side * (STREET.road + 1.82);
+    const vx = secAvenueX + side * (4.4 + 1.55);
     mats.vendRed.add(box(0.72, 1.9, 0.96), vx, 0.95, z);
     mats.vendFace.add(box(0.05, 1.26, 0.82), vx - side * 0.37, 1.16, z);
     mats.vendWhite.add(box(0.72, 1.9, 0.96), vx, 0.95, z + 1.06);
@@ -1304,12 +1675,10 @@ export function buildStreet(scene) {
     mats.vendBlue.add(box(0.45, 0.86, 0.46), vx, 0.43, z + 1.88);
   }
 
-  // Japanese Kei-cars & delivery vans
+  // Japanese Kei-cars & delivery vans on cross-streets & approaches (keeping pedestrian-priority promenade uncluttered)
   const roadCars = [
-    { x: -2.2, z: 362, yaw: Math.PI, color: 0, van: false },
-    { x: 2.2, z: 292, yaw: 0, color: 2, van: false },
-    { x: -2.3, z: 248, yaw: Math.PI, color: 3, van: true },
-    { x: 2.1, z: 446, yaw: 0, color: 5, van: false },
+    { x: -2.2, z: 548, yaw: Math.PI, color: 0, van: false },
+    { x: 2.2, z: 206, yaw: 0, color: 2, van: false },
     { x: -46, z: 318.1, yaw: Math.PI * 0.5, color: 1, van: true },
     { x: 58, z: 221.9, yaw: -Math.PI * 0.5, color: 6, van: false },
   ];
@@ -1334,7 +1703,7 @@ export function buildStreet(scene) {
   };
 
   for (const key of [
-    'road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder',
+    'road', 'lane', 'asphaltApron', 'sidewalk', 'promenadePaver', 'plaza', 'plazaBorder',
     'lotPad', 'roadPaint', 'tactileYellow', 'drainGrate',
   ]) {
     buildAll(mats[key], { castShadow: false, receiveShadow: true });
@@ -1342,13 +1711,14 @@ export function buildStreet(scene) {
   buildAll(mats.shopGlass, { castShadow: false, receiveShadow: false });
 
   const skipKeys = new Set([
-    'road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder', 'lotPad',
+    'road', 'lane', 'asphaltApron', 'sidewalk', 'promenadePaver', 'plaza', 'plazaBorder', 'lotPad',
     'roadPaint', 'tactileYellow', 'drainGrate', 'shopGlass',
     'houseLightBlanks', 'houseDarkBlanks', 'shikkuiBlank',
     'commUpperLight', 'windowLitList', 'konbiniLitList',
     'fasciasIzakaya', 'fasciasRamen', 'fasciasKissaten', 'fasciasPharmacy', 'fasciasBookstore',
     'shopRetails', 'norenSets', 'awnings', 'carWhite',
     'lanternRed', 'lanternWarm', 'lanternAll',
+    'kabukiFascia', 'imaiFascia', 'sprinterPoster', 'neonRingPoster', 'cosmePoster', 'kabukiPoster',
   ]);
   for (const [key, val] of Object.entries(mats)) {
     if (skipKeys.has(key)) continue;

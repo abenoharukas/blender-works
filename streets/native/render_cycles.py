@@ -51,8 +51,8 @@ BASE_BLEND = os.path.join(OUT, "cycles-street-base.blend")
 VIEWS = {
     # Same eye-level street preset as the ThreeRT scene.
     "street": {"pos": (4.9, 1.7, 560.0), "target": (0.0, 55.0, 90.0), "fov": 52.0},
-    "shotengai": {"pos": (3.6, 8.8, 366.0), "target": (-12.0, 4.6, 308.0), "fov": 52.0},
-    "shotengai_walk": {"pos": (-2.5, 1.75, 392.0), "target": (8.5, 2.4, 370.0), "fov": 52.0},
+    "shotengai": {"pos": (3.8, 6.2, 398.0), "target": (-9.5, 7.2, 304.0), "fov": 52.0},
+    "shotengai_walk": {"pos": (-3.5, 1.75, 416.5), "target": (4.5, 6.45, 350.0), "fov": 52.0},
     "ikkodate": {"pos": (36.0, 3.2, 380.0), "target": (106.0, 2.8, 379.2), "fov": 52.0},
 }
 
@@ -277,7 +277,7 @@ def configure_render(samples, width, height):
     scene.cycles.diffuse_bounces = 3
     scene.cycles.glossy_bounces = 3
     scene.cycles.transmission_bounces = 4
-    scene.cycles.transparent_max_bounces = 4
+    scene.cycles.transparent_max_bounces = 16
     scene.cycles.sample_clamp_indirect = 8.0
     scene.cycles.blur_glossy = 1.0
     scene.render.resolution_x = width

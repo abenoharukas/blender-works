@@ -779,6 +779,16 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       boostEmissive(streetMats.sideArchBanners, 0.7, 1.3);
       boostEmissive(streetMats.fasciasAll, 0.7, 1.25, true);
       boostEmissive(streetMats.konbiniLitList, 0.75, 1.65);
+      // Osaka Dotonbori flagship louvers, marquee bulbs, stacked sign towers, rooftop billboards & festival lanterns
+      boostEmissive(streetMats.marqueeBulb, 0.6, 5.8);
+      boostEmissive(streetMats.coveWarm, 0.35, 2.45);
+      boostEmissive(streetMats.fuguGlow, 0.2, 1.45);
+      boostEmissive(streetMats.ohshoLantern, 0.15, 1.25);
+      boostEmissive(streetMats.dotonboriFascias, 0.65, 1.65);
+      boostEmissive(streetMats.towerSigns, 0.65, 1.75);
+      boostEmissive(streetMats.rooftopSigns, 0.65, 1.95);
+      boostEmissive(streetMats.podiumPosters, 0.65, 1.65);
+      boostEmissive(streetMats.festivalLanterns, 0.1, 1.15);
       // Randomly lit 3D recessed residential & commercial windows + real 3D 1F shop interior fixtures at night
       boostEmissive(streetMats.windowLitList, 0, 1.85);
       boostEmissive(streetMats.shop3dLampWarm, 0, 5.5);
@@ -787,7 +797,7 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
       boostEmissive(streetMats.shop3dCoolerGlow, 0, 3.0);
 
       // Wet roads & plazas in rain
-      for (const key of ['road', 'lane', 'asphaltApron', 'sidewalk', 'plaza', 'plazaBorder']) {
+      for (const key of ['road', 'lane', 'asphaltApron', 'sidewalk', 'promenadePaver', 'plaza', 'plazaBorder']) {
         const m = streetMats[key]?.material;
         const base = materialBaselines.get(m);
         if (!m || !base) continue;

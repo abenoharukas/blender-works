@@ -4,7 +4,7 @@ Independent procedural Blender studies under `works/`, with the Three.js viewer 
 
 ## Japanese Streetscape (`streets/`)
 
-A procedural Japanese district combining a station-front *Shotengai* (convenience stores, timber *machiya* izakayas and ramen shops with *noren* curtains and *chochin* lanterns, corner *kissaten* cafes, pharmacies, and bookstores) with six *ikkodate* detached-house archetypes across nine civic plots hosting any tower model in this repository at 1:1 scale.
+A procedural Japanese district combining an Osaka Dotonbori & Shinsaibashi-inspired flagship *Shotengai* promenade (herringbone granite stone pavers, undergrounded utilities, one-of-a-kind 3D culinary & theatre landmarks including a snow crab, coiling emerald dragon, gyoza platter & 4-tier lantern rack, sushi nigiri, Neo-Renaissance arch theatre, and willow *sukiya* udon house, woven alongside luxury curtain-wall boutiques, Taisho heritage brick buildings, timber *machiya*, and corner *kissaten*) with six *ikkodate* detached-house archetypes across nine civic plots hosting any tower model in this repository at 1:1 scale.
 
 Rendered offline in **Blender Cycles (Apple Metal GPU, 50 mm lens)** with a hybrid interior architecture — true 3D furnished rooms behind transparent reflective glass for 619 hollow ground-floor storefronts, paired with a native Metal GPU Interior Mapping shader node group for upper-storey and residential windows (see [`streets/INTERIOR_MAPPING.md`](streets/INTERIOR_MAPPING.md) for the Web GLSL, ThreeRT WGSL, and Cycles implementation details):
 

@@ -1675,13 +1675,22 @@ export function addKeiCar(lot, mats, lx, lz, yaw = 0, bodyBucket = null, isVan =
 
 export function addBicycleCluster(lot, mats, lx, lz, count = 2, rotY = 0) {
   for (let i = 0; i < count; i++) {
-    const ox = lx + i * 0.62;
-    lot.addProto(mats.darkMetal, PROTO_WHEEL, ox, 0.31, lz - 0.46, 0.04, 0.3, 0.3, 0, rotY, 0.08);
-    lot.addProto(mats.darkMetal, PROTO_WHEEL, ox, 0.31, lz + 0.46, 0.04, 0.3, 0.3, 0, rotY, 0.08);
-    lot.addBox(mats.silverMetal, 0.05, 0.45, 0.92, ox, 0.52, lz, 0, rotY, 0.08);
-    // Front mamachari wire basket & handlebars
-    lot.addBox(mats.darkMetal, 0.28, 0.22, 0.24, ox, 0.78, lz + 0.4, 0, rotY, 0);
-    lot.addBox(mats.silverMetal, 0.42, 0.04, 0.04, ox, 0.92, lz + 0.34, 0, rotY, 0);
+    const sub = lot.subContext(lx + i * 0.64, lz, rotY + (i % 2 ? -0.08 : 0.06), 0);
+    const rW = 0.31;
+    // Slim pneumatic tires + silver alloy rims (no chunky solid blocks!)
+    for (const wz of [-0.48, 0.48]) {
+      sub.addProto(mats.carTire ?? mats.darkMetal, PROTO_TIRE, 0, rW, wz, 0.045, rW, rW);
+      sub.addProto(mats.silverMetal, PROTO_CYL12, 0, rW, wz, 0.03, rW * 1.48, rW * 1.48, 0, 0, Math.PI * 0.5);
+    }
+    // Delicate step-through tubular mamachari steel frame
+    sub.addStrut(mats.silverMetal, [0, rW, -0.48], [0, 0.68, -0.14], 0.026);
+    sub.addStrut(mats.silverMetal, [0, 0.30, -0.05], [0, 0.78, -0.16], 0.028);
+    sub.addStrut(mats.silverMetal, [0, 0.30, -0.05], [0, 0.74, 0.34], 0.030);
+    sub.addStrut(mats.silverMetal, [0, rW, 0.48], [0, 0.90, 0.32], 0.026);
+    // Saddle, front handlebars & compact wire basket
+    sub.addBox(mats.darkMetal, 0.14, 0.05, 0.22, 0, 0.80, -0.18);
+    sub.addBox(mats.silverMetal, 0.44, 0.026, 0.026, 0, 0.92, 0.31);
+    sub.addBox(mats.darkMetal, 0.24, 0.18, 0.20, 0, 0.76, 0.43);
   }
 }
 
@@ -3354,5 +3363,1223 @@ export function addShotengaiArch(mats, z, halfSpan = 6.15, bannerBucket = null, 
     lot.addProto(mats.darkMetal, PROTO_CYL8, lx, yLow - 0.13, 0, 0.024, 0.26, 0.024);
     lot.addProto(mats.darkMetal, PROTO_BELL_CAP, lx, yLow - 0.27, 0, 0.20, 0.13, 0.20);
     lot.addProto(mats.warmLamp, PROTO_SPHERE, lx, yLow - 0.43, 0, 0.165, 0.185, 0.165);
+  }
+
+  // 6. Marquee rim bulbs on large flagship promenade arches for festive Osaka Dotonbori presence
+  if (signW > 5.8 && mats.marqueeBulb) {
+    const bulbN = 15;
+    for (let bi = 0; bi < bulbN; bi++) {
+      const bx = -signW * 0.46 + (signW * 0.92 * bi) / (bulbN - 1);
+      for (const sz of [-1, 1]) {
+        lot.addProto(mats.marqueeBulb, PROTO_BULB_CORE, bx, signY + signH * 0.5, sz * (bezelD * 0.5 + 0.025), 0.026, 0.026, 0.026);
+        lot.addProto(mats.marqueeBulb, PROTO_BULB_CORE, bx, signY - signH * 0.5, sz * (bezelD * 0.5 + 0.025), 0.026, 0.026, 0.026);
+      }
+    }
+  }
+}
+
+// ------------------------------------------------------------------ OSAKA DOTONBORI FLAGSHIP 3D RELIEF SIGNAGE & ARCHITECTURE
+
+/**
+ * Connects two 3D local points [x0,y0,z0] -> [x1,y1,z1] with a smooth organic crab/octopus limb segment
+ * plus an optional ivory joint knuckle ring at point `a`.
+ */
+function addOrganicLimb(sub, bodyBucket, jointBucket, a, b, rBase, rTip = null) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const dz = b[2] - a[2];
+  const len = Math.hypot(dx, dy, dz);
+  if (len < 1e-4) return;
+  const mx = (a[0] + b[0]) * 0.5;
+  const my = (a[1] + b[1]) * 0.5;
+  const mz = (a[2] + b[2]) * 0.5;
+  const dir = new THREE.Vector3(dx / len, dy / len, dz / len);
+  _quat.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  _pos.set(mx, my, mz);
+  const rMid = rTip !== null ? (rBase + rTip) * 0.5 : rBase;
+  _scale.set(rBase, len, rMid * 0.78);
+  _localMat.compose(_pos, _quat, _scale);
+  _mat4.multiplyMatrices(sub.worldMatrix, _localMat);
+  const g = (rTip !== null && rTip < rBase * 0.65 ? PROTO_TAPER_LIMB : PROTO_CYL12).clone();
+  g.applyMatrix4(_mat4);
+  g.computeVertexNormals();
+  bodyBucket.geometries.push(g);
+
+  if (jointBucket) {
+    sub.addProto(jointBucket, PROTO_SPHERE, a[0], a[1], a[2], rBase * 0.96, rBase * 0.96, rBase * 0.82);
+  }
+}
+
+/**
+ * Giant 3D Sculpted Crimson Snow Crab (かに道楽スタイル 巨大立体カニ看板, ~4.6 m wide):
+ * - Sculpted multi-lobed convex glossy crimson carapace with dorsal gastric/cardiac ridges
+ * - Twin vertical eye stalks with glossy black eyes & white collars
+ * - 2 raised curved pincer claws arching inward above the carapace
+ * - 8 articulated 3-segment curved walking legs fanning symmetrically across the backlit louvers
+ */
+export function addGiant3DCrab(lot, mats, { x = 0, y = 6.2, z = 0, scale = 1.0 }) {
+  const sub = lot.subContext(x, z, 0, y);
+  const red = mats.kaniRed ?? mats.accentRed;
+  const cream = mats.kaniCream ?? mats.vendWhite;
+  const eyeBlack = mats.carTrimBlack ?? mats.darkMetal;
+  const s = scale;
+
+  // Heavy steel wall standoff brackets anchoring the crab sculpture to the louver backing
+  for (const [bx, by] of [[-0.48 * s, 0.12 * s], [0.48 * s, 0.12 * s], [-1.35 * s, -0.18 * s], [1.35 * s, -0.18 * s]]) {
+    sub.addBox(mats.darkMetal, 0.08 * s, 0.08 * s, 0.36 * s, bx, by, -0.18 * s);
+  }
+
+  // 1. Sculpted convex crimson carapace (甲羅: rounded triangular-shield crab body + dorsal lobes)
+  sub.addProto(red, PROTO_SPHERE, 0, -0.12 * s, 0.16 * s, 0.78 * s, 0.68 * s, 0.30 * s);
+  sub.addProto(red, PROTO_SPHERE, -0.34 * s, 0.02 * s, 0.18 * s, 0.54 * s, 0.46 * s, 0.26 * s, 0, 0, 0.35);
+  sub.addProto(red, PROTO_SPHERE, 0.34 * s, 0.02 * s, 0.18 * s, 0.54 * s, 0.46 * s, 0.26 * s, 0, 0, -0.35);
+  // Central cardiac & gastric shell bosses for realistic 3D specular highlights
+  sub.addProto(red, PROTO_SPHERE, 0, 0.06 * s, 0.31 * s, 0.34 * s, 0.30 * s, 0.18 * s);
+  sub.addProto(red, PROTO_SPHERE, 0, -0.32 * s, 0.28 * s, 0.42 * s, 0.24 * s, 0.15 * s);
+  // Cream ventral rim & rostrum teeth
+  sub.addProto(cream, PROTO_SPHERE, 0, -0.52 * s, 0.14 * s, 0.52 * s, 0.22 * s, 0.18 * s);
+
+  // 2. Iconic vertical stalked eyes (目玉)
+  for (const sx of [-1, 1]) {
+    const ex = sx * 0.155 * s;
+    sub.addProto(cream, PROTO_CYL8, ex, 0.48 * s, 0.26 * s, 0.042 * s, 0.22 * s, 0.042 * s, 0, 0, -sx * 0.08);
+    sub.addProto(eyeBlack, PROTO_SPHERE, ex + sx * 0.01 * s, 0.62 * s, 0.29 * s, 0.082 * s, 0.095 * s, 0.082 * s);
+    sub.addProto(cream, PROTO_SPHERE, ex + sx * 0.03 * s, 0.65 * s, 0.355 * s, 0.024 * s, 0.024 * s, 0.018 * s);
+  }
+
+  // 3. Twin raised articulated pincer claws (ハサミ) arching overhead toward the center!
+  for (const sx of [-1, 1]) {
+    const p0 = [sx * 0.46 * s, 0.30 * s, 0.20 * s];
+    const p1 = [sx * 0.96 * s, 0.78 * s, 0.26 * s];
+    const p2 = [sx * 0.74 * s, 1.12 * s, 0.30 * s];
+    const pTipUpper = [sx * 0.12 * s, 1.18 * s, 0.32 * s];
+    const pTipLower = [sx * 0.16 * s, 1.00 * s, 0.30 * s];
+    addOrganicLimb(sub, red, cream, p0, p1, 0.115 * s);
+    addOrganicLimb(sub, red, cream, p1, p2, 0.125 * s);
+    // Swollen chela palm + open upper & lower pincer dactyls
+    sub.addProto(red, PROTO_SPHERE, sx * 0.56 * s, 1.10 * s, 0.31 * s, 0.24 * s, 0.15 * s, 0.13 * s, 0, 0, -sx * 0.18);
+    addOrganicLimb(sub, red, null, [sx * 0.46 * s, 1.15 * s, 0.31 * s], pTipUpper, 0.082 * s, 0.025 * s);
+    addOrganicLimb(sub, cream, null, [sx * 0.46 * s, 1.04 * s, 0.30 * s], pTipLower, 0.062 * s, 0.020 * s);
+  }
+
+  // 4. Eight 3-segment curved walking legs (歩脚, 4 left + 4 right) spanning ~4.6 m!
+  const legSpecs = [
+    { y0: 0.16, x1: 1.38, y1: 0.44, x2: 2.08, y2: 0.34, x3: 2.28, y3: 0.16, r: 0.105 },
+    { y0: -0.04, x1: 1.46, y1: 0.14, x2: 2.18, y2: 0.02, x3: 2.34, y3: -0.20, r: 0.102 },
+    { y0: -0.24, x1: 1.38, y1: -0.16, x2: 2.04, y2: -0.32, x3: 2.16, y3: -0.56, r: 0.095 },
+    { y0: -0.42, x1: 1.14, y1: -0.46, x2: 1.66, y2: -0.66, x3: 1.54, y3: -0.88, r: 0.086 },
+  ];
+  for (const sx of [-1, 1]) {
+    for (const lg of legSpecs) {
+      const a0 = [sx * 0.58 * s, lg.y0 * s, 0.16 * s];
+      const a1 = [sx * lg.x1 * s, lg.y1 * s, 0.24 * s];
+      const a2 = [sx * lg.x2 * s, lg.y2 * s, 0.22 * s];
+      const a3 = [sx * lg.x3 * s, lg.y3 * s, 0.16 * s];
+      addOrganicLimb(sub, red, cream, a0, a1, lg.r * s);
+      addOrganicLimb(sub, red, cream, a1, a2, lg.r * 0.88 * s);
+      addOrganicLimb(sub, red, cream, a2, a3, lg.r * 0.72 * s, lg.r * 0.25 * s);
+    }
+  }
+}
+
+/**
+ * Giant 3D Sculpted Crimson Octopus & Takoyaki Boat (道頓堀 大たこ立体看板, ~4.2 m wide):
+ * - Plump tilted crimson octopus head with festive white/gold twisted hachimaki headband & expressive eyes
+ * - 8 curling multi-segment tentacles with ivory suction-cup discs
+ * - Cedar wood takoyaki boat (舟皿) filled with 5 golden-brown 3D takoyaki spheres & sauce glaze
+ */
+export function addGiant3DOctopus(lot, mats, { x = 0, y = 6.2, z = 0, scale = 1.0 }) {
+  const sub = lot.subContext(x, z, 0, y);
+  const red = mats.kaniRed ?? mats.accentRed;
+  const cream = mats.kaniCream ?? mats.vendWhite;
+  const gold = mats.kaniGold ?? mats.archGoldTrim;
+  const eyeBlack = mats.carTrimBlack ?? mats.darkMetal;
+  const s = scale;
+
+  for (const bx of [-0.65 * s, 0.65 * s]) {
+    sub.addBox(mats.darkMetal, 0.08 * s, 0.08 * s, 0.38 * s, bx, 0.1 * s, -0.18 * s);
+  }
+
+  // 1. Bulbous tilted crimson octopus mantle head + twisted festival Hachimaki headband (鉢巻)
+  sub.addProto(red, PROTO_SPHERE, 0.05 * s, 0.52 * s, 0.24 * s, 0.68 * s, 0.82 * s, 0.52 * s, -0.12, 0, -0.10);
+  // Twisted white cloth hachimaki ring around brow + knot on temple
+  sub.addProto(cream, PROTO_CYL12, 0.03 * s, 0.68 * s, 0.26 * s, 0.66 * s, 0.13 * s, 0.50 * s, 0.06, 0, -0.10);
+  sub.addProto(gold, PROTO_SPHERE, -0.58 * s, 0.76 * s, 0.38 * s, 0.14 * s, 0.14 * s, 0.12 * s);
+  // Expressive white eyes + black pupils + round funnel mouth (漏斗)
+  for (const sx of [-1, 1]) {
+    sub.addProto(cream, PROTO_SPHERE, sx * 0.26 * s, 0.34 * s, 0.66 * s, 0.16 * s, 0.18 * s, 0.10 * s);
+    sub.addProto(eyeBlack, PROTO_SPHERE, sx * 0.24 * s, 0.33 * s, 0.74 * s, 0.09 * s, 0.11 * s, 0.06 * s);
+  }
+  sub.addProto(red, PROTO_CYL12, 0.42 * s, 0.16 * s, 0.56 * s, 0.13 * s, 0.24 * s, 0.13 * s, Math.PI * 0.42, 0, -0.35);
+
+  // 2. Sweeping curled tentacles with ivory suction-cup discs (吸盤)
+  const arms = [
+    { x1: 1.15, y1: 0.48, x2: 1.88, y2: 0.78, x3: 2.06, y3: 1.08 },
+    { x1: 1.28, y1: 0.06, x2: 1.98, y2: 0.18, x3: 2.15, y3: 0.48 },
+    { x1: 1.18, y1: -0.34, x2: 1.82, y2: -0.48, x3: 1.98, y3: -0.22 },
+  ];
+  for (const sx of [-1, 1]) {
+    for (const arm of arms) {
+      const p0 = [sx * 0.44 * s, -0.02 * s, 0.22 * s];
+      const p1 = [sx * arm.x1 * s, arm.y1 * s, 0.28 * s];
+      const p2 = [sx * arm.x2 * s, arm.y2 * s, 0.32 * s];
+      const p3 = [sx * arm.x3 * s, arm.y3 * s, 0.26 * s];
+      addOrganicLimb(sub, red, null, p0, p1, 0.125 * s);
+      addOrganicLimb(sub, red, null, p1, p2, 0.095 * s);
+      addOrganicLimb(sub, red, null, p2, p3, 0.065 * s, 0.022 * s);
+      sub.addProto(cream, PROTO_SPHERE, p1[0], p1[1] - 0.06 * s, p1[2] + 0.08 * s, 0.055 * s, 0.055 * s, 0.03 * s);
+      sub.addProto(cream, PROTO_SPHERE, p2[0], p2[1] - 0.05 * s, p2[2] + 0.07 * s, 0.045 * s, 0.045 * s, 0.025 * s);
+    }
+  }
+
+  // 3. Giant Hinoki cedar boat tray (たこ焼き舟皿) + 5 golden 3D takoyaki balls below!
+  sub.addBox(mats.woodWarm, 2.35 * s, 0.26 * s, 0.56 * s, 0, -0.82 * s, 0.34 * s);
+  sub.addBox(mats.woodWarm, 2.75 * s, 0.18 * s, 0.44 * s, 0, -0.74 * s, 0.36 * s);
+  for (let ti = -2; ti <= 2; ti++) {
+    const tx = ti * 0.42 * s;
+    sub.addProto(gold, PROTO_SPHERE, tx, -0.54 * s, 0.36 * s, 0.21 * s, 0.20 * s, 0.21 * s);
+    // Glossy dark takoyaki sauce cap
+    sub.addProto(red, PROTO_SPHERE, tx, -0.46 * s, 0.37 * s, 0.17 * s, 0.11 * s, 0.17 * s);
+  }
+}
+
+/**
+ * Giant 3D Glowing Tiger Pufferfish Lantern (道頓堀 名代とらふぐ立体提灯, ~3.0 m wide):
+ * - Plump glowing Washi blowfish body with internal incandescent core & crisp street-facing tiger-spot saddles
+ */
+export function addGiant3DFugu(lot, mats, { x = 0, y = 6.2, z = 0, scale = 1.0 }) {
+  const sub = lot.subContext(x, z, 0, y);
+  const fuguMat = mats.fuguGlow ?? mats.lanternWarms[0];
+  const dark = mats.carTrimBlack ?? mats.darkMetal;
+  const cream = mats.kaniCream ?? mats.vendWhite;
+  const red = mats.kaniRed ?? mats.accentRed;
+  const gold = mats.archGoldTrim;
+  const s = scale;
+
+  // Ornate vermilion & gold overhead suspension beam + iron hanging chains
+  sub.addBox(mats.accentRed, 2.9 * s, 0.14 * s, 0.56 * s, 0, 1.12 * s, 0.28 * s);
+  sub.addBox(gold, 3.0 * s, 0.06 * s, 0.60 * s, 0, 1.20 * s, 0.28 * s);
+  for (const cx of [-0.55 * s, 0.55 * s]) {
+    sub.addBox(mats.darkMetal, 0.06 * s, 0.06 * s, 0.56 * s, cx, 1.12 * s, 0.0 * s);
+    sub.addProto(mats.darkMetal, PROTO_CYL6, cx, 0.80 * s, 0.38 * s, 0.018 * s, 0.60 * s, 0.018 * s);
+  }
+
+  // Compact inner incandescent bulb + plump sculpted 3D blowfish Washi shell
+  if (mats.chochinCore) {
+    sub.addProto(mats.chochinCore, PROTO_BULB_CORE, -0.06 * s, 0.04 * s, 0.38 * s, 0.12 * s, 0.12 * s, 0.12 * s);
+  }
+  sub.addProto(fuguMat, PROTO_SPHERE, -0.06 * s, 0.04 * s, 0.38 * s, 1.06 * s, 0.74 * s, 0.64 * s, 0, 0.18, 0.04);
+
+  // Sumi-black tiger-fugu dorsal & flank blotches (虎河豚斑紋) proud on the +Z/+Y outer shell!
+  for (const [dx, dy, dz, rx, ry, rz] of [
+    [-0.16, 0.48, 0.74, 0.32, 0.22, 0.24],
+    [0.32, 0.40, 0.72, 0.26, 0.20, 0.22],
+    [-0.54, 0.30, 0.68, 0.22, 0.17, 0.20],
+    [0.08, 0.18, 0.88, 0.22, 0.16, 0.16],
+    [0.54, 0.16, 0.76, 0.20, 0.15, 0.18],
+  ]) {
+    sub.addProto(dark, PROTO_SPHERE, dx * s, dy * s, dz * s, rx * s, ry * s, rz * s);
+  }
+
+  // Crimson & gold pouty mouth ring, expressive bulging eyes & dorsal/pectoral/caudal fins
+  sub.addProto(red, PROTO_CYL12, -1.08 * s, 0.02 * s, 0.54 * s, 0.19 * s, 0.10 * s, 0.19 * s, 0, 0.18, Math.PI * 0.5);
+  sub.addProto(gold, PROTO_CYL12, -1.12 * s, 0.02 * s, 0.56 * s, 0.15 * s, 0.12 * s, 0.15 * s, 0, 0.18, Math.PI * 0.5);
+  sub.addProto(cream, PROTO_SPHERE, -0.72 * s, 0.30 * s, 0.78 * s, 0.16 * s, 0.16 * s, 0.10 * s);
+  sub.addProto(dark, PROTO_SPHERE, -0.76 * s, 0.30 * s, 0.86 * s, 0.085 * s, 0.085 * s, 0.055 * s);
+  // Dorsal crest fin, fanned tail fin & side pectoral fin
+  sub.addBox(red, 0.42 * s, 0.30 * s, 0.06 * s, 0.34 * s, 0.78 * s, 0.38 * s, 0, 0.18, -0.28);
+  sub.addBox(cream, 0.54 * s, 0.80 * s, 0.07 * s, 1.10 * s, 0.12 * s, 0.20 * s, 0, 0.18, 0.18);
+  sub.addBox(red, 0.14 * s, 0.78 * s, 0.08 * s, 1.32 * s, 0.12 * s, 0.16 * s, 0, 0.18, 0.18);
+  sub.addBox(cream, 0.40 * s, 0.28 * s, 0.05 * s, -0.16 * s, -0.06 * s, 0.98 * s, 0.32, 0.42, 0);
+}
+
+/**
+ * Giant 3D Golden Kushikatsu Skewer Fan & Shrine Crest (鉄板神社・日本一の串かつ 立体黄金串看板):
+ * - 5 radiating golden 3D skewers with sculpted golden cutlets + embossed crimson/gold taiko crest
+ *   flanked by oversized glowing festival lanterns!
+ */
+export function addGiant3DGourmetCrest(lot, mats, { x = 0, y = 6.2, z = 0, scale = 1.0 }) {
+  const sub = lot.subContext(x, z, 0, y);
+  const gold = mats.kaniGold ?? mats.archGoldTrim;
+  const red = mats.kaniRed ?? mats.accentRed;
+  const cream = mats.kaniCream ?? mats.vendWhite;
+  const s = scale;
+
+  // 5 radiating golden skewers (黄金串) fanning behind the crest
+  for (const ang of [-0.68, -0.34, 0, 0.34, 0.68]) {
+    const tipX = Math.sin(ang) * 1.65 * s;
+    const tipY = Math.cos(ang) * 1.48 * s - 0.15 * s;
+    sub.addStrut(mats.woodWarm, [0, -0.55 * s, 0.14 * s], [tipX, tipY, 0.22 * s], 0.048 * s);
+    // Golden-breaded kushikatsu cutlet along upper skewer shaft
+    const midX = Math.sin(ang) * 1.08 * s;
+    const midY = Math.cos(ang) * 0.98 * s - 0.15 * s;
+    sub.addProto(gold, PROTO_SPHERE, midX, midY, 0.24 * s, 0.22 * s, 0.38 * s, 0.14 * s, 0, 0, -ang);
+  }
+
+  // Central embossed crimson & champagne-gold taiko drum crest medallion
+  sub.addProto(gold, PROTO_CYL12, 0, -0.22 * s, 0.28 * s, 0.68 * s, 0.16 * s, 0.68 * s, Math.PI * 0.5, 0, 0);
+  sub.addProto(red, PROTO_CYL12, 0, -0.22 * s, 0.32 * s, 0.58 * s, 0.16 * s, 0.58 * s, Math.PI * 0.5, 0, 0);
+  sub.addProto(cream, PROTO_CYL12, 0, -0.22 * s, 0.36 * s, 0.42 * s, 0.14 * s, 0.42 * s, Math.PI * 0.5, 0, 0);
+
+  // Flanking oversized glowing shrine lanterns (大提灯, homage to Reference 1's 鉄板神社 lantern!)
+  const lanternMat = mats.festivalLanterns ? mats.festivalLanterns[0] : mats.lanternWarms[0];
+  for (const sx of [-1, 1]) {
+    const lx = sx * 1.72 * s;
+    const ly = -0.08 * s;
+    const lz = 0.34 * s;
+    sub.addBox(mats.darkMetal, 0.06 * s, 0.06 * s, 0.42 * s, lx, ly + 0.52 * s, 0.14 * s);
+    if (mats.chochinCore) {
+      sub.addProto(mats.chochinCore, PROTO_BULB_CORE, lx, ly, lz, 0.09 * s, 0.12 * s, 0.09 * s);
+    }
+    sub.addProto(lanternMat, PROTO_CHOCHIN_RICH, lx, ly, lz, 0.34 * s, 0.44 * s, 0.34 * s);
+    sub.addProto(mats.darkMetal, PROTO_CYL12, lx, ly + 0.45 * s, lz, 0.17 * s, 0.06 * s, 0.17 * s);
+    sub.addProto(mats.darkMetal, PROTO_CYL12, lx, ly - 0.45 * s, lz, 0.16 * s, 0.06 * s, 0.16 * s);
+  }
+}
+
+/**
+ * Multi-Storey Stacked Projecting Vertical Sign Tower (多段突き出し縦看板, Reference 3!):
+ * Projects into the commercial canyon inside a sleek 3D dark-steel structural outrigger cage.
+ */
+export function addStackedSignTower(lot, mats, towerIdx, {
+  x, yBot = 4.6, z, height = 8.4, width = 0.78,
+}) {
+  const pool = mats.towerSigns;
+  if (!pool || !pool.length) return;
+  const signBucket = pool[((towerIdx % pool.length) + pool.length) % pool.length];
+  const thick = 0.22;
+  const cy = yBot + height * 0.5;
+  const standoff = 0.20;
+  const sz = z + standoff + width * 0.5;
+
+  // Heavy steel outrigger mounting struts + diagonal truss ties back to building pilaster
+  for (const frac of [0.12, 0.50, 0.88]) {
+    const by = yBot + height * frac;
+    lot.addBox(mats.darkMetal, 0.07, 0.07, standoff + 0.12, x, by, z + standoff * 0.5);
+    lot.addStrut(mats.darkMetal, [x, by - 0.28, z + 0.02], [x, by, z + standoff + 0.04], 0.042);
+  }
+
+  // 3D dark anodized steel perimeter frame + champagne-gold corner caps
+  lot.addBox(mats.darkMetal, thick + 0.04, 0.065, width + 0.07, x, yBot + height + 0.02, sz);
+  lot.addBox(mats.darkMetal, thick + 0.04, 0.065, width + 0.07, x, yBot - 0.02, sz);
+  lot.addBox(mats.darkMetal, thick + 0.04, height, 0.055, x, cy, sz - width * 0.5 - 0.02);
+  lot.addBox(mats.darkMetal, thick + 0.04, height, 0.055, x, cy, sz + width * 0.5 + 0.02);
+  lot.addBox(mats.archGoldTrim, thick + 0.06, 0.04, width + 0.09, x, yBot + height + 0.055, sz);
+
+  // 3-tier stacked graphic lightbox (readable from both directions along the boulevard!)
+  lot.add(signBucket, signBox(width, height, thick), x, cy, sz, 0, Math.PI * 0.5, 0);
+}
+
+/**
+ * Rooftop Landmark Neon/LED Crown Billboard on an Open Steel Truss Frame (屋上広告塔, Reference 2!):
+ */
+export function addRooftopBillboard(lot, mats, crownIdx, {
+  w = 7.4, h = 3.5, yRoof, zFront,
+}) {
+  const pool = mats.rooftopSigns;
+  if (!pool || !pool.length) return;
+  const signBucket = pool[((crownIdx % pool.length) + pool.length) % pool.length];
+  const legH = 0.85;
+  const signY = yRoof + legH + h * 0.5;
+  const zSign = zFront - 0.42;
+  const braceBackZ = zSign - 1.85;
+
+  // Open steel space-frame support columns + diagonal wind braces (屋上鉄骨やぐら)
+  const posts = 4;
+  for (let i = 0; i < posts; i++) {
+    const px = -w * 0.42 + (w * 0.84 * i) / (posts - 1);
+    lot.addBox(mats.darkMetal, 0.11, legH + h, 0.11, px, yRoof + (legH + h) * 0.5, zSign - 0.18);
+    lot.addStrut(mats.darkMetal, [px, yRoof + legH + h * 0.82, zSign - 0.18], [px, yRoof + 0.1, braceBackZ], 0.08);
+    lot.addStrut(mats.darkMetal, [px, yRoof + legH + h * 0.35, zSign - 0.18], [px, yRoof + 0.1, braceBackZ * 0.5 + zSign * 0.5], 0.065);
+  }
+  // Horizontal steel truss girts & maintenance catwalk ledge
+  lot.addBox(mats.darkMetal, w * 0.90, 0.09, 0.09, 0, yRoof + legH + h * 0.82, zSign - 0.18);
+  lot.addBox(mats.darkMetal, w * 0.90, 0.09, 0.09, 0, yRoof + legH + 0.12, zSign - 0.18);
+  lot.addBox(mats.silverMetal, w * 0.94, 0.05, 0.46, 0, yRoof + legH - 0.08, zSign + 0.24);
+
+  // Dark steel cabinet + champagne-gold trim bezel + front-facing neon/LED crown panel
+  lot.addBox(mats.darkMetal, w + 0.16, h + 0.16, 0.24, 0, signY, zSign);
+  lot.addBox(mats.archGoldTrim, w + 0.22, 0.08, 0.28, 0, signY + h * 0.5 + 0.06, zSign);
+  lot.add(signBucket, frontFaceBox(w, h, 0.26, 0.005, 0.005), 0, signY, zSign + 0.04);
+
+  // 4 overhead gooseneck floodlight arms illuminating the rooftop billboard
+  for (let s = 0; s < 4; s++) {
+    const sx = -w * 0.36 + (w * 0.72 * s) / 3;
+    const topY = signY + h * 0.5 + 0.10;
+    lot.addStrut(mats.darkMetal, [sx, topY, zSign], [sx, topY + 0.28, zSign + 0.58], 0.035);
+    lot.addProto(mats.darkMetal, PROTO_BELL_CAP, sx, topY + 0.20, zSign + 0.58, 0.09, 0.12, 0.09, -0.55, 0, 0);
+    lot.addProto(mats.warmLamp, PROTO_SPHERE, sx, topY + 0.16, zSign + 0.54, 0.06, 0.06, 0.06);
+  }
+}
+
+/**
+ * Continuous Dotonbori Golden Festival Lantern Colonnade (道頓堀提灯並木, Reference 2!):
+ * Runs rhythmically along both sidewalk curbs of the flagship promenade inside the Shotengai gates,
+ * proportioned at `railY = 2.96 m` so 1F flagship signboards sit completely unobstructed above!
+ */
+export function addDotonboriLanternGarland(mats, { x, z0, z1, side = 1 }) {
+  const span = z1 - z0;
+  if (span < 6.0 || !mats.festivalLanterns?.length) return;
+  const lot = new LotContext(x, (z0 + z1) * 0.5, 0, 0);
+  const halfLen = span * 0.5;
+  const railY = 2.96;
+  const lanternY = 2.62;
+
+  // Sleek dark-bronze overhead lintel rail + champagne-gold trim molding + compact rain hood
+  lot.addBox(mats.darkMetal, 0.075, 0.075, span + 0.20, 0, railY, 0);
+  lot.addBox(mats.archGoldTrim, 0.095, 0.028, span + 0.24, 0, railY + 0.048, 0);
+  lot.addBox(mats.darkMetal, 0.38, 0.036, span + 0.26, 0, railY + 0.082, 0);
+
+  // Slender fluted dark-bronze support posts + granite plinth collars every ~11.5 m
+  const postIntervals = Math.max(2, Math.round(span / 11.5));
+  for (let pi = 0; pi <= postIntervals; pi++) {
+    const pz = -halfLen + (span * pi) / postIntervals;
+    lot.addProto(mats.concrete, PROTO_CYL12, 0, 0.25, pz, 0.11, 0.12, 0.11);
+    lot.addProto(mats.archGoldTrim, PROTO_CYL12, 0, 0.33, pz, 0.082, 0.045, 0.082);
+    lot.addProto(mats.darkMetal, PROTO_CYL12, 0, (railY + 0.20) * 0.5, pz, 0.048, railY - 0.16, 0.048);
+  }
+
+  // Closely spaced glowing golden festival lanterns (1.32 m pitch -> continuous Dotonbori ribbon of light!)
+  const lCount = Math.max(4, Math.floor((span - 1.0) / 1.32));
+  for (let li = 0; li < lCount; li++) {
+    const lz = -halfLen + 0.68 + ((span - 1.36) * li) / Math.max(1, lCount - 1);
+    const lMat = mats.festivalLanterns[(li + (side > 0 ? 0 : 1)) % mats.festivalLanterns.length];
+    lot.addProto(mats.darkMetal, PROTO_CYL6, 0, railY - 0.08, lz, 0.010, 0.14, 0.010);
+    if (mats.chochinCore) {
+      lot.addProto(mats.chochinCore, PROTO_BULB_CORE, 0, lanternY, lz, 0.048, 0.075, 0.048);
+    }
+    lot.addProto(lMat, PROTO_CHOCHIN_LITE, 0, lanternY, lz, 0.155, 0.225, 0.155, 0, Math.PI * 0.5, 0);
+    lot.addProto(mats.darkMetal, PROTO_CYL12, 0, lanternY + 0.23, lz, 0.084, 0.032, 0.084);
+    lot.addProto(mats.darkMetal, PROTO_CYL12, 0, lanternY - 0.23, lz, 0.080, 0.032, 0.080);
+  }
+}
+
+/**
+ * One-of-a-Kind Landmark: Kinryu Ramen Sculpted 3D Emerald-Jade & Gold-Horned Dragon (金龍ラーメン立体青龍):
+ * Coils dynamically out of a golden sunburst relief frame across the vermilion facade clutching a glowing pearl!
+ */
+export function addGiant3DDragon(lot, mats, { x = 0, y = 6.2, z = 0, scale = 1.0 }) {
+  const sub = lot.subContext(x, z, 0, y);
+  const jade = mats.dragonJade ?? mats.awningGreen;
+  const gold = mats.kaniGold ?? mats.archGoldTrim;
+  const red = mats.kaniRed ?? mats.accentRed;
+  const cream = mats.kaniCream ?? mats.vendWhite;
+  const s = scale;
+
+  // Golden-bordered sunburst yellow relief panel behind the emerging dragon head (left bay)
+  const hx = -1.05 * s;
+  sub.addBox(gold, 2.55 * s, 2.55 * s, 0.14 * s, hx, 0.08 * s, 0.05 * s);
+  sub.addBox(cream, 2.32 * s, 2.32 * s, 0.16 * s, hx, 0.08 * s, 0.08 * s);
+  // Radial crimson & gold sunburst rays behind dragon head
+  for (const ang of [-0.7, -0.35, 0, 0.35, 0.7]) {
+    sub.addBox(red, 0.14 * s, 2.1 * s, 0.05 * s, hx, 0.08 * s, 0.16 * s, 0, 0, ang);
+  }
+
+  // Fierce sculpted 3D Emerald Dragon Head lunging forward (+Z)
+  sub.addProto(jade, PROTO_SPHERE, hx, 0.16 * s, 0.56 * s, 0.56 * s, 0.48 * s, 0.62 * s);
+  sub.addProto(jade, PROTO_SPHERE, hx, -0.02 * s, 0.98 * s, 0.40 * s, 0.28 * s, 0.44 * s); // Snout
+  sub.addProto(red, PROTO_SPHERE, hx, -0.22 * s, 0.88 * s, 0.32 * s, 0.16 * s, 0.38 * s, 0.22, 0, 0); // Open crimson maw
+  // White fangs, bulging golden eyes, flowing golden whiskers & swept antlers!
+  for (const sx of [-1, 1]) {
+    sub.addProto(cream, PROTO_CONE10, hx + sx * 0.22 * s, -0.14 * s, 1.18 * s, 0.045 * s, 0.18 * s, 0.045 * s, Math.PI, 0, 0);
+    sub.addProto(gold, PROTO_SPHERE, hx + sx * 0.34 * s, 0.34 * s, 0.78 * s, 0.13 * s, 0.13 * s, 0.11 * s);
+    sub.addProto(mats.carTrimBlack ?? mats.darkMetal, PROTO_SPHERE, hx + sx * 0.36 * s, 0.34 * s, 0.87 * s, 0.065 * s, 0.065 * s, 0.05 * s);
+    // Swept golden dragon horns & flowing whiskers
+    addOrganicLimb(sub, gold, null, [hx + sx * 0.24 * s, 0.50 * s, 0.48 * s], [hx + sx * 0.56 * s, 1.16 * s, 0.18 * s], 0.065 * s, 0.022 * s);
+    addOrganicLimb(sub, gold, null, [hx + sx * 0.30 * s, 0.02 * s, 1.12 * s], [hx + sx * 0.86 * s, 0.22 * s, 1.24 * s], 0.032 * s, 0.012 * s);
+  }
+
+  // Sinuous undulating S-curve emerald dragon body coiling across the right facade!
+  const spinePts = [
+    [hx + 0.42 * s, 0.02 * s, 0.34 * s],
+    [0.12 * s, -0.38 * s, 0.56 * s],
+    [0.78 * s, 0.36 * s, 0.62 * s],
+    [1.46 * s, 0.48 * s, 0.42 * s],
+    [1.98 * s, -0.18 * s, 0.52 * s],
+    [2.42 * s, 0.18 * s, 0.36 * s],
+  ];
+  for (let i = 0; i < spinePts.length - 1; i++) {
+    const r0 = (0.28 - i * 0.032) * s;
+    const r1 = (0.25 - i * 0.032) * s;
+    addOrganicLimb(sub, jade, gold, spinePts[i], spinePts[i + 1], r0, r1);
+    // Golden dorsal spine crest fin along each coil
+    const mx = (spinePts[i][0] + spinePts[i + 1][0]) * 0.5;
+    const my = (spinePts[i][1] + spinePts[i + 1][1]) * 0.5 + r0 * 0.85;
+    const mz = (spinePts[i][2] + spinePts[i + 1][2]) * 0.5;
+    sub.addProto(gold, PROTO_CONE10, mx, my, mz, 0.06 * s, 0.22 * s, 0.08 * s, 0, 0, -0.15);
+  }
+  // Dragon foreclaw clutching a glowing golden dragon pearl (龍珠)!
+  addOrganicLimb(sub, jade, null, [0.05 * s, -0.34 * s, 0.56 * s], [-0.28 * s, -0.78 * s, 0.82 * s], 0.11 * s, 0.06 * s);
+  sub.addProto(gold, PROTO_SPHERE, -0.32 * s, -0.84 * s, 0.90 * s, 0.22 * s, 0.22 * s, 0.22 * s);
+  if (mats.chochinCore) {
+    sub.addProto(mats.chochinCore, PROTO_BULB_CORE, -0.32 * s, -0.84 * s, 0.96 * s, 0.11 * s, 0.11 * s, 0.11 * s);
+  }
+}
+
+/**
+ * One-of-a-Kind Landmark: Osaka Ohsho Giant 3D Crispy Gyoza Platter + 4-Tier `大・阪・王・将` Lantern Rack!
+ */
+export function addGiant3DGyozaAndRack(lot, mats, { x = 0, y = 6.2, z = 0, scale = 1.0 }) {
+  const sub = lot.subContext(x, z, 0, y);
+  const crust = mats.gyozaCrust ?? mats.woodWarm;
+  const dough = mats.kaniCream ?? mats.vendWhite;
+  const red = mats.kaniRed ?? mats.accentRed;
+  const gold = mats.kaniGold ?? mats.archGoldTrim;
+  const s = scale;
+
+  // 1. Semicircular traditional Japanese folding fan crest (`あっぱれ扇`) crowning the platter
+  const gx = -0.85 * s;
+  for (let fi = -4; fi <= 4; fi++) {
+    const ang = fi * 0.18;
+    sub.addBox(dough, 0.26 * s, 0.96 * s, 0.06 * s, gx + Math.sin(ang) * 0.62 * s, 1.12 * s + Math.cos(ang) * 0.22 * s, 0.16 * s, 0, 0, -ang);
+  }
+  sub.addBox(red, 1.48 * s, 0.12 * s, 0.08 * s, gx, 1.42 * s, 0.18 * s);
+
+  // 2. Tilted round porcelain platter + 2 rows of 5 sculpted crescent 3D pan-seared Gyoza!
+  const platterSub = sub.subContext(gx, 0.34 * s, 0, -0.06 * s);
+  platterSub.addProto(dough, PROTO_CYL12, 0, 0, 0, 1.28 * s, 0.14 * s, 1.28 * s, 1.12, 0, -0.22);
+  platterSub.addProto(red, PROTO_CYL12, 0, -0.02 * s, -0.02 * s, 1.34 * s, 0.10 * s, 1.34 * s, 1.12, 0, -0.22);
+
+  for (const rowX of [-0.36, 0.36]) {
+    for (let gi = -2; gi <= 2; gi++) {
+      const dx = (rowX + gi * 0.05) * s;
+      const dy = (gi * 0.34) * s;
+      const dz = (0.20 + (2 - Math.abs(gi)) * 0.04) * s;
+      // Plump pleated ivory gyoza wrapper + golden-brown crispy seared flat bottom!
+      platterSub.addProto(dough, PROTO_SPHERE, dx, dy, dz, 0.36 * s, 0.17 * s, 0.20 * s, 0.15, 0, -0.22);
+      platterSub.addBox(crust, 0.62 * s, 0.19 * s, 0.09 * s, dx + 0.03 * s, dy + 0.02 * s, dz + 0.14 * s, 0.15, 0, -0.22);
+    }
+  }
+
+  // 3. Tall Black Structural Steel Cage holding 4 Vertically Stacked Giant `大・阪・王・将` Lanterns!
+  const rx = 1.68 * s;
+  const rz = 0.62 * s;
+  const rackH = 4.65 * s;
+  for (const ox of [-0.54 * s, 0.54 * s]) {
+    sub.addBox(mats.darkMetal, 0.07 * s, rackH, 0.07 * s, rx + ox, 0.35 * s, rz);
+    sub.addBox(mats.darkMetal, 0.06 * s, 0.06 * s, 0.68 * s, rx + ox, 2.45 * s, rz - 0.32 * s);
+    sub.addBox(mats.darkMetal, 0.06 * s, 0.06 * s, 0.68 * s, rx + ox, -1.65 * s, rz - 0.32 * s);
+  }
+  for (let k = 0; k <= 4; k++) {
+    const barY = -1.85 * s + k * (rackH / 4);
+    sub.addBox(mats.darkMetal, 1.16 * s, 0.06 * s, 0.06 * s, rx, barY, rz);
+  }
+
+  // Slice PROTO_CHOCHIN_LITE UVs per quarter (`大`, `阪`, `王`, `将` top-to-bottom) in 1 single bucket!
+  if (mats.ohshoLantern) {
+    for (let idx = 0; idx < 4; idx++) {
+      const ly = (2.06 - idx * 1.14) * s;
+      const vMin = (3 - idx) * 0.25 + 0.008;
+      const vSpan = 0.234;
+      const g = PROTO_CHOCHIN_LITE.clone();
+      const uv = g.attributes.uv;
+      for (let vi = 0; vi < uv.count; vi++) {
+        uv.setXY(vi, uv.getX(vi), vMin + uv.getY(vi) * vSpan);
+      }
+      uv.needsUpdate = true;
+      g.scale(0.42 * s, 0.48 * s, 0.42 * s);
+      sub.add(mats.ohshoLantern, g, rx, ly, rz, 0, Math.PI * 0.5, 0);
+      if (mats.chochinCore) {
+        sub.addProto(mats.chochinCore, PROTO_BULB_CORE, rx, ly, rz, 0.11 * s, 0.14 * s, 0.11 * s);
+      }
+      sub.addProto(mats.darkMetal, PROTO_CYL12, rx, ly + 0.48 * s, rz, 0.20 * s, 0.05 * s, 0.20 * s);
+      sub.addProto(mats.darkMetal, PROTO_CYL12, rx, ly - 0.48 * s, rz, 0.19 * s, 0.05 * s, 0.19 * s);
+    }
+  }
+  // Side column of 6 small golden festival lanterns flanking the Ohsho rack
+  if (mats.festivalLanterns?.length) {
+    for (let sm = 0; sm < 6; sm++) {
+      const sy = (2.25 - sm * 0.78) * s;
+      sub.addProto(mats.festivalLanterns[0], PROTO_CHOCHIN_LITE, rx + 0.74 * s, sy, rz + 0.08 * s, 0.14 * s, 0.18 * s, 0.14 * s);
+      sub.addProto(gold, PROTO_CYL8, rx + 0.74 * s, sy + 0.19 * s, rz + 0.08 * s, 0.07 * s, 0.03 * s, 0.07 * s);
+    }
+  }
+}
+
+/**
+ * One-of-a-Kind Landmark: Genroku Sushi Giant 3D Glossy Maguro Tuna Nigiri on Hinoki Cedar Geta (元禄寿司 巨大まぐろ握り)!
+ */
+export function addGiant3DSushiNigiri(lot, mats, { x = 0, y = 6.2, z = 0, scale = 1.0 }) {
+  const sub = lot.subContext(x, z, 0, y);
+  const tunaRed = mats.kaniRed ?? mats.accentRed;
+  const rice = mats.kaniCream ?? mats.vendWhite;
+  const s = scale;
+
+  // Heavy wall brackets + Hinoki cedar sushi geta board (寿司下駄)
+  for (const bx of [-0.75 * s, 0.75 * s]) {
+    sub.addBox(mats.darkMetal, 0.08 * s, 0.08 * s, 0.56 * s, bx, -0.58 * s, 0.12 * s);
+    sub.addBox(mats.woodWarm, 0.24 * s, 0.28 * s, 0.92 * s, bx, -0.72 * s, 0.48 * s);
+  }
+  sub.addBox(mats.woodWarm, 2.65 * s, 0.16 * s, 1.05 * s, 0, -0.52 * s, 0.48 * s, 0.10, -0.14, 0);
+
+  // Two oversized sculpted nigiri pieces (Left: Ruby Hon-Maguro Tuna; Right: Golden Tamago / Salmon with Nori obi!)
+  const nigiriSpecs = [
+    { dx: -0.62, topMat: tunaRed, nori: false },
+    { dx: 0.66, topMat: mats.kaniGold ?? mats.archGoldTrim, nori: true },
+  ];
+  for (const ng of nigiriSpecs) {
+    const nx = ng.dx * s;
+    // Plump sculpted white shari rice pillow
+    sub.addProto(rice, PROTO_SPHERE, nx, -0.18 * s, 0.50 * s, 0.46 * s, 0.28 * s, 0.32 * s, 0.10, -0.14, 0);
+    // Glossy draped neta topping overhanging the shari rice
+    sub.addProto(ng.topMat, PROTO_SPHERE, nx, 0.04 * s, 0.52 * s, 0.58 * s, 0.20 * s, 0.38 * s, 0.12, -0.14, -0.06);
+    if (ng.nori) {
+      sub.addBox(mats.carTrimBlack ?? mats.darkMetal, 0.22 * s, 0.50 * s, 0.78 * s, nx, -0.06 * s, 0.51 * s, 0.10, -0.14, 0);
+    }
+  }
+}
+
+/**
+ * One-of-a-Kind Architectural Landmark: Osaka Shochikuza Neo-Renaissance Kabuki Theatre (大阪松竹座, 1923/1997):
+ * Stately pale carved-limestone classical facade featuring a monumental 3-storey semicircular triumphal arch,
+ * radial stone voussoirs, circular oculi medallions, bronze marquee portico, and festive Kabuki nobori banners!
+ */
+export function buildShochikuzaTheatre(lot, mats, rnd, { w = 13.6, d = 12.4 }) {
+  const bw = w - 0.28;
+  const bd = d - 0.60;
+  const bz = -0.10;
+  const frontZ = bz + bd * 0.5;
+  const h1 = 4.65;
+  const hUpper = 13.8; // Stately 5-storey classical theatre volume (~18.45 m to cornice)
+  const totalH = h1 + hUpper;
+  const stone = mats.ivoryStone ?? mats.commUpperLight;
+  const trim = mats.warmTravertine ?? mats.concrete;
+
+  // 1. Hollow 1F Theatre Foyer + Classical Limestone Pilasters & Bronze Marquee Portico
+  addHollow1FShell(lot, stone, { bw, h1, bd, bz, wallT: 0.24 });
+  addRecessedStorefront(lot, mats, rnd, {
+    bw: bw - 0.8, h1, frontZ, pierMat: stone, shopKind: 'kissaten',
+    fasciaBucket: null, shutterMat: mats.darkMetal, withFascia: false, roomDepth: 4.4,
+  });
+
+  // Dark bronze classical portico marquee + fluted columns + warm twin theatre globe sconces
+  const portW = bw - 0.6;
+  const portD = 1.65;
+  lot.addBox(mats.darkMetal, portW, 0.24, portD, 0, 3.52, frontZ + portD * 0.5);
+  lot.addBox(mats.archGoldTrim, portW + 0.08, 0.06, portD + 0.08, 0, 3.66, frontZ + portD * 0.5);
+  for (const cx of [-portW * 0.42, -portW * 0.16, portW * 0.16, portW * 0.42]) {
+    if (Math.abs(cx) > portW * 0.3) {
+      lot.addProto(mats.darkMetal, PROTO_CYL12, cx, 1.76, frontZ + portD - 0.18, 0.11, 3.52, 0.11);
+      lot.addProto(mats.archGoldTrim, PROTO_CYL12, cx, 0.22, frontZ + portD - 0.18, 0.15, 0.14, 0.15);
+    }
+    lot.addProto(mats.warmLamp, PROTO_SPHERE, cx, 3.22, frontZ + 0.35, 0.13, 0.13, 0.13);
+  }
+
+  // Classical `大阪松竹座` plaque + Edo Kabuki wooden billing board (`歌舞伎絵看板`)
+  const kabukiFascia = mats.kabukiFascia ?? mats.dotonboriFascias?.[0];
+  if (kabukiFascia) {
+    lot.addBox(mats.archGoldTrim, 6.2, 1.06, 0.22, 0, 4.28, frontZ + 0.16);
+    lot.add(kabukiFascia, signBox(6.0, 0.94, 0.24), 0, 4.28, frontZ + 0.18);
+  }
+  if (mats.kabukiPoster) {
+    for (const sx of [-1, 1]) {
+      lot.addBox(mats.woodDark, 2.35, 1.38, 0.14, sx * (bw * 0.31), 2.15, frontZ + 0.12);
+      lot.add(mats.kabukiPoster, frontFaceBox(2.20, 1.24, 0.16, 0.005, 0.005), sx * (bw * 0.31), 2.15, frontZ + 0.14);
+    }
+  }
+
+  // Festive row of colorful Kabuki Nobori theatre banners (`歌舞伎幟`) flanking the portico!
+  if (mats.streetFlags?.length) {
+    for (const sx of [-1, 1]) {
+      for (let bi = 0; bi < 3; bi++) {
+        const bx = sx * (bw * 0.26 + bi * 0.68);
+        const bzFlag = frontZ + 0.72;
+        lot.addProto(mats.woodWarm, PROTO_CYL6, bx, 1.55, bzFlag, 0.018, 2.9, 0.018);
+        const flagMat = mats.streetFlags[(bi + (sx > 0 ? 0 : 2)) % mats.streetFlags.length];
+        lot.add(flagMat, streetFlagGeometry(0.44, 1.52, 0.014, 0.04), bx, 2.05, bzFlag + 0.02, 0.03 * bi, 0, 0);
+      }
+    }
+  }
+
+  // 2. Upper Neo-Renaissance Limestone Massing + Monumental Semicircular Triumphal Arch!
+  lot.add(stone, box(bw, hUpper, bd, 3.2, 3.4), 0, h1 + hUpper * 0.5, bz);
+  // Flanking rusticated classical stone piers
+  for (const sx of [-1, 1]) {
+    lot.add(trim, box(1.65, hUpper, 0.28, 1.65, 3.2), sx * (bw * 0.5 - 0.825), h1 + hUpper * 0.5, frontZ + 0.14);
+    // Circular Neo-Renaissance oculus medallion window in upper spandrels!
+    const oy = h1 + hUpper - 2.65;
+    const ox = sx * (bw * 0.5 - 1.55);
+    lot.addProto(trim, PROTO_CYL12, ox, oy, frontZ + 0.18, 0.68, 0.24, 0.68, Math.PI * 0.5, 0, 0);
+    lot.addProto(mats.windowLitAmber, PROTO_CYL12, ox, oy, frontZ + 0.22, 0.48, 0.26, 0.48, Math.PI * 0.5, 0, 0);
+  }
+
+  // Grand Recessed Triumphal Arch Window (`archR` semicircle + tall vertical classical stone mullions!)
+  const archR = Math.min(3.65, (bw - 3.6) * 0.5);
+  const archSpringY = h1 + 6.25;
+  const archBotY = h1 + 0.85;
+  const archRectH = archSpringY - archBotY;
+  // Warm amber theatre foyer glazing recessed inside the triumphal arch
+  addWindowAssembly(lot, mats, rnd, {
+    x: 0, y: archBotY + archRectH * 0.5, z: frontZ, w: archR * 1.92, h: archRectH,
+    frameMat: mats.archGoldTrim, style: 'commercial', preferOffice: false, litProb: 1.0,
+  });
+  // Semicircular lunette glazing fanlight + 13 radial carved-stone voussoir arch blocks + keystone!
+  const archSegs = 13;
+  for (let i = 0; i < archSegs; i++) {
+    const a = (Math.PI * (i + 0.5)) / archSegs;
+    const vx = Math.cos(a) * (archR + 0.16);
+    const vy = archSpringY + Math.sin(a) * (archR + 0.16);
+    const isKeystone = i === 6;
+    lot.addBox(
+      isKeystone ? mats.archGoldTrim : trim,
+      isKeystone ? 0.52 : 0.42,
+      isKeystone ? 0.82 : 0.62,
+      0.38,
+      vx, vy, frontZ + 0.19,
+      0, 0, a - Math.PI * 0.5,
+    );
+  }
+  // Vertical limestone mullions subdividing the grand arch into 5 tall classical bays
+  for (const frac of [-0.62, -0.22, 0.22, 0.62]) {
+    const mx = frac * archR;
+    const mTop = archSpringY + Math.sqrt(Math.max(0, archR * archR - mx * mx));
+    const mh = mTop - archBotY;
+    lot.add(stone, box(0.22, mh, 0.28, 0.22, 3.0), mx, archBotY + mh * 0.5, frontZ + 0.14);
+  }
+  // Horizontal spandrel entablature across mid-arch
+  lot.add(trim, box(archR * 2.0, 0.34, 0.30, 3.0, 0.34), 0, h1 + 3.65, frontZ + 0.15);
+
+  // Classical Dentil Cornice Crown & Balustrade Parapet
+  lot.add(trim, box(bw + 0.48, 0.48, bd + 0.48, 3.2, 0.48), 0, totalH - 0.42, bz);
+  lot.addBox(mats.archGoldTrim, bw + 0.56, 0.09, bd + 0.56, 0, totalH - 0.14, bz);
+  const dentilN = Math.round(bw / 0.48);
+  for (let di = 0; di <= dentilN; di++) {
+    const dx = -bw * 0.48 + (bw * 0.96 * di) / dentilN;
+    lot.addBox(stone, 0.18, 0.22, 0.24, dx, totalH - 0.72, frontZ + 0.22);
+  }
+  lot.addBox(mats.roofConcrete, bw + 0.24, 0.28, bd + 0.24, 0, totalH + 0.14, bz);
+  lot.add(stone, box(bw + 0.32, 0.78, 0.32, 3.0, 0.78), 0, totalH + 0.52, frontZ);
+
+  // Side-elevation arched windows so cross-street views read with matching classical dignity
+  for (const sx of [-1, 1]) {
+    for (const fy of [h1 + 2.2, h1 + 5.8, h1 + 9.4]) {
+      for (const szOff of [-bd * 0.24, bd * 0.24]) {
+        addWindowAssembly(lot, mats, rnd, {
+          x: sx * bw * 0.5, y: fy, z: bz + szOff, w: 1.85, h: 2.25, rotY: sx * Math.PI * 0.5,
+          frameMat: mats.archGoldTrim, style: 'commercial', preferOffice: false, litProb: 0.82,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * One-of-a-Kind Architectural Landmark: Dotonbori Imai Sukiya Flagship (道頓堀 今井 本店):
+ * Serene 3-storey traditional Osaka culinary sanctuary with fine vertical Hinoki cedar lattice,
+ * tiered kawara eaves, glowing square wooden Andon sign lantern, white linen Noren, and a weeping willow!
+ */
+export function buildDotonboriImaiSukiya(lot, mats, rnd, { w = 9.8, d = 11.8 }) {
+  const bw = w - 0.36;
+  const bd = d - 0.80;
+  const bz = -0.15;
+  const frontZ = bz + bd * 0.5;
+  const h1 = 3.85;
+  const h2 = 3.25;
+  const h3 = 2.95;
+
+  // 1F Hinoki cedar Sukiya storefront + warm interior
+  addHollow1FShell(lot, mats.woodWarm, { bw, h1, bd, bz, wallT: 0.20 });
+  addRecessedStorefront(lot, mats, rnd, {
+    bw, h1, frontZ, pierMat: mats.woodWarm, shopKind: 'izakaya',
+    fasciaBucket: null, shutterMat: mats.woodWarm, withFascia: false, roomDepth: 3.8,
+  });
+
+  // Fine-pitch vertical Hinoki cedar architectural lattice screen (`千本格子`) framing left bay & 2F!
+  const slatN = Math.round((bw * 0.42) / 0.14);
+  for (let i = 0; i <= slatN; i++) {
+    const sx = -bw * 0.46 + i * 0.14;
+    lot.addBox(mats.woodWarm, 0.038, 2.75, 0.08, sx, 1.56, frontZ + 0.08);
+  }
+
+  // Tier 1 clay kawara lean-to eave (`一文字瓦庇`) + crisp pure-white 4-panel linen Noren (`手打蕎麦` / `今井`)
+  buildLeanToEave(lot, mats, {
+    x: 0, y: h1 + 0.08, z: frontZ - 0.04, w: bw + 0.44, depth: 1.18, drop: 0.30, roofBucket: mats.kawaraDark,
+  });
+  addMultiPanelNoren(lot, mats, mats.norenSets[2], {
+    x: bw * 0.14, y: 2.38, z: frontZ + 0.24, totalW: 2.65, panelH: 0.78,
+  });
+
+  // Traditional square wooden Andon sign lantern (`木製行燈`) + subtle horizontal calligraphy plaque
+  lot.addBox(mats.woodDark, 0.58, 0.92, 0.46, -bw * 0.04, 2.35, frontZ + 0.34);
+  lot.addBox(mats.chochinCore ?? mats.warmLamp, 0.46, 0.78, 0.36, -bw * 0.04, 2.35, frontZ + 0.35);
+  if (mats.imaiFascia) {
+    lot.addBox(mats.woodDark, 3.8, 0.74, 0.14, 0, h1 + 0.52, frontZ + 0.22);
+    lot.add(mats.imaiFascia, signBox(3.64, 0.62, 0.16), 0, h1 + 0.52, frontZ + 0.24);
+  }
+
+  // 2F Shikkui white plaster + full-width Hinoki mushiko/koshido lattice + Tier 2 kawara eave!
+  lot.add(mats.shikkuiWall, box(bw - 0.24, h2, bd - 0.36, 3.0, h2), 0, h1 + h2 * 0.5, bz - 0.12);
+  for (const wx of [-bw * 0.25, bw * 0.25]) {
+    addWindowAssembly(lot, mats, rnd, {
+      x: wx, y: h1 + 1.58, z: bz - 0.12 + (bd - 0.36) * 0.5, w: 2.15, h: 1.38,
+      frameMat: mats.woodWarm, style: 'koshido', hasShutter: false, litProb: 0.85,
+    });
+  }
+  buildLeanToEave(lot, mats, {
+    x: 0, y: h1 + h2 + 0.06, z: frontZ - 0.22, w: bw + 0.20, depth: 0.86, drop: 0.24, roofBucket: mats.kawaraDark,
+  });
+
+  // 3F Setback Sukiya Tea-Room Penthouse + Traditional Kirizuma Clay-Tile Gabled Roof!
+  const w3 = bw - 0.9;
+  const d3 = bd - 1.4;
+  lot.add(mats.shikkuiWall, box(w3, h3, d3, 3.0, h3), 0, h1 + h2 + h3 * 0.5, bz - 0.45);
+  addWindowAssembly(lot, mats, rnd, {
+    x: 0, y: h1 + h2 + 1.42, z: bz - 0.45 + d3 * 0.5, w: 2.8, h: 1.22,
+    frameMat: mats.woodWarm, style: 'koshido', hasShutter: false, litProb: 0.75,
+  });
+  buildGabledRoof(lot, mats, {
+    x: 0, y: h1 + h2 + h3, z: bz - 0.45, w: w3, d: d3, rise: 1.48, overhang: 0.56,
+    ridgeAxis: 'x', roofBucket: mats.kawaraDark, wallBlankBucket: mats.shikkuiBlank, trimBucket: mats.woodDark, isKawara: true, tier: 2,
+  });
+
+  // Signature Dotonbori Imai green willow / zelkova tree right beside the stone entrance!
+  lot.addBox(mats.concrete, 1.15, 0.32, 0.95, -bw * 0.34, 0.16, frontZ + 0.62);
+  addGardenTree(lot, mats, -bw * 0.34, frontZ + 0.62, 1.05, 'leafy', true);
+  addPottedPlant(lot, mats, { x: bw * 0.40, z: frontZ + 0.34, scale: 1.1, yaw: 0.8 });
+}
+
+/**
+ * Builds Either a Unique One-of-a-Kind Osaka Dotonbori Landmark (`landmark` string) OR One of
+ * 6 Distinct Non-Mascot Upscale Osaka Minami Architectural Building Typologies (`archStyle = 0..5`)!
+ */
+export function buildDotonboriFlagship(lot, mats, rnd, {
+  w = 10.4, d = 12.2, storeys = 5, seq = 0, landmark = null, archStyle = 0, fasciaIdx = null, withRooftopCrown = false,
+}) {
+  // Dispatch specialized standalone architectural landmarks directly
+  if (landmark === 'shochikuza') {
+    buildShochikuzaTheatre(lot, mats, rnd, { w, d });
+    return;
+  }
+  if (landmark === 'imai') {
+    buildDotonboriImaiSukiya(lot, mats, rnd, { w, d });
+    return;
+  }
+
+  const bw = w - 0.32;
+  const bd = d - 0.65;
+  const bz = -0.10;
+  const frontZ = bz + bd * 0.5;
+  const h1 = 4.68;
+  const floorH = 3.32;
+  const upperStoreys = Math.max(2, storeys - 1);
+  const hUpper = upperStoreys * floorH;
+  const totalH = h1 + hUpper;
+
+  // Determine cladding, canopy, shop interior & fascia palette from `landmark` or `archStyle` (0..5)
+  // Non-mascot archStyles:
+  //   0: Shinsaibashi Luxury Glass & Brass Curtain-Wall Boutique (dark granite + neon_ring)
+  //   1: Taisho-Roman Heritage Brick & Carved Limestone Dining (`はり重 / 北極星` style)
+  //   2: Modernist Kengo-Kuma Cedar Timber-Louver Kappo / Matcha House (`宇治茶 / 割烹`)
+  //   3: Minami Bright White Cosmetics & Watch Tax-Free Store (`免税コスメ百貨`)
+  //   4: Charcoal Honed-Granite & Brass Teppanyaki / Jazz Bar Tower (`千房 / 鉄板焼`)
+  //   5: Warm Travertine & Asymmetrical Recessed Atrium Plaza (`心斎橋プラザ`)
+  const styleId = ((archStyle % 6) + 6) % 6;
+
+  let stoneMat = mats.warmTravertine ?? mats.commUppers[1];
+  let canopyMat = mats.darkMetal;
+  let shopKind = 'izakaya';
+  let defaultFascia = seq;
+
+  if (landmark === 'kani_doraku') {
+    stoneMat = mats.ivoryStone ?? mats.commUpperLight;
+    canopyMat = mats.canopyCrimson ?? mats.accentRed;
+    shopKind = 'izakaya';
+    defaultFascia = 0;
+  } else if (landmark === 'kinryu_dragon') {
+    stoneMat = mats.canopyCrimson ?? mats.accentRed;
+    canopyMat = mats.canopyCrimson ?? mats.accentRed;
+    shopKind = 'ramen';
+    defaultFascia = 8;
+  } else if (landmark === 'osaka_ohsho') {
+    stoneMat = mats.commUppers[2]; // Warm terracotta-red brick/tile!
+    canopyMat = mats.awningOchre;
+    shopKind = 'ramen';
+    defaultFascia = 9;
+  } else if (landmark === 'genroku_sushi') {
+    stoneMat = mats.ivoryStone ?? mats.commUpperLight;
+    canopyMat = mats.awningNavy;
+    shopKind = 'izakaya';
+    defaultFascia = 10;
+  } else if (landmark === 'zuboraya_fugu') {
+    stoneMat = mats.ivoryStone ?? mats.commUpperLight;
+    canopyMat = mats.awningBurgundy;
+    shopKind = 'ramen';
+    defaultFascia = 4;
+  } else if (landmark === 'otako_octopus') {
+    stoneMat = mats.warmTravertine ?? mats.commUppers[1];
+    canopyMat = mats.canopyCrimson ?? mats.accentRed;
+    shopKind = 'izakaya';
+    defaultFascia = 2;
+  } else if (landmark === 'ebisu_media') {
+    stoneMat = mats.charcoalGranite ?? mats.houseDarkWalls[0];
+    canopyMat = mats.awningNavy;
+    shopKind = 'pharmacy';
+    defaultFascia = 7;
+  } else if (landmark === 'teppan_shrine') {
+    stoneMat = mats.charcoalGranite ?? mats.houseDarkWalls[0];
+    canopyMat = mats.awningBurgundy;
+    shopKind = 'izakaya';
+    defaultFascia = 1;
+  } else if (styleId === 0) {
+    stoneMat = mats.charcoalGranite ?? mats.houseDarkWalls[0];
+    canopyMat = mats.darkMetal;
+    shopKind = 'kissaten';
+    defaultFascia = 11;
+  } else if (styleId === 1) {
+    stoneMat = mats.commUppers[2]; // Heritage russet terracotta brick!
+    canopyMat = mats.awningBurgundy;
+    shopKind = 'kissaten';
+    defaultFascia = 12;
+  } else if (styleId === 2) {
+    stoneMat = mats.houseDarkWalls[2];
+    canopyMat = mats.woodDark;
+    shopKind = 'kissaten';
+    defaultFascia = 13;
+  } else if (styleId === 3) {
+    stoneMat = mats.ivoryStone ?? mats.commUpperLight;
+    canopyMat = mats.awningNavy;
+    shopKind = 'pharmacy';
+    defaultFascia = 14;
+  } else if (styleId === 4) {
+    stoneMat = mats.charcoalGranite ?? mats.houseDarkWalls[0];
+    canopyMat = mats.awningGreen;
+    shopKind = 'izakaya';
+    defaultFascia = 3;
+  } else {
+    stoneMat = mats.warmTravertine ?? mats.commUppers[1];
+    canopyMat = mats.darkMetal;
+    shopKind = 'bookstore';
+    defaultFascia = 15;
+  }
+
+  const fasciaPool = mats.dotonboriFascias ?? mats.fasciasAll;
+  const chosenFasciaIdx = fasciaIdx !== null ? fasciaIdx : defaultFascia;
+  const fasciaBucket = fasciaPool[((chosenFasciaIdx % fasciaPool.length) + fasciaPool.length) % fasciaPool.length];
+
+  // 1. Hollow 1F Storefront & Furnished 3D Dining/Retail Interior
+  addHollow1FShell(lot, stoneMat, { bw, h1, bd, bz, wallT: 0.22 });
+  addRecessedStorefront(lot, mats, rnd, {
+    bw, h1, frontZ, pierMat: stoneMat, shopKind, fasciaBucket: null,
+    shutterMat: mats.darkMetal, withFascia: false, roomDepth: Math.min(bd - 0.9, 4.4),
+  });
+
+  // 1F Corner Pilaster Trim & Cross-Street Return Windows
+  for (const sx of [-1, 1]) {
+    const trimM = styleId === 1 ? (mats.ivoryStone ?? mats.concrete) : mats.archGoldTrim;
+    lot.addBox(trimM, styleId === 1 ? 0.36 : 0.065, h1 - 0.2, 0.10, sx * (bw * 0.5 - 0.28), h1 * 0.5, frontZ + 0.05);
+    lot.addBox(mats.concrete, 0.08, 0.24, bd + 0.06, sx * (bw * 0.5 + 0.02), 0.12, bz);
+    for (const szOff of [-bd * 0.26, bd * 0.22]) {
+      addWindowAssembly(lot, mats, rnd, {
+        x: sx * bw * 0.5, y: 2.02, z: bz + szOff, w: 2.08, h: 1.68, rotY: sx * Math.PI * 0.5,
+        frameMat: styleId === 2 ? mats.woodWarm : mats.archGoldTrim,
+        style: (shopKind === 'pharmacy' || styleId === 0) ? 'commercial' : 'koshido',
+        preferOffice: false, litProb: 0.82,
+      });
+    }
+  }
+
+  // 2. Varied Canopy & Signboard Treatments (Marquee vs Minimalist Cantilever vs Traditional Wood Eave)
+  const canW = bw - 0.18;
+  const canD = styleId === 0 ? 0.96 : 1.34;
+  const canY = 3.22;
+  if (styleId === 2) {
+    // Contemporary Cedar & Dark-Slate Cantilever Eave
+    buildLeanToEave(lot, mats, {
+      x: 0, y: 3.36, z: frontZ - 0.02, w: canW + 0.24, depth: 1.15, drop: 0.22, roofBucket: mats.slateRoof,
+    });
+  } else {
+    lot.addBox(canopyMat, canW, 0.15, canD, 0, canY, frontZ + canD * 0.5, styleId === 0 ? 0 : 0.08, 0, 0);
+    if (styleId !== 0) {
+      lot.addBox(canopyMat, canW, 0.24, 0.07, 0, canY - 0.12, frontZ + canD - 0.02);
+    }
+    lot.addBox(mats.archGoldTrim, canW + 0.04, 0.042, canD + 0.04, 0, canY + 0.075, frontZ + canD * 0.5, styleId === 0 ? 0 : 0.08, 0, 0);
+    for (const tx of [-canW * 0.38, canW * 0.38]) {
+      lot.addStrut(mats.archGoldTrim, [tx, h1 - 0.14, frontZ + 0.05], [tx, canY + 0.08, frontZ + canD * 0.84], 0.026);
+    }
+    // Festoon bulbs ONLY on lively gourmet landmarks & izakaya/teppan fronts (not luxury glass boutiques!)
+    if (mats.marqueeBulb && (landmark !== null || styleId === 4)) {
+      const nBulbs = Math.max(5, Math.round(canW / 0.92));
+      for (let bi = 0; bi < nBulbs; bi++) {
+        const bx = -canW * 0.44 + (canW * 0.88 * bi) / (nBulbs - 1);
+        lot.addProto(mats.marqueeBulb, PROTO_BULB_CORE, bx, canY - 0.10, frontZ + canD - 0.16, 0.034, 0.034, 0.034);
+      }
+    }
+  }
+
+  // Elevated 1F Flagship Signboard (`y = 4.14 m`, 100% unobstructed above sidewalks & lanterns)
+  const mainSignW = Math.min(bw - 0.44, styleId === 0 ? 5.6 : 7.4);
+  const mainSignH = styleId === 0 ? 0.86 : 1.04;
+  const mainSignY = h1 - 0.54;
+  lot.addBox(mats.darkMetal, mainSignW + 0.12, mainSignH + 0.12, 0.20, 0, mainSignY, frontZ + 0.13);
+  lot.addBox(mats.archGoldTrim, mainSignW + 0.16, 0.045, 0.24, 0, mainSignY + mainSignH * 0.5 + 0.045, frontZ + 0.13);
+  lot.add(fasciaBucket, signBox(mainSignW, mainSignH, 0.22), 0, mainSignY, frontZ + 0.15);
+
+  if (shopKind === 'izakaya' || shopKind === 'ramen' || styleId === 2) {
+    const norenSet = mats.norenSets[(seq + styleId) % mats.norenSets.length];
+    addMultiPanelNoren(lot, mats, norenSet, {
+      x: 0, y: 2.48, z: frontZ + 0.22, totalW: Math.min(bw * 0.46, 2.8), panelH: 0.72,
+    });
+  }
+  for (const sx of [-1, 1]) {
+    if (styleId === 1) {
+      // Brass globe wall sconces on Taisho-Roman heritage brick facades!
+      lot.addBox(mats.darkMetal, 0.06, 0.06, 0.26, sx * (bw * 0.44), 2.72, frontZ + 0.12);
+      lot.addProto(mats.warmLamp, PROTO_SPHERE, sx * (bw * 0.44), 2.64, frontZ + 0.24, 0.12, 0.12, 0.12);
+    } else {
+      addPottedPlant(lot, mats, { x: sx * (bw * 0.42), z: frontZ + 0.36, scale: 1.04, yaw: seq + sx });
+    }
+  }
+
+  // 3. Upper Architectural Massing
+  lot.add(stoneMat, box(bw, hUpper, bd, 3.2, floorH), 0, h1 + hUpper * 0.5, bz);
+  for (let f = 0; f <= upperStoreys; f++) {
+    const cy = h1 + f * floorH;
+    const beltM = styleId === 1 ? (mats.ivoryStone ?? mats.concrete) : mats.concrete;
+    lot.addBox(beltM, bw + 0.18, styleId === 1 ? 0.22 : 0.15, bd + 0.18, 0, cy, bz);
+  }
+
+  const showcaseH = floorH * 1.82;
+  const showcaseCy = h1 + floorH * 0.98;
+  const showcaseW = Math.max(3.6, bw - 1.35);
+  const sculptureScale = Math.min(1.10, Math.max(0.76, showcaseW / 5.4));
+
+  // 4A. ONE-OF-A-KIND LANDMARK UPPER SHOWCASES (Each occurs at most ONCE in the entire scene!)
+  let upperWinStartFloor = 2;
+
+  if (landmark === 'kani_doraku' || landmark === 'otako_octopus' || landmark === 'zuboraya_fugu') {
+    const frameM = mats.ivoryStone ?? mats.commUpperLight;
+    lot.add(frameM, box(showcaseW + 0.36, 0.24, 0.36, 2.0, 0.24), 0, showcaseCy + showcaseH * 0.5, frontZ + 0.18);
+    lot.add(frameM, box(showcaseW + 0.36, 0.22, 0.32, 2.0, 0.22), 0, showcaseCy - showcaseH * 0.5, frontZ + 0.16);
+    for (const sx of [-1, 1]) {
+      lot.add(frameM, box(0.22, showcaseH, 0.32, 0.22, 2.0), sx * (showcaseW * 0.5 + 0.09), showcaseCy, frontZ + 0.16);
+    }
+    if (mats.coveWarm) {
+      lot.add(mats.coveWarm, frontFaceBox(showcaseW - 0.12, showcaseH - 0.28, 0.06, 0.5, 0.5), 0, showcaseCy, frontZ + 0.04);
+    }
+    const slatMat = landmark === 'zuboraya_fugu' ? mats.woodWarm : frameM;
+    const slatCount = Math.max(12, Math.round(showcaseW / 0.38));
+    for (let si = 0; si < slatCount; si++) {
+      const lx = -showcaseW * 0.46 + (showcaseW * 0.92 * si) / (slatCount - 1);
+      lot.addBox(slatMat, 0.13, showcaseH - 0.26, 0.16, lx, showcaseCy, frontZ + 0.15);
+    }
+    if (landmark === 'kani_doraku') {
+      addGiant3DCrab(lot, mats, { x: 0, y: showcaseCy + 0.12, z: frontZ + 0.30, scale: sculptureScale });
+    } else if (landmark === 'otako_octopus') {
+      addGiant3DOctopus(lot, mats, { x: 0, y: showcaseCy + 0.18, z: frontZ + 0.30, scale: sculptureScale * 0.96 });
+    } else {
+      addGiant3DFugu(lot, mats, { x: 0, y: showcaseCy + 0.08, z: frontZ + 0.30, scale: sculptureScale * 0.98 });
+    }
+  } else if (landmark === 'kinryu_dragon') {
+    addGiant3DDragon(lot, mats, { x: 0, y: showcaseCy, z: frontZ + 0.16, scale: sculptureScale * 0.95 });
+  } else if (landmark === 'osaka_ohsho') {
+    addGiant3DGyozaAndRack(lot, mats, { x: 0, y: showcaseCy + 0.10, z: frontZ + 0.14, scale: sculptureScale * 0.92 });
+  } else if (landmark === 'genroku_sushi') {
+    if (mats.coveWarm) {
+      lot.add(mats.coveWarm, frontFaceBox(showcaseW * 0.88, showcaseH - 0.35, 0.06, 0.5, 0.5), 0, showcaseCy, frontZ + 0.04);
+    }
+    addGiant3DSushiNigiri(lot, mats, { x: 0, y: showcaseCy + 0.12, z: frontZ + 0.18, scale: sculptureScale * 0.96 });
+  } else if (landmark === 'teppan_shrine') {
+    if (mats.coveWarm) {
+      lot.add(mats.coveWarm, frontFaceBox(showcaseW * 0.88, showcaseH - 0.35, 0.06, 0.5, 0.5), 0, showcaseCy, frontZ + 0.04);
+    }
+    addGiant3DGourmetCrest(lot, mats, { x: 0, y: showcaseCy + 0.12, z: frontZ + 0.20, scale: sculptureScale * 0.94 });
+  } else if (landmark === 'ebisu_media') {
+    // Iconic Ebisubashi Multi-Screen Neon & Sprinter Media Wall spanning 2F..top!
+    upperWinStartFloor = upperStoreys;
+    const sprinterMat = mats.sprinterPoster ?? mats.podiumPosters?.[0];
+    const tallH = Math.min(hUpper - 0.8, floorH * 3.1);
+    const mainW = Math.min(bw * 0.56, 5.8);
+    if (sprinterMat) {
+      lot.addBox(mats.darkMetal, mainW + 0.18, tallH + 0.18, 0.20, -bw * 0.16, h1 + tallH * 0.5 + 0.35, frontZ + 0.12);
+      lot.add(sprinterMat, frontFaceBox(mainW, tallH, 0.22, 0.005, 0.005), -bw * 0.16, h1 + tallH * 0.5 + 0.35, frontZ + 0.15);
+    }
+    // Stacked companion neon billboards on right half of the media wall
+    if (mats.podiumPosters?.length) {
+      const sideW = Math.max(2.4, bw - mainW - 0.95);
+      const sx = bw * 0.5 - sideW * 0.5 - 0.28;
+      for (let k = 0; k < 2; k++) {
+        const pm = mats.podiumPosters[(k * 2 + 1) % mats.podiumPosters.length];
+        const ph = (tallH - 0.28) * 0.5;
+        const py = h1 + 0.35 + ph * 0.5 + k * (ph + 0.28);
+        lot.addBox(mats.darkMetal, sideW + 0.12, ph + 0.12, 0.18, sx, py, frontZ + 0.10);
+        lot.add(pm, frontFaceBox(sideW, ph, 0.20, 0.005, 0.005), sx, py, frontZ + 0.13);
+      }
+    }
+  } else {
+    // 4B. 6 NON-MASCOT UPSCALE ARCHITECTURAL FACADES (Zero animal sculptures!)
+    if (styleId === 0) {
+      // Shinsaibashi Luxury Curtain-Wall Boutique + Glowing Neon Ring behind upper glass!
+      upperWinStartFloor = 1;
+      const glassW = bw - 0.9;
+      addWindowAssembly(lot, mats, rnd, {
+        x: 0, y: h1 + floorH * 0.52, z: frontZ, w: glassW, h: floorH - 0.42,
+        frameMat: mats.archGoldTrim, style: 'commercial', preferOffice: false, litProb: 0.95,
+      });
+      if (mats.neonRingPoster && upperStoreys >= 3) {
+        upperWinStartFloor = 3;
+        const nw = Math.min(glassW, 5.4);
+        const nh = floorH * 1.72;
+        const ny = h1 + floorH * 2.0;
+        lot.addBox(mats.archGoldTrim, nw + 0.18, nh + 0.18, 0.14, 0, ny, frontZ + 0.08);
+        lot.add(mats.neonRingPoster, frontFaceBox(nw, nh, 0.16, 0.005, 0.005), 0, ny, frontZ + 0.10);
+      }
+      // Vertical brushed champagne-brass curtain-wall fins
+      const finN = Math.max(3, Math.round(bw / 2.2));
+      for (let fi = 0; fi <= finN; fi++) {
+        const fx = -bw * 0.46 + (bw * 0.92 * fi) / finN;
+        lot.addBox(mats.archGoldTrim, 0.06, hUpper, 0.20, fx, h1 + hUpper * 0.5, frontZ + 0.10);
+      }
+    } else if (styleId === 1) {
+      // Taisho-Roman Heritage Brick & Carved Limestone Quoins (`はり重 / 北極星`)
+      upperWinStartFloor = 0; // All upper floors get classical arched stone windows!
+      const quoinM = mats.ivoryStone ?? mats.concrete;
+      for (const sx of [-1, 1]) {
+        for (let qy = h1 + 0.35; qy < totalH - 0.3; qy += 0.68) {
+          const qw = ((Math.round(qy * 3) % 2) === 0) ? 0.62 : 0.42;
+          lot.add(quoinM, box(qw, 0.30, 0.18, 1.0, 0.30), sx * (bw * 0.5 - qw * 0.5 + 0.04), qy, frontZ + 0.08);
+        }
+      }
+    } else if (styleId === 2) {
+      // Modernist Kengo-Kuma Horizontal & Vertical Cedar Louver Facade (`宇治茶 辻利 / 割烹`)
+      upperWinStartFloor = Math.min(2, upperStoreys);
+      const louverSpanH = upperWinStartFloor * floorH - 0.35;
+      const louverCy = h1 + upperWinStartFloor * floorH * 0.5;
+      if (mats.coveWarm) {
+        lot.add(mats.coveWarm, frontFaceBox(bw - 1.2, louverSpanH - 0.2, 0.05, 0.5, 0.5), 0, louverCy, frontZ + 0.03);
+      }
+      const lRows = Math.max(10, Math.round(louverSpanH / 0.34));
+      for (let r = 0; r < lRows; r++) {
+        const ly = louverCy - louverSpanH * 0.47 + (louverSpanH * 0.94 * r) / (lRows - 1);
+        const shift = ((r % 3) - 1) * 0.14;
+        lot.addBox(mats.woodWarm, bw - 0.72, 0.095, 0.22, shift, ly, frontZ + 0.14);
+      }
+      for (const sx of [-1, 1]) {
+        lot.addBox(mats.darkMetal, 0.12, louverSpanH + 0.1, 0.24, sx * (bw * 0.5 - 0.28), louverCy, frontZ + 0.13);
+      }
+    } else if (styleId === 3) {
+      // Minami Bright White Cosmetics, Luxury Watch & Tax-Free Department Store!
+      upperWinStartFloor = 2;
+      addWindowAssembly(lot, mats, rnd, {
+        x: 0, y: h1 + floorH * 0.50, z: frontZ, w: bw - 1.1, h: 2.25,
+        frameMat: mats.silverMetal, style: 'commercial', preferOffice: false, litProb: 0.95,
+      });
+      if (mats.cosmePoster) {
+        const pw = Math.min(bw - 1.0, 6.2);
+        const ph = floorH - 0.45;
+        const py = h1 + floorH * 1.50;
+        lot.addBox(mats.silverMetal, pw + 0.16, ph + 0.16, 0.16, 0, py, frontZ + 0.09);
+        lot.add(mats.cosmePoster, frontFaceBox(pw, ph, 0.18, 0.005, 0.005), 0, py, frontZ + 0.11);
+      }
+    } else {
+      // Styles 4 & 5: Charcoal-Granite Teppanyaki Tower or Travertine Plaza with 2F–3F Glazed Dining Bays
+      upperWinStartFloor = 0;
+    }
+  }
+
+  // 5. Populate Upper Commercial Windows (Front `upperWinStartFloor..top` + Full Cross-Street Side Elevations!)
+  const cols = Math.max(2, Math.min(4, Math.floor((bw - 0.9) / 2.48)));
+  const baySpan = (bw - 1.2) / cols;
+  const winW = Math.min(2.12, baySpan - 0.36);
+
+  for (let f = 0; f < upperStoreys; f++) {
+    const wy = h1 + (f + 0.50) * floorH;
+    if (f >= upperWinStartFloor) {
+      for (let c = 0; c < cols; c++) {
+        const wx = -((cols - 1) * baySpan) * 0.5 + c * baySpan;
+        addWindowAssembly(lot, mats, rnd, {
+          x: wx, y: wy, z: frontZ, w: winW, h: styleId === 1 ? 1.88 : 2.06,
+          frameMat: styleId === 1 ? mats.woodDark : (f % 2 === 0 ? mats.darkMetal : mats.archGoldTrim),
+          style: 'commercial', preferOffice: f >= 3, litProb: 0.78,
+        });
+        // Carved stone semicircular arch eyebrow above 2F/3F Taisho-Roman heritage brick windows!
+        if (styleId === 1 && f <= 1) {
+          lot.add(mats.ivoryStone ?? mats.concrete, box(winW + 0.24, 0.26, 0.18, 1.5, 0.26), wx, wy + 1.08, frontZ + 0.09);
+        }
+      }
+    }
+    // Cross-street side return elevations
+    for (const sx of [-1, 1]) {
+      for (const szOff of [-bd * 0.24, bd * 0.24]) {
+        addWindowAssembly(lot, mats, rnd, {
+          x: sx * bw * 0.5, y: wy, z: bz + szOff, w: 2.05, h: 1.92, rotY: sx * Math.PI * 0.5,
+          frameMat: styleId === 1 ? mats.woodDark : mats.darkMetal,
+          style: 'commercial', preferOffice: f >= 2, litProb: 0.72,
+        });
+      }
+    }
+  }
+
+  // Vertical architectural pilasters / brass blades on Styles 4 & 5
+  if (styleId === 4 || styleId === 5) {
+    for (let c = 0; c <= cols; c++) {
+      const fx = -((cols - 1) * baySpan) * 0.5 + (c - 0.5) * baySpan;
+      if (Math.abs(fx) < bw * 0.48) {
+        lot.addBox(
+          styleId === 4 ? mats.archGoldTrim : stoneMat,
+          styleId === 4 ? 0.07 : 0.26,
+          hUpper,
+          0.18,
+          fx, h1 + hUpper * 0.5, frontZ + 0.09,
+        );
+      }
+    }
+  }
+
+  // 6. Varied Rooftop Termination (Pitched Tile Crown on Heritage/Timber vs Molded Parapet on Towers)
+  if (styleId === 1 && storeys <= 4) {
+    // Molded classical cornice + low slate hipped roof on Taisho-Roman heritage buildings!
+    const stoneTrim = mats.ivoryStone ?? mats.concrete;
+    lot.add(stoneTrim, box(bw + 0.42, 0.36, bd + 0.42, 3.0, 0.36), 0, totalH + 0.12, bz);
+    lot.add(mats.slateRoof, hippedRoofGeometry(bw + 0.52, 1.15, bd + 0.52, 0.16), 0, totalH + 0.32, bz);
+  } else {
+    const pt = 0.26;
+    lot.addBox(mats.roofConcrete, bw + 0.20, 0.24, bd + 0.20, 0, totalH + 0.12, bz);
+    lot.addBox(mats.concrete, bw + pt, 0.68, pt, 0, totalH + 0.46, frontZ);
+    lot.addBox(mats.archGoldTrim, bw + pt + 0.10, 0.08, pt + 0.12, 0, totalH + 0.82, frontZ);
+    lot.addBox(mats.concrete, bw + pt, 0.48, pt, 0, totalH + 0.36, bz - bd * 0.5);
+    lot.addBox(mats.concrete, pt, 0.48, bd, -bw * 0.5, totalH + 0.36, bz);
+    lot.addBox(mats.concrete, pt, 0.48, bd, bw * 0.5, totalH + 0.36, bz);
+
+    if (withRooftopCrown && storeys >= 5) {
+      addRooftopBillboard(lot, mats, seq, {
+        w: Math.min(bw * 0.86, 8.0),
+        h: 3.4,
+        yRoof: totalH + 0.84,
+        zFront: frontZ,
+      });
+    } else {
+      lot.add(stoneMat, box(2.5, 2.2, 2.5, 2.5, 2.2), -bw * 0.2, totalH + 1.1, bz - bd * 0.24);
+      lot.addBox(mats.roofConcrete, 2.7, 0.16, 2.7, -bw * 0.2, totalH + 2.28, bz - bd * 0.24);
+    }
+  }
+
+  // 7. Varied Projecting Vertical Signage (Some have 3-tier tower sign, some have single sleeve sign,
+  //    and Luxury Glass / Taisho Heritage / Timber Louver facades stay clean & sign-free!)
+  const primarySide = seq % 2 === 0 ? 1 : -1;
+  if (landmark === 'osaka_ohsho') {
+    // Osaka Ohsho already carries its own 4-lantern steel tower rack!
+  } else if (landmark !== null || styleId === 3 || styleId === 4) {
+    if (storeys >= 5 && (seq % 2 === 0 || landmark === 'ebisu_media' || styleId === 3)) {
+      const towerH = Math.min(totalH - h1 - 0.6, 8.8);
+      addStackedSignTower(lot, mats, seq * 3 + styleId, {
+        x: primarySide * (bw * 0.46),
+        yBot: h1 + 0.32,
+        z: frontZ + 0.06,
+        height: towerH,
+        width: 0.76,
+      });
+    } else {
+      addSleeveSign(lot, mats, seq * 5 + styleId, {
+        x: primarySide * (bw * 0.45),
+        y: h1 + 1.85,
+        z: frontZ + 0.05,
+      });
+    }
+  } else if (styleId === 5) {
+    addSleeveSign(lot, mats, seq * 7 + 3, {
+      x: primarySide * (bw * 0.45),
+      y: h1 + 1.85,
+      z: frontZ + 0.05,
+    });
   }
 }
