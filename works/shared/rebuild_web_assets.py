@@ -101,35 +101,39 @@ def main():
             for verifier in spec["verifiers"]:
                 run_step([python_exe, *verifier], f"verify:{name}")
 
-        raw_glb = os.path.join(WEB_ASSETS, f"{name}.glb")
+        raw_glb = os.path.join(WEB_ASSETS, f".{name}.raw.glb")
         opt_glb = os.path.join(WEB_ASSETS, f"{name}.optimized.glb")
 
-        run_step(
-            [
-                python_exe,
-                EXPORTER,
-                "--",
-                "--source",
-                spec["blend"],
-                "--output",
-                raw_glb,
-                *EXPORT_ARGS,
-            ],
-            f"export:{name}",
-        )
-        run_step(
-            [
-                *gltf_transform,
-                "optimize",
-                raw_glb,
-                opt_glb,
-                "--compress",
-                "meshopt",
-                "--palette",
-                "false",
-            ],
-            f"optimize:{name}",
-        )
+        try:
+            run_step(
+                [
+                    python_exe,
+                    EXPORTER,
+                    "--",
+                    "--source",
+                    spec["blend"],
+                    "--output",
+                    raw_glb,
+                    *EXPORT_ARGS,
+                ],
+                f"export:{name}",
+            )
+            run_step(
+                [
+                    *gltf_transform,
+                    "optimize",
+                    raw_glb,
+                    opt_glb,
+                    "--compress",
+                    "meshopt",
+                    "--palette",
+                    "false",
+                ],
+                f"optimize:{name}",
+            )
+        finally:
+            if os.path.exists(raw_glb):
+                os.remove(raw_glb)
 
     print("\nAll requested web GLB assets rebuilt and meshopt-optimized.")
 

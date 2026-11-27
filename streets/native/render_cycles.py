@@ -14,7 +14,10 @@ Add `--samples N` / `--width N` for quick tests. The imported scene is cached in
 import json
 import math
 import os
+import struct
+import subprocess
 import sys
+import tempfile
 
 import bpy
 from mathutils import Vector
@@ -27,7 +30,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 OUT = os.path.join(HERE, "out")
 ASSETS = "/Users/raku/repos/others/threert-assets"
 LOCAL_STREET_GLB = os.path.join(OUT, "playground_street_rt.glb")
-LOCAL_TOWER_GLB = os.path.join(ROOT, "works/the_stack/out/the_stack_final.glb")
+LOCAL_TOWER_GLB = os.path.join(ROOT, "model_viewer/assets/the_stack.optimized.glb")
 
 
 def _resolve_glb(local_path, shared_name):
@@ -44,13 +47,15 @@ def _resolve_glb(local_path, shared_name):
 
 
 STREET_GLB = _resolve_glb(LOCAL_STREET_GLB, "playground_street_rt.glb")
-TOWER_GLB = _resolve_glb(LOCAL_TOWER_GLB, "the_stack_final.glb")
+TOWER_GLB = LOCAL_TOWER_GLB
 SCENE_JSON = os.path.join(HERE, "playground-scene.json")
 BASE_BLEND = os.path.join(OUT, "cycles-street-base.blend")
 
 VIEWS = {
     # Same eye-level street preset as the ThreeRT scene.
     "street": {"pos": (4.9, 1.7, 560.0), "target": (0.0, 55.0, 90.0), "fov": 52.0},
+    # Full-height upward street view framing the entire 301.8 m Stack at 50 mm (portrait).
+    "stack_full": {"pos": (4.2, 1.7, 580.0), "target": (0.0, 146.0, 80.0), "fov": 52.0},
     "shotengai": {"pos": (3.8, 6.2, 398.0), "target": (-9.5, 7.2, 304.0), "fov": 52.0},
     "shotengai_walk": {"pos": (-3.5, 1.75, 416.5), "target": (4.5, 6.45, 350.0), "fov": 52.0},
     "ikkodate": {"pos": (36.0, 3.2, 380.0), "target": (106.0, 2.8, 379.2), "fov": 52.0},
@@ -90,11 +95,34 @@ def clear_scene():
         bpy.data.objects.remove(obj, do_unlink=True)
 
 
+def _uses_meshopt(filepath):
+    with open(filepath, "rb") as fh:
+        header = fh.read(20)
+        if len(header) < 20 or header[:4] != b"glTF":
+            return False
+        chunk_len = struct.unpack_from("<I", header, 12)[0]
+        meta = json.loads(fh.read(chunk_len))
+    return "EXT_meshopt_compression" in meta.get("extensionsUsed", [])
+
+
+def import_gltf_safe(filepath):
+    """Import a GLB, transparently decoding EXT_meshopt_compression into a
+    temporary file when Blender's built-in glTF addon lacks meshopt support."""
+    if not _uses_meshopt(filepath):
+        bpy.ops.import_scene.gltf(filepath=filepath)
+        return
+    cli = os.path.join(ROOT, "node_modules", ".bin", "gltf-transform")
+    with tempfile.TemporaryDirectory(prefix="cycles_glb_") as tmpdir:
+        decoded = os.path.join(tmpdir, "decoded.glb")
+        subprocess.run([cli, "copy", filepath, decoded], cwd=ROOT, check=True)
+        bpy.ops.import_scene.gltf(filepath=decoded)
+
+
 def import_base():
     clear_scene()
-    bpy.ops.import_scene.gltf(filepath=STREET_GLB)
+    import_gltf_safe(STREET_GLB)
     before = set(bpy.data.objects)
-    bpy.ops.import_scene.gltf(filepath=TOWER_GLB)
+    import_gltf_safe(TOWER_GLB)
     with open(SCENE_JSON) as fh:
         data = json.load(fh)
     tower = bpy.data.objects.get("the_stack")
@@ -117,14 +145,59 @@ def emission_materials():
             continue
         for node in mat.node_tree.nodes:
             if node.type == "BSDF_PRINCIPLED" and node.inputs["Emission Strength"].default_value > 0.001:
-                found.append((node, node.inputs["Emission Strength"].default_value, mat.name.startswith("Stack_")))
+                found.append((node, node.inputs["Emission Strength"].default_value, mat.name))
                 break
     return found
 
 
-def apply_emission(emissions, street_scale, tower_scale):
-    for node, base, is_tower in emissions:
-        node.inputs["Emission Strength"].default_value = base * (tower_scale if is_tower else street_scale)
+def apply_emission(emissions, street_scale, tower_scale, sky="blue"):
+    for node, base, mat_name in emissions:
+        if mat_name.startswith("Stack_"):
+            if base > 20.0:
+                node.inputs["Emission Strength"].default_value = base * tower_scale
+            elif sky == "day":
+                node.inputs["Emission Strength"].default_value = 0.0
+            elif "Ceiling_Slab" in mat_name:
+                node.inputs["Emission Strength"].default_value = base * (0.26 if sky == "blue" else 0.24)
+            elif "Mall_Glow" in mat_name:
+                node.inputs["Emission Strength"].default_value = base * (0.75 if sky == "blue" else 0.90)
+            else:
+                node.inputs["Emission Strength"].default_value = base * (1.65 if sky == "blue" else 1.80)
+        else:
+            node.inputs["Emission Strength"].default_value = base * street_scale
+
+
+def upgrade_stack_glass_for_cycles():
+    """Ensure imported one-way coated Stack glazing is backfacing- and shadow-transparent in Cycles."""
+    for mat in bpy.data.materials:
+        if not mat or not mat.use_nodes or not mat.name.startswith("Stack_Glass_"):
+            continue
+        nt = mat.node_tree
+        out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
+        if not out or not out.inputs["Surface"].links:
+            continue
+        if "Inner" in mat.name:
+            trans = nt.nodes.new("ShaderNodeBsdfTransparent")
+            trans.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+            nt.links.new(trans.outputs[0], out.inputs["Surface"])
+            continue
+        if any(n.label == "Stack Cycles One-Way Shadow" for n in nt.nodes):
+            continue
+        prev = out.inputs["Surface"].links[0].from_socket
+        geom = nt.nodes.new("ShaderNodeNewGeometry")
+        lp = nt.nodes.new("ShaderNodeLightPath")
+        trans = nt.nodes.new("ShaderNodeBsdfTransparent")
+        trans.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+        mix_back = nt.nodes.new("ShaderNodeMixShader")
+        nt.links.new(geom.outputs["Backfacing"], mix_back.inputs[0])
+        nt.links.new(prev, mix_back.inputs[1])
+        nt.links.new(trans.outputs[0], mix_back.inputs[2])
+        mix_shadow = nt.nodes.new("ShaderNodeMixShader")
+        mix_shadow.label = "Stack Cycles One-Way Shadow"
+        nt.links.new(lp.outputs["Is Shadow Ray"], mix_shadow.inputs[0])
+        nt.links.new(mix_back.outputs[0], mix_shadow.inputs[1])
+        nt.links.new(trans.outputs[0], mix_shadow.inputs[2])
+        nt.links.new(mix_shadow.outputs[0], out.inputs["Surface"])
 
 
 def set_world_day(strength):
@@ -251,7 +324,7 @@ def add_street_lights(data, watt, cam_pos=None):
 def add_camera(view):
     cam = bpy.data.cameras.new("Camera")
     cam.lens = 50.0
-    cam.sensor_fit = "HORIZONTAL"
+    cam.sensor_fit = "AUTO"
     cam.sensor_width = 36.0
     cam.clip_start = 0.1
     cam.clip_end = 30000.0
@@ -279,7 +352,7 @@ def configure_render(samples, width, height):
     scene.cycles.transmission_bounces = 4
     scene.cycles.transparent_max_bounces = 16
     scene.cycles.sample_clamp_indirect = 8.0
-    scene.cycles.blur_glossy = 1.0
+    scene.cycles.blur_glossy = 0.15
     scene.render.resolution_x = width
     scene.render.resolution_y = height
     scene.render.resolution_percentage = 100
@@ -333,6 +406,7 @@ def main():
 
     # Upgrade 1F hollow storefronts to true 3D furnished rooms & upper/residential windows to GPU Interior Mapping
     upgrade_cycles_interiors(opts["sky"])
+    upgrade_stack_glass_for_cycles()
 
     cam_obj = add_camera(VIEWS[opts["view"]])
     emissions = emission_materials()
@@ -340,21 +414,21 @@ def main():
     if opts["sky"] == "day":
         set_world_day(0.10)
         add_sun((0.48, 0.42, -0.77), 6.5, (1.0, 0.92, 0.80))
-        apply_emission(emissions, 0.0, 0.0)
+        apply_emission(emissions, 0.0, 0.0, sky="day")
         scene.view_settings.exposure = -1.0
         samples = opts["samples"] or 48
     elif opts["sky"] == "blue":
         set_world_blue()
         add_sun((-0.75, 0.30, -0.35), 0.24, (0.58, 0.74, 1.0), angle_deg=8.0)
         add_street_lights(data, watt=110.0, cam_pos=cam_obj.location)
-        apply_emission(emissions, 0.0032, 0.0010)
+        apply_emission(emissions, 0.0032, 0.0010, sky="blue")
         scene.view_settings.exposure = 1.45
         samples = opts["samples"] or 128
     else:
         set_world_night()
         add_sun((-0.25, 0.45, -0.85), 0.12, (0.55, 0.68, 1.0), angle_deg=2.0)
         add_street_lights(data, watt=95.0, cam_pos=cam_obj.location)
-        apply_emission(emissions, 0.0028, 0.0009)
+        apply_emission(emissions, 0.0028, 0.0009, sky="night")
         scene.view_settings.exposure = 1.05
         samples = opts["samples"] or 96
 
