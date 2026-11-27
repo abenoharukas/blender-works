@@ -266,7 +266,7 @@ const views = {
 };
 const models = {
   stack: {
-    label: 'The Stack', meta: '01 / 301.8 m', asset: './assets/the_stack.optimized.glb?v=20261127e',
+    label: 'The Stack', meta: '01 / 301.8 m', asset: './assets/the_stack.optimized.glb?v=20261127g',
     eyebrow: 'MVRDV competition proposal / web conversion',
     title: 'A vertical city,<br /><i>stacked in public.</i>',
     intro: 'A vertical sequence of retail, gardens, work and living bands, translated from the procedural Blender study.',

@@ -288,8 +288,8 @@ VIEW_NAMES = ("preview", "facade", "garden", "void", "base")
 
 _CUBE_VERTS = ((-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
                (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1))
-_CUBE_FACES = ((0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
-               (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0))
+_CUBE_FACES = ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
+               (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7))
 
 
 def _link(mesh, name):
@@ -312,6 +312,36 @@ def cube(name, loc, dims, mat, bevel=0.0, cast_shadow=True):
     if bevel:
         mod = obj.modifiers.new("Soft architectural edges", "BEVEL")
         mod.width, mod.segments = bevel, 2
+    return obj
+
+
+def assign_oneway_glass_faces(obj, outward_normal, inner_mat):
+    """Assign exterior-facing polygons to slot 0 (outer frosted+reflective
+    glass) and interior-facing + thin edge polygons to slot 1 (clear inner
+    glass). With backface culling enabled on both materials, outside views see
+    only slot 0 while inside-out views see only slot 1."""
+    mesh = obj.data
+    if not mesh.materials:
+        return obj
+    mesh.materials.append(inner_mat)
+    out_vec = Vector(outward_normal).normalized()
+    for poly in mesh.polygons:
+        poly.material_index = 0 if poly.normal.dot(out_vec) > 0.5 else 1
+    mesh.update()
+    return obj
+
+
+def assign_ceiling_underside(obj, ceiling_mat):
+    """Assign downward-facing slab undersides (-Z) to the cream-white ceiling
+    material so ceilings read warm cream-white instead of dark shadow-grey."""
+    mesh = obj.data
+    if not mesh.materials:
+        return obj
+    mesh.materials.append(ceiling_mat)
+    for poly in mesh.polygons:
+        if poly.normal.z < -0.5:
+            poly.material_index = 1
+    mesh.update()
     return obj
 
 
@@ -487,7 +517,7 @@ def face_point(face, u, z, out=0.0):
 
 
 def panel(name, face, u0, u1, z0, z1, outer, thick, mat, pad_u=0.0, pad_z=0.0,
-          shift_z=0.0):
+          shift_z=0.0, inner_mat=None):
     """A rectangular panel whose outer face sits on the given plane: every
     visible element uses the shared facade plane, so nothing stands proud. The
     optional pads pull the panel's own edges in a little, so two families that
@@ -504,7 +534,10 @@ def panel(name, face, u0, u1, z0, z1, outer, thick, mat, pad_u=0.0, pad_z=0.0,
     cy = oy + uy * uc + ny * (out + thick / 2)
     u_len, z_len = abs(u1 - u0), abs(z1 - z0)
     dims = (u_len, thick, z_len) if face in ("N", "S") else (thick, u_len, z_len)
-    return cube(name, (cx, cy, (z0 + z1) / 2), dims, mat)
+    obj = cube(name, (cx, cy, (z0 + z1) / 2), dims, mat)
+    if inner_mat is not None:
+        assign_oneway_glass_faces(obj, (nx, ny, 0.0), inner_mat)
+    return obj
 
 
 def face_pad(face, base=0.0, step=0.008):
@@ -569,12 +602,15 @@ def void_holes(face):
     return list(VOIDS)
 
 
-def x_panel(name, x, normal, u0, u1, z0, z1, thick, mat):
+def x_panel(name, x, normal, u0, u1, z0, z1, thick, mat, inner_mat=None):
     """A panel on a vertical X-facing plane: its finished face sits at x, its
     thickness runs away from the void along -normal, and u is measured in y, so
     the void side walls can carry the same curtain wall as the exterior."""
-    cube(name, (x - normal * thick / 2, (u0 + u1) / 2, (z0 + z1) / 2),
-         (thick, abs(u1 - u0), abs(z1 - z0)), mat)
+    obj = cube(name, (x - normal * thick / 2, (u0 + u1) / 2, (z0 + z1) / 2),
+               (thick, abs(u1 - u0), abs(z1 - z0)), mat)
+    if inner_mat is not None:
+        assign_oneway_glass_faces(obj, (-normal, 0.0, 0.0), inner_mat)
+    return obj
 
 
 def void_curtain_wall(mats):
@@ -595,8 +631,9 @@ def void_curtain_wall(mats):
             # from the core face. The skin steps back in the same depth ladder
             # as the exterior, so mullion, transom and glass never share a
             # plane, and even the deepest member stays in the void.
-            def line(name, d, thick, u0, u1, za, zb, mat):
-                x_panel(name, inner + s * d, -s, u0, u1, za, zb, thick, mat)
+            def line(name, d, thick, u0, u1, za, zb, mat, inner_mat=None):
+                x_panel(name, inner + s * d, -s, u0, u1, za, zb, thick, mat,
+                        inner_mat=inner_mat)
 
             nu = max(1, round(DEPTH / APARTMENT_MULLION_SPACING))
             du = DEPTH / nu
@@ -611,7 +648,8 @@ def void_curtain_wall(mats):
                 line("Stack_Void_CW_Spandrel", 0.31, GLASS_D,
                      -hy + 0.03, hy - 0.03, a, split, mats["spandrel"])
                 line("Stack_Void_CW_Glass", 0.31, GLASS_D,
-                     -hy + 0.03, hy - 0.03, split, b, mats["glass_dark"])
+                     -hy + 0.03, hy - 0.03, split, b, mats["glass_dark"],
+                     inner_mat=mats["glass_inner"])
             cuts = sorted({round(z, 3) for z in zs}
                           | {round(a + (b - a) * APARTMENT_SPLIT, 3)
                              for a, b in zip(zs, zs[1:])})
@@ -702,7 +740,8 @@ def band_base(face, z0, z1, mats):
         za = glazed_bottom + k * BASE_GROUP_H
         panel(f"{face}_Base_Glass", face, -span / 2, span / 2, za,
               min(za + BASE_GROUP_H, z1), GLASS_OUT, GLASS_D,
-              mats["glass_frost"], shift_z=face_pad(face, 0.0, 0.006))
+              mats["glass_frost"], shift_z=face_pad(face, 0.0, 0.006),
+              inner_mat=mats["glass_inner"])
 
 
 def base_interior(mats):
@@ -929,7 +968,8 @@ def band_diagrid(face, z0, z1, mats):
     span = WIDTH if face in ("N", "S") else DEPTH
     panel(f"{face}_Diagrid_Glass", face, -span / 2, span / 2, z0, z1,
           GLASS_OUT, 0.12, mats["glass_cool"],
-          shift_z=face_pad(face, 0.0, 0.006))
+          shift_z=face_pad(face, 0.0, 0.006),
+          inner_mat=mats["glass_inner"])
     nz = max(1, sum(1 for z in storey_levels() if z0 < z <= z1))
     dz = (z1 - z0) / nz
     nu = max(1, round(length / dz))
@@ -977,7 +1017,8 @@ def band_fins(face, z0, z1, mats):
     span = WIDTH if face in ("N", "S") else DEPTH
     panel(f"{face}_Fins_Glass", face, -span / 2, span / 2, z0, z1,
           GLASS_OUT, 0.12, mats["glass_cool"],
-          shift_z=face_pad(face, 0.0, 0.006))
+          shift_z=face_pad(face, 0.0, 0.006),
+          inner_mat=mats["glass_inner"])
     n = max(2, round(length / 1.1))
     for i in range(n + 1):
         u = -length / 2 + i * length / n
@@ -1027,7 +1068,8 @@ def window_wall(face, u0, u1, z0, z1, mats, prefix, holes=()):
             else:
                 panel(f"{face}_{prefix}_Glass", face, a, b, zc0, zc1,
                       GLASS_OUT, GLASS_D, mats["glass_dark"],
-                      shift_z=face_pad(face, 0.0, 0.006))
+                      shift_z=face_pad(face, 0.0, 0.006),
+                      inner_mat=mats["glass_inner"])
     nu = max(1, round((u1 - u0) / APARTMENT_MULLION_SPACING))
     du = (u1 - u0) / nu
     # Fine vertical mullions on the pane module, unbroken through all floors.
@@ -1310,7 +1352,7 @@ def merge_intervals(intervals):
 
 
 def plate_with_holes(name, x0, x1, y0, y1, z, holes, mat, thick=0.28,
-                     cast_shadow=True):
+                     cast_shadow=True, ceiling_mat=None):
     """Build one floor plate as the big rectangle minus rectangular holes. The
     plate is cut into x-strips, and each strip into the y-intervals left by the
     holes covering it, so the public shaft and the two apartment voids stay
@@ -1322,8 +1364,10 @@ def plate_with_holes(name, x0, x1, y0, y1, z, holes, mat, thick=0.28,
         spans = merge_intervals([(c, d) for hx0, hx1, c, d in holes
                                  if hx0 + 1e-6 < xc < hx1 - 1e-6])
         for c, d in u_intervals(y0, y1, spans):
-            cube(name, ((a + b) / 2, (c + d) / 2, z), (b - a, d - c, thick),
-                 mat, cast_shadow=cast_shadow)
+            obj = cube(name, ((a + b) / 2, (c + d) / 2, z),
+                       (b - a, d - c, thick), mat, cast_shadow=cast_shadow)
+            if ceiling_mat is not None:
+                assign_ceiling_underside(obj, ceiling_mat)
 
 
 def add_interior(mats):
@@ -1359,15 +1403,17 @@ def add_interior(mats):
         if zc in REFUGE_DROP_LEVELS:
             continue
         for sx in (-1, 1):
-            cube("Stack_Mall_Slab",
-                 (sx * (MALL_VOID_X + slab_half) / 2, 0, zc),
-                 (slab_half - MALL_VOID_X, 2 * slab_half_y, 0.28),
-                 mats["slab"], cast_shadow=False)
+            obj = cube("Stack_Mall_Slab",
+                       (sx * (MALL_VOID_X + slab_half) / 2, 0, zc),
+                       (slab_half - MALL_VOID_X, 2 * slab_half_y, 0.28),
+                       mats["slab"], cast_shadow=False)
+            assign_ceiling_underside(obj, mats["ceiling_slab"])
         for sy in (-1, 1):
-            cube("Stack_Mall_Slab",
-                 (0, sy * (MALL_VOID_Y + slab_half_y) / 2, zc),
-                 (2 * MALL_VOID_X, slab_half_y - MALL_VOID_Y, 0.28),
-                 mats["slab"], cast_shadow=False)
+            obj = cube("Stack_Mall_Slab",
+                       (0, sy * (MALL_VOID_Y + slab_half_y) / 2, zc),
+                       (2 * MALL_VOID_X, slab_half_y - MALL_VOID_Y, 0.28),
+                       mats["slab"], cast_shadow=False)
+            assign_ceiling_underside(obj, mats["ceiling_slab"])
     # Office and apartment plates, cut around the public shaft and the two
     # apartment voids. The plates at every dropped refuge level are omitted, so
     # each refuge deck, its open storeys and its ceiling read as one volume.
@@ -1378,7 +1424,8 @@ def add_interior(mats):
             continue
         plate_with_holes("Stack_Floor_Slab", -slab_half, slab_half,
                          -slab_half_y, slab_half_y, zc, plate_holes(zc),
-                         mats["slab"], cast_shadow=False)
+                         mats["slab"], cast_shadow=False,
+                         ceiling_mat=mats["ceiling_slab"])
 
 
 def ground(mats):
@@ -1449,18 +1496,19 @@ def setup_scene(args, mats):
                           math.radians(-32))
 
     camera_data = []
-    for name, loc, target, lens in (
-            ("preview", (340, -560, 200), (0, 0, 165), 55),
-            ("facade", (150, -230, 240), (0, 0, 240), 90),
-            ("garden", (70, -120, 125), (0, 0, 120), 45),
-            ("void", (30, -260, 205), (0, 0, 199), 55),
-            ("base", (190, -250, 80), (0, 0, 30), 55)):
+    for name, loc, target, lens, clip_start in (
+            ("preview", (340, -560, 200), (0, 0, 165), 55, 5.0),
+            ("facade", (150, -230, 240), (0, 0, 240), 90, 5.0),
+            ("garden", (70, -120, 125), (0, 0, 120), 45, 5.0),
+            ("void", (30, -260, 205), (0, 0, 199), 55, 5.0),
+            ("base", (190, -250, 80), (0, 0, 30), 55, 5.0),
+            ("interior", (32, -14.5, 152.0), (32, -90, 150), 28, 0.2)):
         bpy.ops.object.camera_add(location=loc)
         cam = bpy.context.object
         cam.name = f"Stack_Camera_{name}"
         # A generous near plane keeps depth precision high across the 600 m
         # view distance, so thin facade offsets do not z-fight.
-        cam.data.clip_start, cam.data.clip_end = 5.0, 3000.0
+        cam.data.clip_start, cam.data.clip_end = clip_start, 3000.0
         cam.data.lens = lens
         cam.rotation_euler = (Vector(target) - cam.location).to_track_quat(
             "-Z", "Y").to_euler()
@@ -1536,14 +1584,210 @@ def setup_scene(args, mats):
     return dict(camera_data)
 
 
+def make_oneway_glass_outer(
+    name,
+    tint,
+    reflect_tint,
+    *,
+    eevee_trans_tint=None,
+    web_transmission=1.0,
+    web_roughness=0.0,
+    web_ior=1.85,
+    coat_weight=0.9,
+    coat_roughness=0.0,
+    coat_ior=1.75,
+    eevee_reflect_min=0.38,
+    eevee_reflect_max=0.78,
+    principled_alpha=1.0,
+):
+    """Exterior-face glass for Scheme 1 Option A (crisp coated curtain wall):
+    optically sharp solar-control tint with strong glossy sky reflection on the
+    outside, backface-culled (EEVEE / glTF) and transparent from behind
+    (Cycles)."""
+    mat = materials._new(name)
+    nt = mat.node_tree
+    bsdf = materials._bsdf(mat)
+    materials._set(bsdf, "Base Color", (*tint, 1.0))
+    materials._set(bsdf, "Metallic", 0.0)
+    materials._set(bsdf, "Roughness", web_roughness)
+    materials._set(bsdf, "IOR", web_ior)
+    materials._set(bsdf, "Specular IOR Level", 0.5)
+    materials._set(bsdf, "Transmission Weight", web_transmission)
+    materials._set(bsdf, "Coat Weight", coat_weight)
+    materials._set(bsdf, "Coat Roughness", coat_roughness)
+    materials._set(bsdf, "Coat IOR", coat_ior)
+    materials._set(bsdf, "Alpha", principled_alpha)
+
+    out_eevee = nt.nodes.get("Material Output")
+    out_eevee.target = "EEVEE"
+    for link in list(out_eevee.inputs["Surface"].links):
+        nt.links.remove(link)
+
+    trans_color = eevee_trans_tint or tint
+    transparent_tinted = nt.nodes.new("ShaderNodeBsdfTransparent")
+    transparent_tinted.inputs["Color"].default_value = (*trans_color, 1.0)
+
+    transparent_clear = nt.nodes.new("ShaderNodeBsdfTransparent")
+    transparent_clear.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+
+    reflect = nt.nodes.new("ShaderNodeBsdfAnisotropic")
+    reflect.label = "Crisp Coated Curtain-Wall Reflection"
+    materials._set(reflect, "Color", (*reflect_tint, 1.0))
+    materials._set(reflect, "Roughness", 0.0)
+
+    layer_weight = nt.nodes.new("ShaderNodeLayerWeight")
+    layer_weight.inputs["Blend"].default_value = 0.35
+    reflect_range = nt.nodes.new("ShaderNodeMapRange")
+    reflect_range.clamp = True
+    reflect_range.inputs["From Min"].default_value = 0.0
+    reflect_range.inputs["From Max"].default_value = 1.0
+    reflect_range.inputs["To Min"].default_value = eevee_reflect_min
+    reflect_range.inputs["To Max"].default_value = eevee_reflect_max
+    nt.links.new(layer_weight.outputs["Facing"], reflect_range.inputs["Value"])
+
+    eevee_mix = nt.nodes.new("ShaderNodeMixShader")
+    eevee_mix.label = "Outer Coated Glass Reflection Mix"
+    nt.links.new(reflect_range.outputs["Result"], eevee_mix.inputs[0])
+    nt.links.new(transparent_tinted.outputs[0], eevee_mix.inputs[1])
+    nt.links.new(reflect.outputs[0], eevee_mix.inputs[2])
+    nt.links.new(eevee_mix.outputs[0], out_eevee.inputs["Surface"])
+
+    # Dedicated Cycles output: front face renders the sharp coated Principled
+    # BSDF; back face passes interior-to-exterior rays cleanly.
+    out_cycles = nt.nodes.new("ShaderNodeOutputMaterial")
+    out_cycles.target = "CYCLES"
+    geom = nt.nodes.new("ShaderNodeNewGeometry")
+    cycles_mix = nt.nodes.new("ShaderNodeMixShader")
+    cycles_mix.label = "Cycles One-Way Backfacing Mix"
+    nt.links.new(geom.outputs["Backfacing"], cycles_mix.inputs[0])
+    nt.links.new(bsdf.outputs[0], cycles_mix.inputs[1])
+    nt.links.new(transparent_clear.outputs[0], cycles_mix.inputs[2])
+    nt.links.new(cycles_mix.outputs[0], out_cycles.inputs["Surface"])
+
+    mat.diffuse_color = (*tint, 0.45)
+    mat.blend_method = "BLEND"
+    if hasattr(mat, "surface_render_method"):
+        mat.surface_render_method = "BLENDED"
+    mat.use_backface_culling = True
+    if hasattr(mat, "use_transparency_overlap"):
+        mat.use_transparency_overlap = False
+    if hasattr(mat, "show_transparent_back"):
+        mat.show_transparent_back = False
+    if hasattr(mat, "use_screen_refraction"):
+        mat.use_screen_refraction = False
+    if hasattr(mat, "use_raytrace_refraction"):
+        mat.use_raytrace_refraction = False
+
+    mat["web_glass_mode"] = "oneway_frosted_outer"
+    mat["web_transmission"] = float(web_transmission)
+    mat["web_roughness"] = float(web_roughness)
+    mat["web_coat_weight"] = float(coat_weight)
+    mat["web_coat_roughness"] = float(coat_roughness)
+    mat["web_coat_ior"] = float(coat_ior)
+    return mat
+
+
+def make_oneway_glass_inner(name="Stack_Glass_Inner"):
+    """Interior-face glass for Scheme 1 one-way glazing: crystal clear when
+    looking out from inside, and backface-culled from outside."""
+    mat = materials._new(name)
+    nt = mat.node_tree
+    bsdf = materials._bsdf(mat)
+    materials._set(bsdf, "Base Color", (1.0, 1.0, 1.0, 1.0))
+    materials._set(bsdf, "Metallic", 0.0)
+    materials._set(bsdf, "Roughness", 0.0)
+    materials._set(bsdf, "IOR", 1.05)
+    materials._set(bsdf, "Specular IOR Level", 0.15)
+    materials._set(bsdf, "Transmission Weight", 0.0)
+    materials._set(bsdf, "Alpha", 0.02)
+
+    out_eevee = nt.nodes.get("Material Output")
+    out_eevee.target = "EEVEE"
+    for link in list(out_eevee.inputs["Surface"].links):
+        nt.links.remove(link)
+
+    transparent = nt.nodes.new("ShaderNodeBsdfTransparent")
+    transparent.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    nt.links.new(transparent.outputs[0], out_eevee.inputs["Surface"])
+
+    out_cycles = nt.nodes.new("ShaderNodeOutputMaterial")
+    out_cycles.target = "CYCLES"
+    nt.links.new(transparent.outputs[0], out_cycles.inputs["Surface"])
+
+    mat.diffuse_color = (1.0, 1.0, 1.0, 0.02)
+    mat.blend_method = "BLEND"
+    if hasattr(mat, "surface_render_method"):
+        mat.surface_render_method = "BLENDED"
+    mat.use_backface_culling = True
+    if hasattr(mat, "use_transparency_overlap"):
+        mat.use_transparency_overlap = False
+    if hasattr(mat, "show_transparent_back"):
+        mat.show_transparent_back = False
+
+    mat["web_glass_mode"] = "oneway_clear_inner"
+    return mat
+
+
+def make_cream_ceiling(name="Stack_Ceiling_Slab", color=(0.94, 0.91, 0.84),
+                       bounce=0.45):
+    """Warm cream-white ceiling underside with soft interior bounce lift so
+    downward-facing ceilings read cream-white in both Blender and WebGL."""
+    mat = materials._new(name)
+    bsdf = materials._bsdf(mat)
+    materials._set(bsdf, "Base Color", (*color, 1.0))
+    materials._set(bsdf, "Roughness", 0.88)
+    materials._set(bsdf, "Specular IOR Level", 0.15)
+    materials._set(bsdf, "Emission Color", (*color, 1.0))
+    materials._set(bsdf, "Emission Strength", bounce)
+    return mat
+
+
 def build_materials():
     return {
-        "glass_cool": materials.make_glass(
-            "Stack_Glass_Cool", engine="BLENDER_EEVEE", tint=(0.34, 0.58, 0.66)),
-        "glass_frost": materials.make_frosted_glass(
-            "Stack_Glass_Frost", tint=(0.60, 0.65, 0.68), alpha=0.5),
-        "glass_dark": materials.make_glass(
-            "Stack_Glass_Dark", engine="BLENDER_EEVEE", tint=(0.20, 0.18, 0.16)),
+        "glass_cool": make_oneway_glass_outer(
+            "Stack_Glass_Cool",
+            tint=(0.62, 0.78, 0.85),
+            reflect_tint=(0.92, 0.97, 1.00),
+            eevee_trans_tint=(0.74, 0.86, 0.91),
+            web_transmission=1.0,
+            web_roughness=0.0,
+            web_ior=1.85,
+            coat_weight=0.90,
+            coat_roughness=0.0,
+            coat_ior=1.75,
+            eevee_reflect_min=0.38,
+            eevee_reflect_max=0.78,
+        ),
+        "glass_frost": make_oneway_glass_outer(
+            "Stack_Glass_Frost",
+            tint=(0.68, 0.80, 0.86),
+            reflect_tint=(0.92, 0.96, 1.00),
+            eevee_trans_tint=(0.78, 0.86, 0.90),
+            web_transmission=1.0,
+            web_roughness=0.0,
+            web_ior=1.80,
+            coat_weight=0.85,
+            coat_roughness=0.0,
+            coat_ior=1.70,
+            eevee_reflect_min=0.34,
+            eevee_reflect_max=0.72,
+            principled_alpha=0.5,
+        ),
+        "glass_dark": make_oneway_glass_outer(
+            "Stack_Glass_Dark",
+            tint=(0.44, 0.52, 0.60),
+            reflect_tint=(0.88, 0.93, 0.98),
+            eevee_trans_tint=(0.56, 0.63, 0.70),
+            web_transmission=1.0,
+            web_roughness=0.0,
+            web_ior=1.95,
+            coat_weight=0.95,
+            coat_roughness=0.0,
+            coat_ior=1.80,
+            eevee_reflect_min=0.42,
+            eevee_reflect_max=0.82,
+        ),
+        "glass_inner": make_oneway_glass_inner("Stack_Glass_Inner"),
         "frame": materials.make_metal("Stack_Frame", color=(0.95, 0.95, 0.94)),
         "fin": materials.make_metal("Stack_Fin", color=(0.95, 0.95, 0.94)),
         "dark": materials.make_dark("Stack_Dark_Panel", color=(0.06, 0.06, 0.07)),
@@ -1552,7 +1796,8 @@ def build_materials():
                                         color=(0.70, 0.79, 0.86)),
         "apartment_frame": materials.make_wall("Stack_Apartment_Frame",
                                                color=(0.95, 0.95, 0.94)),
-        "slab": materials.make_concrete("Stack_Slabs", color=(0.88, 0.85, 0.77)),
+        "slab": materials.make_concrete("Stack_Slabs", color=(0.92, 0.89, 0.82)),
+        "ceiling_slab": make_cream_ceiling("Stack_Ceiling_Slab"),
         "core": materials.make_concrete("Stack_Core", color=(0.20, 0.23, 0.25)),
         "steel": materials.make_metal("Stack_Core_Steel", color=(0.65, 0.68, 0.66)),
         "ground": materials.make_ground("Stack_Ground", color=(0.13, 0.14, 0.13)),

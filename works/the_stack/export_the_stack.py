@@ -28,6 +28,8 @@ def _input_value(bsdf, name, fallback):
 
 def _is_glass_like(material):
     """Detect glass from shader structure, not a project-specific name."""
+    if material.get("web_glass_mode"):
+        return True
     if not material.use_nodes:
         return False
     nodes = material.node_tree.nodes
@@ -122,6 +124,7 @@ def _make_web_glass(material, transmissive=False):
     source_transmission = float(
         _input_value(source_bsdf, "Transmission Weight", 0.0)
     )
+    web_mode = material.get("web_glass_mode")
     frosted = source_alpha < 0.98 and source_transmission < 0.1
     physical = transmissive
     web_material = bpy.data.materials.new(f"{material.name}_Web")
@@ -132,6 +135,80 @@ def _make_web_glass(material, transmissive=False):
     output = nodes.new("ShaderNodeOutputMaterial")
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
     links.new(bsdf.outputs[0], output.inputs[0])
+
+    if web_mode == "oneway_frosted_outer":
+        base_color = _input_value(
+            source_bsdf, "Base Color", tuple(material.diffuse_color)
+        )
+        bsdf.inputs["Base Color"].default_value = base_color
+        bsdf.inputs["Metallic"].default_value = 0.0
+        web_roughness = float(
+            material.get("web_roughness", _input_value(source_bsdf, "Roughness", 0.15))
+        )
+        web_transmission = float(
+            material.get(
+                "web_transmission",
+                _input_value(source_bsdf, "Transmission Weight", 0.82),
+            )
+        )
+        bsdf.inputs["Roughness"].default_value = web_roughness
+        bsdf.inputs["IOR"].default_value = float(
+            _input_value(source_bsdf, "IOR", 1.52)
+        )
+        if "Specular IOR Level" in bsdf.inputs:
+            bsdf.inputs["Specular IOR Level"].default_value = float(
+                _input_value(source_bsdf, "Specular IOR Level", 0.5)
+            )
+        if "Coat Weight" in bsdf.inputs:
+            bsdf.inputs["Coat Weight"].default_value = float(
+                material.get("web_coat_weight", _input_value(source_bsdf, "Coat Weight", 1.0))
+            )
+        if "Coat Roughness" in bsdf.inputs:
+            bsdf.inputs["Coat Roughness"].default_value = float(
+                material.get(
+                    "web_coat_roughness",
+                    _input_value(source_bsdf, "Coat Roughness", 0.02),
+                )
+            )
+        if "Coat IOR" in bsdf.inputs:
+            bsdf.inputs["Coat IOR"].default_value = float(
+                material.get("web_coat_ior", _input_value(source_bsdf, "Coat IOR", 1.56))
+            )
+        if physical:
+            if "Transmission Weight" in bsdf.inputs:
+                bsdf.inputs["Transmission Weight"].default_value = web_transmission
+            if "Alpha" in bsdf.inputs:
+                bsdf.inputs["Alpha"].default_value = 1.0
+        else:
+            if "Transmission Weight" in bsdf.inputs:
+                bsdf.inputs["Transmission Weight"].default_value = 0.0
+            if "Alpha" in bsdf.inputs:
+                bsdf.inputs["Alpha"].default_value = (
+                    source_alpha if source_alpha < 0.98 else 0.42
+                )
+        alpha = bsdf.inputs["Alpha"].default_value
+        web_material.diffuse_color = (*base_color[:3], alpha)
+        if hasattr(web_material, "surface_render_method"):
+            web_material.surface_render_method = "DITHERED" if physical else "BLENDED"
+        web_material.use_backface_culling = True
+        return web_material
+
+    if web_mode == "oneway_clear_inner":
+        bsdf.inputs["Base Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+        bsdf.inputs["Metallic"].default_value = 0.0
+        bsdf.inputs["Roughness"].default_value = 0.0
+        bsdf.inputs["IOR"].default_value = 1.05
+        if "Specular IOR Level" in bsdf.inputs:
+            bsdf.inputs["Specular IOR Level"].default_value = 0.15
+        if "Transmission Weight" in bsdf.inputs:
+            bsdf.inputs["Transmission Weight"].default_value = 0.0
+        if "Alpha" in bsdf.inputs:
+            bsdf.inputs["Alpha"].default_value = 0.02
+        web_material.diffuse_color = (1.0, 1.0, 1.0, 0.02)
+        if hasattr(web_material, "surface_render_method"):
+            web_material.surface_render_method = "BLENDED"
+        web_material.use_backface_culling = True
+        return web_material
 
     base_color = _effective_glass_base_color(material, source_bsdf)
     bsdf.inputs["Base Color"].default_value = base_color
@@ -273,11 +350,12 @@ def fake_light_objects():
 
 
 def _is_lit_fixture(material):
-    """A modelled lamp panel: a Principled material with emission switched on."""
+    """A modelled lamp panel: a Principled material with high-intensity
+    fixture emission (> 1.0); subtle ambient bounce surfaces stay untouched."""
     if not material.use_nodes:
         return False
     bsdf = material.node_tree.nodes.get("Principled BSDF")
-    return float(_input_value(bsdf, "Emission Strength", 0.0)) > 0.0
+    return float(_input_value(bsdf, "Emission Strength", 0.0)) > 1.0
 
 
 def _make_fixture_panel(material):
@@ -381,13 +459,13 @@ def merge_meshes_by_material():
     """Merge web-export meshes without changing the source .blend on disk."""
     groups = {}
     for obj in bpy.context.scene.objects:
-        if obj.type != "MESH" or len(obj.data.materials) != 1:
+        if obj.type != "MESH" or len(obj.data.materials) == 0:
             continue
-        material = obj.data.materials[0]
-        groups.setdefault(material.name, []).append(obj)
+        key = tuple(m.name if m else "" for m in obj.data.materials)
+        groups.setdefault(key, []).append(obj)
 
     before = sum(len(objects) for objects in groups.values())
-    for material_name, objects in groups.items():
+    for key, objects in groups.items():
         if len(objects) < 2:
             continue
         bpy.ops.object.select_all(action="DESELECT")
@@ -395,7 +473,9 @@ def merge_meshes_by_material():
             obj.select_set(True)
         bpy.context.view_layer.objects.active = objects[0]
         bpy.ops.object.join()
-        objects[0].name = f"Web_{material_name}"
+        objects[0].name = (
+            f"Web_{key[0]}" if len(key) == 1 else f"Web_{key[0]}_Dual"
+        )
 
     after = len([obj for obj in bpy.context.scene.objects if obj.type == "MESH"])
     print(f"Merged web meshes by material: {before} -> {after}")
