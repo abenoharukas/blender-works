@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -50,6 +51,71 @@ def _is_glass_like(material):
     ) or (alpha < 0.98 and 1.25 <= ior <= 2.0 and roughness < 0.35)
 
 
+def _shader_node_color(node):
+    """Evaluate effective linear RGB transmittance across an EEVEE glass mix."""
+    if node is None:
+        return None
+    if node.type == "MIX_SHADER":
+        fac_sock = node.inputs[0]
+        if fac_sock.links:
+            return None
+        fac = min(1.0, max(0.0, float(fac_sock.default_value)))
+        s1 = node.inputs[1].links[0].from_node if node.inputs[1].links else None
+        s2 = node.inputs[2].links[0].from_node if node.inputs[2].links else None
+        c1 = _shader_node_color(s1)
+        c2 = _shader_node_color(s2)
+        if c1 is None or c2 is None:
+            return None
+        return tuple((1.0 - fac) * c1[i] + fac * c2[i] for i in range(3)) + (1.0,)
+    if node.type == "ADD_SHADER":
+        s1 = node.inputs[0].links[0].from_node if node.inputs[0].links else None
+        s2 = node.inputs[1].links[0].from_node if node.inputs[1].links else None
+        c1 = _shader_node_color(s1)
+        c2 = _shader_node_color(s2)
+        if c1 is None or c2 is None:
+            return None
+        return tuple(min(1.0, c1[i] + c2[i]) for i in range(3)) + (1.0,)
+    if node.type in {"BSDF_TRANSPARENT", "BSDF_GLOSSY", "BSDF_ANISOTROPIC", "BSDF_GLASS"}:
+        col = _input_value(node, "Color", None)
+        if col is None and len(node.inputs) > 0:
+            col = node.inputs[0].default_value
+        if col is not None:
+            return (float(col[0]), float(col[1]), float(col[2]), 1.0)
+    return None
+
+
+def _effective_glass_base_color(material, source_bsdf):
+    """Derive glTF glass Base Color from the active EEVEE Surface node tree.
+
+    EEVEE glass in works/shared/materials.py leaves Principled BSDF disconnected
+    and drives Material Output from a Mix Shader blending Transparent BSDF
+    (untinted 1.0 transmission) with a Glossy/Anisotropic reflection lobe tinted
+    by `tint`. Evaluating the active Mix Shader's effective optical transmittance
+    keeps glTF KHR_materials_transmission visually aligned with Blender EEVEE.
+    """
+    if material.use_nodes:
+        nodes = material.node_tree.nodes
+        output = next(
+            (
+                n for n in nodes
+                if n.type == "OUTPUT_MATERIAL" and getattr(n, "is_active_output", True)
+            ),
+            None,
+        ) or nodes.get("Material Output")
+        if output and output.inputs.get("Surface") and output.inputs["Surface"].links:
+            surface_node = output.inputs["Surface"].links[0].from_node
+            if surface_node.type in {"MIX_SHADER", "ADD_SHADER"}:
+                eevee_color = _shader_node_color(surface_node)
+                if eevee_color is not None:
+                    # Convert closed 2-surface pane energy mix into single-surface
+                    # glTF optical transmittance so KHR_materials_transmission under
+                    # ACESFilmic matches Blender EEVEE's AgX brightness.
+                    return tuple(math.sqrt(max(0.0, c)) for c in eevee_color[:3]) + (1.0,)
+    return _input_value(
+        source_bsdf, "Base Color", tuple(material.diffuse_color)
+    )
+
+
 def _make_web_glass(material, transmissive=False):
     source_bsdf = material.node_tree.nodes.get("Principled BSDF")
     source_alpha = float(_input_value(source_bsdf, "Alpha", 1.0))
@@ -67,9 +133,7 @@ def _make_web_glass(material, transmissive=False):
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
     links.new(bsdf.outputs[0], output.inputs[0])
 
-    base_color = _input_value(
-        source_bsdf, "Base Color", tuple(material.diffuse_color)
-    )
+    base_color = _effective_glass_base_color(material, source_bsdf)
     bsdf.inputs["Base Color"].default_value = base_color
     bsdf.inputs["Metallic"].default_value = 0.0
     source_roughness = float(_input_value(source_bsdf, "Roughness", 0.0))

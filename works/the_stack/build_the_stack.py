@@ -298,7 +298,7 @@ def _link(mesh, name):
     return obj
 
 
-def cube(name, loc, dims, mat, bevel=0.0):
+def cube(name, loc, dims, mat, bevel=0.0, cast_shadow=True):
     mesh = bpy.data.meshes.new(name)
     hx, hy, hz = dims[0] / 2, dims[1] / 2, dims[2] / 2
     verts = [(vx * hx, vy * hy, vz * hz) for vx, vy, vz in _CUBE_VERTS]
@@ -307,6 +307,8 @@ def cube(name, loc, dims, mat, bevel=0.0):
     mesh.materials.append(mat)
     obj = _link(mesh, name)
     obj.location = loc
+    if not cast_shadow and hasattr(obj, "visible_shadow"):
+        obj.visible_shadow = False
     if bevel:
         mod = obj.modifiers.new("Soft architectural edges", "BEVEL")
         mod.width, mod.segments = bevel, 2
@@ -707,7 +709,8 @@ def base_interior(mats):
     """The transparent base hall seen through its glass: a white stair block at
     the foot, with the ground-to-first-floor trip served by the six perimeter
     escalator runs rather than a long diagonal across the atrium opening."""
-    cube("Stack_Base_Stair", (-8, 0, 4.5), (20, 16, 9), mats["slab"])
+    cube("Stack_Base_Stair", (-8, 0, 4.5), (20, 16, 9), mats["slab"],
+         cast_shadow=False)
 
 
 _ESCALATOR_SEQ = [0]
@@ -1306,7 +1309,8 @@ def merge_intervals(intervals):
     return out
 
 
-def plate_with_holes(name, x0, x1, y0, y1, z, holes, mat, thick=0.28):
+def plate_with_holes(name, x0, x1, y0, y1, z, holes, mat, thick=0.28,
+                     cast_shadow=True):
     """Build one floor plate as the big rectangle minus rectangular holes. The
     plate is cut into x-strips, and each strip into the y-intervals left by the
     holes covering it, so the public shaft and the two apartment voids stay
@@ -1319,7 +1323,7 @@ def plate_with_holes(name, x0, x1, y0, y1, z, holes, mat, thick=0.28):
                                  if hx0 + 1e-6 < xc < hx1 - 1e-6])
         for c, d in u_intervals(y0, y1, spans):
             cube(name, ((a + b) / 2, (c + d) / 2, z), (b - a, d - c, thick),
-                 mat)
+                 mat, cast_shadow=cast_shadow)
 
 
 def add_interior(mats):
@@ -1358,12 +1362,12 @@ def add_interior(mats):
             cube("Stack_Mall_Slab",
                  (sx * (MALL_VOID_X + slab_half) / 2, 0, zc),
                  (slab_half - MALL_VOID_X, 2 * slab_half_y, 0.28),
-                 mats["slab"])
+                 mats["slab"], cast_shadow=False)
         for sy in (-1, 1):
             cube("Stack_Mall_Slab",
                  (0, sy * (MALL_VOID_Y + slab_half_y) / 2, zc),
                  (2 * MALL_VOID_X, slab_half_y - MALL_VOID_Y, 0.28),
-                 mats["slab"])
+                 mats["slab"], cast_shadow=False)
     # Office and apartment plates, cut around the public shaft and the two
     # apartment voids. The plates at every dropped refuge level are omitted, so
     # each refuge deck, its open storeys and its ceiling read as one volume.
@@ -1374,7 +1378,7 @@ def add_interior(mats):
             continue
         plate_with_holes("Stack_Floor_Slab", -slab_half, slab_half,
                          -slab_half_y, slab_half_y, zc, plate_holes(zc),
-                         mats["slab"])
+                         mats["slab"], cast_shadow=False)
 
 
 def ground(mats):
@@ -1548,7 +1552,7 @@ def build_materials():
                                         color=(0.70, 0.79, 0.86)),
         "apartment_frame": materials.make_wall("Stack_Apartment_Frame",
                                                color=(0.95, 0.95, 0.94)),
-        "slab": materials.make_concrete("Stack_Slabs", color=(0.36, 0.38, 0.39)),
+        "slab": materials.make_concrete("Stack_Slabs", color=(0.88, 0.85, 0.77)),
         "core": materials.make_concrete("Stack_Core", color=(0.20, 0.23, 0.25)),
         "steel": materials.make_metal("Stack_Core_Steel", color=(0.65, 0.68, 0.66)),
         "ground": materials.make_ground("Stack_Ground", color=(0.13, 0.14, 0.13)),

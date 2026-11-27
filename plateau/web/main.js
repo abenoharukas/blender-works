@@ -6,15 +6,15 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { buildPlateauBase, attachPlateauCityModel } from './plateau-city.js';
-import { MODELS, PLOTS, groundHeightAt } from './models.js';
-import { createWalkController } from './walk.js';
+import { MODELS, PLOTS, groundHeightAt } from './models.js?v=20261127e';
+import { createWalkController } from './walk.js?v=20261127e';
 import {
   createAtmosphereSystem,
   TIME_PRESETS,
   WEATHER_MODES,
   formatHour,
   phaseLabel,
-} from './atmosphere.js';
+} from './atmosphere.js?v=20261127e';
 
 const viewer = document.querySelector('#viewer');
 const status = document.querySelector('#status');
@@ -169,6 +169,7 @@ function applyView(name) {
 // ------------------------------------------------------------------ models & atmosphere
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
+loader.setRequestHeader({ 'Cache-Control': 'no-cache', Pragma: 'no-cache' });
 
 const assetCache = new Map();
 const placed = [];
@@ -322,8 +323,12 @@ async function switchModel(id, { focus = false } = {}) {
       const isGlassOrLamp = mats.some(
         (m) => m && ((m.transmission ?? 0) > 0 || m.transparent || (m.emissiveIntensity ?? 0) > 1),
       );
-      object.castShadow = !isGlassOrLamp;
-      object.receiveShadow = !isGlassOrLamp;
+      const isInteriorSlab =
+        /slab/i.test(object.name) ||
+        mats.some((m) => m && /slab/i.test(m.name));
+      const skipShadow = isGlassOrLamp || isInteriorSlab;
+      object.castShadow = !skipShadow;
+      object.receiveShadow = !skipShadow;
     });
 
     const entry = {

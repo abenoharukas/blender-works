@@ -7,7 +7,7 @@ export const MODELS = [
     id: 'stack',
     label: 'The Stack',
     meta: '301.8 m',
-    asset: './assets/the_stack.optimized.glb',
+    asset: './assets/the_stack.optimized.glb?v=20261127e',
     yaw: Math.PI,
   },
   {
