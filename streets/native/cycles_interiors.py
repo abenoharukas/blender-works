@@ -521,10 +521,8 @@ def upgrade_window_materials():
 
 # ------------------------------------------------------------------ PART 1: SHARED 1F STOREFRONT GLAZING
 
-def upgrade_shop_glass():
-    """Upgrades shared `shop_glass` material to Cycles thin architectural glass (clear + subtle
-    Fresnel reflection + shadow-ray transparent so 3D shop interior lamps cast crisp lattice shadows)."""
-    mat = bpy.data.materials.get("shop_glass")
+def _upgrade_thin_glass_material(mat_name, tint_rgba, refl_scale=0.14, ior=1.50, roughness=0.015):
+    mat = bpy.data.materials.get(mat_name)
     if not mat:
         return 0
     mat.use_nodes = True
@@ -533,13 +531,13 @@ def upgrade_shop_glass():
     out = nt.nodes.new("ShaderNodeOutputMaterial")
 
     transp = nt.nodes.new("ShaderNodeBsdfTransparent")
-    transp.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    transp.inputs["Color"].default_value = tint_rgba
     glossy = nt.nodes.new("ShaderNodeBsdfGlossy")
-    glossy.inputs["Color"].default_value = (0.95, 0.97, 1.0, 1.0)
-    glossy.inputs["Roughness"].default_value = 0.015
+    glossy.inputs["Color"].default_value = (0.96, 0.98, 1.0, 1.0)
+    glossy.inputs["Roughness"].default_value = roughness
     fresnel = nt.nodes.new("ShaderNodeFresnel")
-    fresnel.inputs["IOR"].default_value = 1.45
-    refl_fac = _math(nt, "MULTIPLY", fresnel.outputs["Fac"], 0.10, clamp=True)
+    fresnel.inputs["IOR"].default_value = ior
+    refl_fac = _math(nt, "MULTIPLY", fresnel.outputs["Fac"], refl_scale, clamp=True)
 
     glass_vis = nt.nodes.new("ShaderNodeMixShader")
     nt.links.new(refl_fac, glass_vis.inputs["Fac"])
@@ -555,8 +553,24 @@ def upgrade_shop_glass():
     return 1
 
 
+def upgrade_shop_glass():
+    """Upgrades shared `shop_glass` material to Cycles thin architectural glass."""
+    return _upgrade_thin_glass_material("shop_glass", (1.0, 1.0, 1.0, 1.0), refl_scale=0.10, ior=1.45, roughness=0.015)
+
+
+def upgrade_car_glass():
+    """Upgrades single-sheet `car_glass` and `car_clear_lens` to Cycles thin automotive safety glass
+    so RHD seats/steering wheel and faceted reflector bowls render without solid-glass lensing."""
+    n = 0
+    n += _upgrade_thin_glass_material("car_glass", (0.72, 0.80, 0.85, 1.0), refl_scale=0.22, ior=1.50, roughness=0.015)
+    n += _upgrade_thin_glass_material("car_clear_lens", (0.94, 0.97, 1.0, 1.0), refl_scale=0.16, ior=1.50, roughness=0.012)
+    return n
+
+
 def upgrade_cycles_interiors(sky_mode):
     """Entry point called from render_cycles.py after opening the base scene."""
     n_win = upgrade_window_materials()
     n_glass = upgrade_shop_glass()
-    print(f"[cycles_interiors] upgraded {n_win} non-3D window shaders (Metal GPU), upgraded {n_glass} shared 1F shop_glass shader")
+    n_car = upgrade_car_glass()
+    print(f"[cycles_interiors] upgraded {n_win} non-3D window shaders (Metal GPU), {n_glass} shop_glass, {n_car} car glazing shaders")
+

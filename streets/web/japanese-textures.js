@@ -2962,3 +2962,49 @@ export function createFestivalLanternSet({
     normalMap,
   };
 }
+
+/**
+ * Authentic Japanese Kei-Car (`軽自動車`, 330 x 165 mm, 2:1) license plate texture:
+ * - Passenger Kei (`commercial = false`): `#f2c52c` yellow background with `#1c261f` text (`なにわ 580 / あ 24-18`)
+ * - Commercial Kei (`commercial = true`): `#1a1d1c` black background (`黒ナンバー`) with `#f2c52c` text (`なにわ 480 / り 18-05`)
+ */
+export function createKeiLicensePlateTexture({ commercial = false } = {}) {
+  const W = 256;
+  const H = 128;
+  const bg = commercial ? '#1a1d1c' : '#f2c52c';
+  const fg = commercial ? '#f2c52c' : '#1b261e';
+  const rim = commercial ? '#cba224' : '#c99e18';
+
+  return makeCanvasTexture(W, H, (g, w, h) => {
+    // Solid border at [0,0] so frontFaceBox side edges match plate base cleanly
+    g.fillStyle = bg;
+    g.fillRect(0, 0, w, h);
+
+    // Subtle embossed rim border
+    g.strokeStyle = rim;
+    g.lineWidth = 4;
+    g.strokeRect(7, 7, w - 14, h - 14);
+
+    // Stainless top mounting bolts
+    g.fillStyle = '#9aa0a6';
+    for (const bx of [52, w - 52]) {
+      g.beginPath();
+      g.arc(bx, 20, 4.5, 0, Math.PI * 2);
+      g.fill();
+    }
+
+    // Upper prefecture & class code
+    g.fillStyle = fg;
+    g.font = 'bold 26px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(commercial ? 'なにわ 480' : 'なにわ 580', w * 0.52, 34);
+
+    // Lower hiragana + hyphenated 4-digit registration number
+    g.font = 'bold 30px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif';
+    g.fillText(commercial ? 'り' : 'あ', 34, 84);
+    g.font = '900 54px "Hiragino Kaku Gothic ProN", "Arial Narrow", sans-serif';
+    g.fillText(commercial ? '18-05' : '24-18', w * 0.57, 86);
+  }, { repeat: false });
+}
+

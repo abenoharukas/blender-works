@@ -6,7 +6,7 @@
 // All static geometry is merged per material (~65 draw calls total) for fast rendering.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PLOTS } from './models.js';
+import { PLOTS } from './models.js?v=20261127e';
 import {
   createWallCladdingPBR,
   createBlockWallPBR,
@@ -36,7 +36,8 @@ import {
   createPodiumPosterSet,
   createOhshoLanternStackSet,
   createFestivalLanternSet,
-} from './japanese-textures.js';
+  createKeiLicensePlateTexture,
+} from './japanese-textures.js?v=20261127e';
 import {
   box,
   LotContext,
@@ -55,8 +56,8 @@ import {
   addUtilityPole,
   addShotengaiLamp,
   addShotengaiArch,
-} from './japanese-buildings.js';
-import { applyInteriorMapping } from './interior-mapping.js';
+} from './japanese-buildings.js?v=20261127e';
+import { applyInteriorMapping } from './interior-mapping.js?v=20261127e';
 
 export const STREET = { road: 4.8, walk: 2.3, from: 136, to: 592 };
 const FRONT = STREET.road + STREET.walk;
@@ -553,51 +554,76 @@ function createMaterialLibrary() {
     makeChochin('lantern_warm_1', { style: 'warm', text: '手打蕎麦', sideText: '二八蕎麦' }),
   ];
 
-  // Clearcoat metallic Kei-car paint palette, flush automotive safety glass & lighting trim
+  // Clearcoat metallic Kei-car paint palette, physical transmissive safety glass & Japanese Kei plates
   const carColors = [0xf2f0eb, 0xd8dde2, 0xe8c448, 0x5c8ab5, 0x282c32, 0xc94a3e, 0x86a68a];
   const carPalette = carColors.map((color, i) => phys(`kei_car_${i}`, {
     color,
-    roughness: 0.22,
-    metalness: 0.36,
-    clearcoat: 0.90,
-    clearcoatRoughness: 0.06,
+    roughness: 0.18,
+    metalness: 0.34,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.035,
   }));
   const carGlass = phys('car_glass', {
-    color: 0x05080c,
-    roughness: 0.04,
+    color: 0xb8ccd8,
+    roughness: 0.015,
     metalness: 0.0,
+    transmission: 0.86,
+    ior: 1.50,
+  });
+  const carClearLens = phys('car_clear_lens', {
+    color: 0xeef5fc,
+    roughness: 0.012,
+    metalness: 0.0,
+    transmission: 0.94,
     ior: 1.50,
   });
   const carTrimBlack = std('car_trim_black', {
-    color: 0x121417,
-    roughness: 0.34,
-    metalness: 0.12,
+    color: 0x14171b,
+    roughness: 0.38,
+    metalness: 0.10,
   });
   const carHeadlampOff = phys('car_headlamp_off', {
-    color: 0xdce6f0,
-    roughness: 0.12,
-    metalness: 0.45,
+    color: 0xe2ebf2,
+    roughness: 0.10,
+    metalness: 0.85,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.04,
+    clearcoatRoughness: 0.03,
   });
   const carHeadlampOn = std('car_headlamp_on', {
     color: 0xfff8e8,
     emissive: 0xffe8ba,
-    emissiveIntensity: 1.4,
-    roughness: 0.16,
+    emissiveIntensity: 1.6,
+    roughness: 0.14,
   });
   const carTaillampOff = phys('car_taillamp_off', {
-    color: 0x8f1818,
-    roughness: 0.16,
+    color: 0x9c1616,
+    roughness: 0.14,
     metalness: 0.22,
     clearcoat: 0.95,
-    clearcoatRoughness: 0.05,
+    clearcoatRoughness: 0.04,
   });
   const carTaillampOn = std('car_taillamp_on', {
     color: 0xe62922,
     emissive: 0xff2b1f,
-    emissiveIntensity: 1.1,
-    roughness: 0.20,
+    emissiveIntensity: 1.2,
+    roughness: 0.18,
+  });
+  const carAmber = phys('car_amber', {
+    color: 0xd95b08,
+    roughness: 0.18,
+    metalness: 0.15,
+    clearcoat: 0.90,
+    clearcoatRoughness: 0.04,
+  });
+  const keiPlateYellow = std('kei_plate_yellow', {
+    map: createKeiLicensePlateTexture({ commercial: false }),
+    roughness: 0.36,
+    metalness: 0.12,
+  });
+  const keiPlateBlack = std('kei_plate_black', {
+    map: createKeiLicensePlateTexture({ commercial: true }),
+    roughness: 0.36,
+    metalness: 0.12,
   });
 
   // 9. Osaka Dotonbori & Shinsaibashi Diverse Promenade Claddings, Unique Landmarks & Signage
@@ -946,6 +972,7 @@ function createMaterialLibrary() {
     foliageShrub,
     wire: std('overhead_wire', { color: 0x1d1e21, roughness: 0.7 }),
     carGlass,
+    carClearLens,
     carTrimBlack,
     carTire: std('car_tire', { color: 0x1e2023, roughness: 0.84, metalness: 0.06 }),
     carUndercarriage: std('car_undercarriage', { color: 0x16181b, roughness: 0.88, metalness: 0.18 }),
@@ -953,6 +980,9 @@ function createMaterialLibrary() {
     carHeadlampOn,
     carTaillampOff,
     carTaillampOn,
+    carAmber,
+    keiPlateYellow,
+    keiPlateBlack,
     carWhite: carPalette[0],
     carPalette,
   };
@@ -1709,10 +1739,12 @@ export function buildStreet(scene) {
     buildAll(mats[key], { castShadow: false, receiveShadow: true });
   }
   buildAll(mats.shopGlass, { castShadow: false, receiveShadow: false });
+  buildAll(mats.carGlass, { castShadow: false, receiveShadow: false });
+  buildAll(mats.carClearLens, { castShadow: false, receiveShadow: false });
 
   const skipKeys = new Set([
     'road', 'lane', 'asphaltApron', 'sidewalk', 'promenadePaver', 'plaza', 'plazaBorder', 'lotPad',
-    'roadPaint', 'tactileYellow', 'drainGrate', 'shopGlass',
+    'roadPaint', 'tactileYellow', 'drainGrate', 'shopGlass', 'carGlass', 'carClearLens',
     'houseLightBlanks', 'houseDarkBlanks', 'shikkuiBlank',
     'commUpperLight', 'windowLitList', 'konbiniLitList',
     'fasciasIzakaya', 'fasciasRamen', 'fasciasKissaten', 'fasciasPharmacy', 'fasciasBookstore',

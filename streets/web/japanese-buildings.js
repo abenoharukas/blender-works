@@ -11,6 +11,7 @@
 //   insulators, non-emissive woven Shotengai street flags under Suzuran bell lamps, and open-truss
 //   Shotengai entrance arches with brushed-gold sign bezels and gooseneck floodlights.
 import * as THREE from 'three';
+import { KEI_VEHICLE_PROTOS } from './kei-vehicles.js?v=20261127e';
 
 const _mat4 = new THREE.Matrix4();
 const _localMat = new THREE.Matrix4();
@@ -311,410 +312,8 @@ function buildChochinShellGeometry(segsU = 18, segsV = 14, ribs = 14) {
 const PROTO_CHOCHIN_RICH = buildChochinShellGeometry(20, 28, 14);
 const PROTO_CHOCHIN_LITE = buildChochinShellGeometry(12, 14, 7);
 
-/**
- * Smooth cross-sectional lofted Japanese Compact Hatchback & Tall MPV/Van coachwork:
- * - Authentic real-world proportions (~62% painted sheet-metal body / ~32% inset greenhouse glass)
- * - Long sculpted hood, crisp linear-raked windshield with sturdy painted A-pillars & roof header,
- *   high muscular shoulder beltline, semicircular wheel-arch housings, and flush multi-pane side glass.
- */
-function buildAutomotiveCoachwork({ isVan = false } = {}) {
-  const L = isVan ? 4.24 : 4.02;
-  const W = isVan ? 1.70 : 1.68;
-  const H = isVan ? 1.74 : 1.46;
-  const halfL = L * 0.5;
-  const halfW = W * 0.5;
-  const zF = isVan ? 1.34 : 1.28;
-  const zR = isVan ? -1.28 : -1.22;
-  const wheelR = isVan ? 0.325 : 0.315;
-  const archR = isVan ? 0.375 : 0.365;
-
-  // Key longitudinal stations (from rear -halfL to front +halfL)
-  // Substantial hood length (1.15 m hatch / 0.90 m MPV) and compact raked greenhouse
-  const zRearGlassBot = isVan ? -halfL + 0.18 : -halfL + 0.23;
-  const zRearRoof = isVan ? -halfL + 0.44 : -halfL + 0.85;
-  const zFrontRoof = isVan ? 0.62 : 0.18;
-  const zHoodCowl = isVan ? 1.22 : 0.86;
-
-  const smooth01 = (t) => {
-    const c = Math.max(0, Math.min(1, t));
-    return c * c * (3 - 2 * c);
-  };
-  // Mostly linear automotive glass slope with tiny soft fillets at cowl & roof header (no bubble dome!)
-  const glassSlope = (t) => {
-    const c = Math.max(0, Math.min(1, t));
-    return 0.84 * c + 0.16 * smooth01(c);
-  };
-
-  const evalStation = (z) => {
-    let planTaper = 1.0;
-    if (z > halfL - 0.54) {
-      const u = (z - (halfL - 0.54)) / 0.54;
-      planTaper = 1.0 - 0.135 * u * u;
-    } else if (z < -halfL + 0.38) {
-      const u = ((-halfL + 0.38) - z) / 0.38;
-      planTaper = 1.0 - 0.085 * u * u;
-    }
-
-    // High muscular shoulder beltline (~62% of vehicle height) with slight rear wedge rise
-    const beltBase = isVan ? 1.12 : 0.96;
-    let yBelt = beltBase;
-    if (z > zHoodCowl) {
-      const u = (z - zHoodCowl) / Math.max(0.01, halfL - zHoodCowl);
-      yBelt = beltBase - (isVan ? 0.22 : 0.18) * Math.pow(u, 1.35);
-      if (u > 0.84) {
-        const bu = (u - 0.84) / 0.16;
-        yBelt -= 0.15 * bu * bu;
-      }
-    } else if (z < zRearRoof) {
-      const u = Math.max(0, Math.min(1, (zRearRoof - z) / Math.max(0.01, zRearRoof + halfL)));
-      // Modern Japanese hatch/MPV raised rear tailgate waist keeps rear window compact and taut
-      yBelt = beltBase + (isVan ? 0.04 : 0.07) * smooth01(Math.min(1, u * 1.4));
-      if (z < zRearGlassBot) {
-        const ru = (zRearGlassBot - z) / Math.max(0.01, zRearGlassBot + halfL);
-        yBelt -= 0.14 * ru * ru;
-      }
-    }
-
-    let yTop;
-    let cabinBlend = 0.0;
-    const yRoofPeak = H - 0.025;
-    if (z >= zRearRoof && z <= zFrontRoof) {
-      const midR = (zRearRoof + zFrontRoof) * 0.5;
-      const halfR = Math.max(0.01, (zFrontRoof - zRearRoof) * 0.5);
-      const crown = Math.cos(((z - midR) / halfR) * Math.PI * 0.5);
-      yTop = yRoofPeak + 0.026 * Math.max(0, crown);
-      cabinBlend = 1.0;
-    } else if (z > zFrontRoof && z < zHoodCowl) {
-      const u = glassSlope((z - zFrontRoof) / (zHoodCowl - zFrontRoof));
-      yTop = yRoofPeak + (beltBase + 0.018 - yRoofPeak) * u;
-      cabinBlend = 1.0 - u;
-    } else if (z > zHoodCowl) {
-      const u = (z - zHoodCowl) / Math.max(0.01, halfL - zHoodCowl);
-      // Subtle sculpted engine hood power-dome crown
-      yTop = yBelt + 0.042 * (1.0 - u * u);
-      cabinBlend = 0.0;
-    } else if (z < zRearRoof && z > zRearGlassBot) {
-      const u = glassSlope((zRearRoof - z) / (zRearRoof - zRearGlassBot));
-      const yRearWaist = beltBase + (isVan ? 0.04 : 0.07);
-      yTop = yRoofPeak + (yRearWaist + 0.02 - yRoofPeak) * u;
-      cabinBlend = 1.0 - u;
-    } else {
-      yTop = yBelt + 0.02;
-      cabinBlend = 0.0;
-    }
-
-    let yUnder = isVan ? 0.19 : 0.18;
-    if (Math.abs(z) > halfL - 0.30) {
-      const u = (Math.abs(z) - (halfL - 0.30)) / 0.30;
-      yUnder += 0.065 * u * u;
-    }
-    let yBotSide = yUnder + 0.018;
-    for (const zAxle of [zF, zR]) {
-      const dz = z - zAxle;
-      if (Math.abs(dz) < archR) {
-        const archY = wheelR + Math.sqrt(Math.max(0, archR * archR - dz * dz)) * 0.90;
-        if (archY > yBotSide) yBotSide = archY;
-      }
-    }
-
-    const wMax = halfW * planTaper;
-    const wBot = wMax * 0.93;
-    const wBelt = wMax * 0.965;
-    // Stronger automotive tumblehome narrows the greenhouse cleanly above the broad shoulders
-    const wRoof = wMax * (1.0 - cabinBlend * (isVan ? 0.14 : 0.185));
-    return { yUnder, yBotSide, yBelt, yTop, wMax, wBot, wBelt, wRoof, cabinBlend };
-  };
-
-  // Smooth transverse roof/cowl arch drop shared by body cross-sections and flush glazing
-  const crownDrop = (uFrac, s) => (0.032 * s.cabinBlend + 0.010) * (uFrac * uFrac);
-
-  const zSet = new Set([
-    -halfL, -halfL + 0.06, zRearGlassBot,
-    zRearGlassBot + (zRearRoof - zRearGlassBot) * 0.33,
-    zRearGlassBot + (zRearRoof - zRearGlassBot) * 0.67,
-    zRearRoof, zRearRoof + 0.14,
-    -0.75, -0.25, 0.0, zFrontRoof - 0.10, zFrontRoof,
-    zFrontRoof + (zHoodCowl - zFrontRoof) * 0.25,
-    (zFrontRoof + zHoodCowl) * 0.5,
-    zFrontRoof + (zHoodCowl - zFrontRoof) * 0.75,
-    zHoodCowl, zHoodCowl + (halfL - zHoodCowl) * 0.38,
-    zHoodCowl + (halfL - zHoodCowl) * 0.72,
-    halfL - 0.16, halfL - 0.04, halfL,
-  ]);
-  for (const zAx of [zR, zF]) {
-    for (let k = -6; k <= 6; k++) {
-      const zz = zAx + (k / 6) * archR;
-      if (zz > -halfL + 0.07 && zz < halfL - 0.07) zSet.add(Number(zz.toFixed(4)));
-    }
-  }
-  const zStations = [...zSet].sort((a, b) => a - b);
-
-  const ringOf = (z) => {
-    const s = evalStation(z);
-    const yMidLow = Math.min(s.yBelt - 0.05, Math.max(s.yBotSide + 0.04, 0.50));
-    const yPillar = s.yBelt + (s.yTop - s.yBelt) * 0.54;
-    const wPillar = s.wBelt + (s.wRoof - s.wBelt) * 0.58;
-    const yRoof36 = Math.max(s.yBelt + 0.01, s.yTop - crownDrop(0.36, s));
-    const yRoof72 = Math.max(s.yBelt + 0.009, s.yTop - crownDrop(0.72, s));
-    const yRoofRail = Math.max(s.yBelt + 0.008, s.yTop - crownDrop(1.0, s));
-    return [
-      [0, s.yUnder],
-      [s.wBot * 0.82, s.yUnder],
-      [s.wBot, s.yBotSide],
-      [s.wMax, yMidLow],
-      [s.wBelt, s.yBelt],
-      [wPillar, yPillar],
-      [s.wRoof, yRoofRail],
-      [s.wRoof * 0.72, yRoof72],
-      [s.wRoof * 0.36, yRoof36],
-      [-s.wRoof * 0.36, yRoof36],
-      [-s.wRoof * 0.72, yRoof72],
-      [-s.wRoof, yRoofRail],
-      [-wPillar, yPillar],
-      [-s.wBelt, s.yBelt],
-      [-s.wMax, yMidLow],
-      [-s.wBot, s.yBotSide],
-      [-s.wBot * 0.82, s.yUnder],
-    ];
-  };
-
-  const NP = 17;
-  const NZ = zStations.length;
-  const bPos = [];
-  const bUv = [];
-  const bIdx = [];
-
-  for (let iz = 0; iz < NZ; iz++) {
-    const z = zStations[iz];
-    const ring = ringOf(z);
-    const vCoord = (z + halfL) / L;
-    for (let ip = 0; ip < NP; ip++) {
-      bPos.push(ring[ip][0], ring[ip][1], z);
-      bUv.push(ip / NP, vCoord);
-    }
-  }
-
-  for (let iz = 0; iz < NZ - 1; iz++) {
-    for (let ip = 0; ip < NP; ip++) {
-      const ipNext = (ip + 1) % NP;
-      const a = iz * NP + ip;
-      const b = (iz + 1) * NP + ip;
-      const c = (iz + 1) * NP + ipNext;
-      const d = iz * NP + ipNext;
-      bIdx.push(a, d, c, a, c, b);
-    }
-  }
-
-  const rearCenterIdx = bPos.length / 3;
-  const sRear = evalStation(zStations[0]);
-  bPos.push(0, (sRear.yUnder + sRear.yTop) * 0.5, zStations[0] - 0.015);
-  bUv.push(0.5, 0.0);
-  for (let ip = 0; ip < NP; ip++) {
-    const ipNext = (ip + 1) % NP;
-    bIdx.push(rearCenterIdx, ipNext, ip);
-  }
-
-  const frontCenterIdx = bPos.length / 3;
-  const sFront = evalStation(zStations[NZ - 1]);
-  const frontRingBase = (NZ - 1) * NP;
-  bPos.push(0, (sFront.yUnder + sFront.yTop) * 0.5, zStations[NZ - 1] + 0.02);
-  bUv.push(0.5, 1.0);
-  for (let ip = 0; ip < NP; ip++) {
-    const ipNext = (ip + 1) % NP;
-    bIdx.push(frontCenterIdx, frontRingBase + ip, frontRingBase + ipNext);
-  }
-
-  const bodyGeo = new THREE.BufferGeometry();
-  bodyGeo.setAttribute('position', new THREE.Float32BufferAttribute(bPos, 3));
-  bodyGeo.setAttribute('uv', new THREE.Float32BufferAttribute(bUv, 2));
-  bodyGeo.setIndex(bIdx);
-  bodyGeo.computeVertexNormals();
-
-  // Inner dark recessed wheel-well fender liners (ホイールハウスインナー)
-  const aPos = [];
-  const aUv = [];
-  const aIdx = [];
-  for (const sx of [-1, 1]) {
-    for (const zAx of [zF, zR]) {
-      const segs = 10;
-      const baseV = aPos.length / 3;
-      const xOuter = sx * (halfW * 0.92);
-      const xInner = sx * (halfW * 0.44);
-      for (let i = 0; i <= segs; i++) {
-        const ang = (i / segs) * Math.PI;
-        const dz = Math.cos(ang) * (archR * 0.98);
-        const py = wheelR - 0.01 + Math.sin(ang) * (archR * 0.92);
-        aPos.push(xOuter, py, zAx + dz, xInner, py, zAx + dz);
-        aUv.push(i / segs, 0, i / segs, 1);
-      }
-      for (let i = 0; i < segs; i++) {
-        const k = baseV + i * 2;
-        if (sx > 0) {
-          aIdx.push(k, k + 2, k + 3, k, k + 3, k + 1);
-          if (i < segs - 1) aIdx.push(baseV + 1, k + 1, k + 3);
-        } else {
-          aIdx.push(k, k + 3, k + 2, k, k + 1, k + 3);
-          if (i < segs - 1) aIdx.push(baseV + 1, k + 3, k + 1);
-        }
-      }
-    }
-  }
-  const archGeo = new THREE.BufferGeometry();
-  archGeo.setAttribute('position', new THREE.Float32BufferAttribute(aPos, 3));
-  archGeo.setAttribute('uv', new THREE.Float32BufferAttribute(aUv, 2));
-  archGeo.setIndex(aIdx);
-  archGeo.computeVertexNormals();
-
-  // Shared-vertex grid builder so curved windshields & windows have seamless smooth normals!
-  const appendSharedGrid = (posArr, uvArr, idxArr, nx, nz, evalPt, flipWinding = false) => {
-    const base = posArr.length / 3;
-    for (let iz = 0; iz <= nz; iz++) {
-      const vz = iz / nz;
-      for (let ix = 0; ix <= nx; ix++) {
-        const ux = ix / nx;
-        const p = evalPt(ux, vz);
-        posArr.push(p[0], p[1], p[2]);
-        uvArr.push(ux, vz);
-      }
-    }
-    const stride = nx + 1;
-    for (let iz = 0; iz < nz; iz++) {
-      for (let ix = 0; ix < nx; ix++) {
-        const a = base + iz * stride + ix;
-        const b = a + 1;
-        const c = a + stride + 1;
-        const d = a + stride;
-        if (flipWinding) {
-          idxArr.push(a, d, c, a, c, b);
-        } else {
-          idxArr.push(a, b, c, a, c, d);
-        }
-      }
-    }
-  };
-
-  // Satin-black window weatherstrip surround + B-pillar blackout (`trimGeo`) & smooth dark glass (`glassGeo`)
-  const tPos = [];
-  const tUv = [];
-  const tIdx = [];
-  const gPos = [];
-  const gUv = [];
-  const gIdx = [];
-
-  // 1. Compact raked front windshield with visible painted A-pillars, cowl tray & roof header!
-  const wsZTop = zFrontRoof + (isVan ? 0.10 : 0.095);
-  const wsZBot = zHoodCowl - (isVan ? 0.085 : 0.09);
-  const evalWindshield = (uSpan, yLift, zLift) => (ux, vz) => {
-    const zBase = wsZBot + (wsZTop - wsZBot) * vz;
-    const s = evalStation(zBase);
-    const uFrac = (ux * 2 - 1) * uSpan;
-    const normU = ux * 2 - 1;
-    const bow = (1.0 - normU * normU) * 0.016 * Math.sin(Math.PI * (0.15 + 0.75 * vz));
-    const y = s.yTop - crownDrop(Math.abs(uFrac), s) + yLift;
-    return [uFrac * s.wRoof, y, zBase + bow + zLift];
-  };
-  appendSharedGrid(tPos, tUv, tIdx, 8, 4, evalWindshield(isVan ? 0.78 : 0.76, 0.0035, 0.003), false);
-  appendSharedGrid(gPos, gUv, gIdx, 8, 5, evalWindshield(isVan ? 0.73 : 0.71, 0.0065, 0.006), false);
-
-  // 2. Compact rear tailgate window tucked cleanly inside painted C/D-pillars and rear spoiler header
-  const rwZBot = zRearGlassBot + (isVan ? 0.055 : 0.11);
-  const rwZTop = zRearRoof - (isVan ? 0.065 : 0.11);
-  const evalRearWindow = (uSpan, yLift, zLift) => (ux, vz) => {
-    const zBase = rwZBot + (rwZTop - rwZBot) * vz;
-    const s = evalStation(zBase);
-    const uFrac = (1 - ux * 2) * uSpan;
-    const normU = 1 - ux * 2;
-    const bow = -(1.0 - normU * normU) * 0.010 * Math.sin(Math.PI * vz);
-    const y = s.yTop - crownDrop(Math.abs(uFrac), s) + yLift;
-    return [uFrac * s.wRoof, y, zBase + bow - zLift];
-  };
-  appendSharedGrid(tPos, tUv, tIdx, 6, 3, evalRearWindow(isVan ? 0.76 : 0.72, 0.0035, 0.004), false);
-  appendSharedGrid(gPos, gUv, gIdx, 6, 3, evalRearWindow(isVan ? 0.71 : 0.67, 0.0065, 0.007), false);
-
-  // 3. Sleek side greenhouse: inset inside substantial painted roof rail, A-pillar & C/D-pillar
-  const zBpil = isVan ? 0.05 : -0.18;
-  const zCpil = isVan ? -0.92 : null;
-  const sideSurfacePoint = (sx, z, vGlass, xOut, yPadLo, yPadHi) => {
-    const s = evalStation(z);
-    const yLo = s.yBelt + yPadLo;
-    const yRoofEdge = s.yTop - crownDrop(1.0, s);
-    const yHi = Math.max(yLo + 0.06, yRoofEdge - yPadHi);
-    const y = yLo + (yHi - yLo) * vGlass;
-    const tSide = Math.max(0, Math.min(1, (y - s.yBelt) / Math.max(0.05, yRoofEdge - s.yBelt)));
-    const wMidPillar = s.wBelt + (s.wRoof - s.wBelt) * 0.58;
-    const xBody = tSide <= 0.54
-      ? s.wBelt + (wMidPillar - s.wBelt) * (tSide / 0.54)
-      : wMidPillar + (s.wRoof - wMidPillar) * ((tSide - 0.54) / 0.46);
-    return [sx * (xBody + xOut), y, z];
-  };
-
-  for (const sx of [-1, 1]) {
-    const flip = sx < 0;
-    const zSideRearBot = zRearRoof + (isVan ? 0.14 : 0.16);
-    const zSideRearTop = zRearRoof + (isVan ? 0.18 : 0.24);
-    const zSideFrontBot = zHoodCowl - (isVan ? 0.14 : 0.15);
-    const zSideFrontTop = zFrontRoof - (isVan ? 0.04 : 0.05);
-
-    appendSharedGrid(tPos, tUv, tIdx, 4, 2, (ux, vz) => {
-      const zBot = zSideRearBot + (zSideFrontBot - zSideRearBot) * ux;
-      const zTop = zSideRearTop + (zSideFrontTop - zSideRearTop) * ux;
-      const z = zBot + (zTop - zBot) * vz;
-      return sideSurfacePoint(sx, z, vz, 0.004, 0.025, isVan ? 0.065 : 0.06);
-    }, flip);
-
-    // Front door window
-    appendSharedGrid(gPos, gUv, gIdx, 3, 2, (ux, vz) => {
-      const zBot = (zBpil + 0.05) + ((zSideFrontBot - 0.04) - (zBpil + 0.05)) * ux;
-      const zTop = (zBpil + 0.05) + ((zSideFrontTop - 0.04) - (zBpil + 0.05)) * ux;
-      const z = zBot + (zTop - zBot) * vz;
-      return sideSurfacePoint(sx, z, vz, 0.0075, 0.045, isVan ? 0.095 : 0.088);
-    }, flip);
-
-    if (zCpil !== null) {
-      // MPV mid sliding door window + rear quarter window
-      appendSharedGrid(gPos, gUv, gIdx, 3, 2, (ux, vz) => {
-        const z = (zCpil + 0.05) + ((zBpil - 0.05) - (zCpil + 0.05)) * ux;
-        return sideSurfacePoint(sx, z, vz, 0.0075, 0.045, 0.095);
-      }, flip);
-      appendSharedGrid(gPos, gUv, gIdx, 2, 2, (ux, vz) => {
-        const zBot = (zSideRearBot + 0.04) + ((zCpil - 0.05) - (zSideRearBot + 0.04)) * ux;
-        const zTop = (zSideRearTop + 0.04) + ((zCpil - 0.05) - (zSideRearTop + 0.04)) * ux;
-        const z = zBot + (zTop - zBot) * vz;
-        return sideSurfacePoint(sx, z, vz, 0.0075, 0.045, 0.095);
-      }, flip);
-    } else {
-      // Hatchback rear door + quarter window
-      appendSharedGrid(gPos, gUv, gIdx, 3, 2, (ux, vz) => {
-        const zBot = (zSideRearBot + 0.045) + ((zBpil - 0.05) - (zSideRearBot + 0.045)) * ux;
-        const zTop = (zSideRearTop + 0.045) + ((zBpil - 0.05) - (zSideRearTop + 0.045)) * ux;
-        const z = zBot + (zTop - zBot) * vz;
-        return sideSurfacePoint(sx, z, vz, 0.0075, 0.045, 0.088);
-      }, flip);
-    }
-  }
-
-  const trimGeo = new THREE.BufferGeometry();
-  trimGeo.setAttribute('position', new THREE.Float32BufferAttribute(tPos, 3));
-  trimGeo.setAttribute('uv', new THREE.Float32BufferAttribute(tUv, 2));
-  trimGeo.setIndex(tIdx);
-  trimGeo.computeVertexNormals();
-
-  const glassGeo = new THREE.BufferGeometry();
-  glassGeo.setAttribute('position', new THREE.Float32BufferAttribute(gPos, 3));
-  glassGeo.setAttribute('uv', new THREE.Float32BufferAttribute(gUv, 2));
-  glassGeo.setIndex(gIdx);
-  glassGeo.computeVertexNormals();
-
-  return {
-    bodyGeo: ensureIndexedClean(bodyGeo),
-    trimGeo: ensureIndexedClean(trimGeo),
-    glassGeo: ensureIndexedClean(glassGeo),
-    archGeo: ensureIndexedClean(archGeo),
-  };
-}
-
-const KEI_HATCH_PROTO = buildAutomotiveCoachwork({ isVan: false });
-const KEI_VAN_PROTO = buildAutomotiveCoachwork({ isVan: true });
+// Cleaned real 3D Japanese Kei-Car assets (`suzuki_alto_kei.glb` & `kei_tall_wagon.glb`)
+// are loaded synchronously via `KEI_VEHICLE_PROTOS` from `./kei-vehicles.js`.
 
 export function cloneTransformed(proto, matrix) {
   const g = proto.clone();
@@ -1584,92 +1183,40 @@ export function addPottedPlant(lot, mats, { x, z, scale = 1.0, yaw = 0 }) {
 }
 
 /**
- * Smooth lofted Japanese Kei-Car & Kei-Van (軽自動車・軽バン) with clearcoat coachwork,
- * recessed semicircular wheel-arch housings, raked flush glass cabin, and chamfered alloy wheels.
+ * Authentic Japanese Kei-Car (`軽自動車`: Suzuki Alto HA36S `3.395 x 1.475 x 1.495 m` & Tall Kei-Wagon
+ * `3.395 x 1.475 x 1.725 m`) with Clearcoat coachwork, hollow RHD cabin, physical transmissive
+ * safety glass, multi-layer faceted reflector headlamps + clear lenses, and yellow/black Kei plates.
  */
 export function addKeiCar(lot, mats, lx, lz, yaw = 0, bodyBucket = null, isVan = false, withWheels = true, isDriving = false) {
   const carBody = bodyBucket ?? mats.carWhite;
-  const proto = isVan ? KEI_VAN_PROTO : KEI_HATCH_PROTO;
-  const cl = isVan ? 4.24 : 4.02;
-  const cw = isVan ? 1.70 : 1.68;
-  const zF = isVan ? 1.34 : 1.28;
-  const zR = isVan ? -1.28 : -1.22;
-  const wheelR = isVan ? 0.325 : 0.315;
-  const tireW = isVan ? 0.21 : 0.20;
-
+  const proto = isVan ? KEI_VEHICLE_PROTOS.van : KEI_VEHICLE_PROTOS.alto;
   const sub = lot.subContext(lx, lz, yaw, 0);
 
-  // 1. Sculpted smooth clearcoat body shell + recessed wheel-arch liners + satin-black sash trim + flush glass
-  sub.add(carBody, proto.bodyGeo.clone(), 0, 0, 0);
-  sub.add(mats.carUndercarriage ?? mats.darkMetal, proto.archGeo.clone(), 0, 0, 0);
-  sub.add(mats.carTrimBlack ?? mats.darkMetal, proto.trimGeo.clone(), 0, 0, 0);
-  sub.add(mats.carGlass ?? mats.windowUnlit, proto.glassGeo.clone(), 0, 0, 0);
-  // Underbody chassis shadow pan
-  sub.addBox(mats.carUndercarriage ?? mats.darkMetal, cw * 0.80, 0.09, cl * 0.78, 0, 0.20, 0);
+  const headMat = isDriving ? (mats.carHeadlampOn ?? mats.warmLamp) : (mats.carHeadlampOff ?? mats.silverMetal);
+  const tailMat = isDriving ? (mats.carTaillampOn ?? mats.accentRed) : (mats.carTaillampOff ?? mats.accentRed);
+
+  sub.add(carBody, proto.body.clone(), 0, 0, 0);
+  sub.add(mats.carGlass ?? mats.shopGlass, proto.glass.clone(), 0, 0, 0);
+  sub.add(mats.carTrimBlack ?? mats.darkMetal, proto.trimBlack.clone(), 0, 0, 0);
+  sub.add(mats.carUndercarriage ?? mats.darkMetal, proto.undercarriage.clone(), 0, 0, 0);
+  sub.add(headMat, proto.headlamp.clone(), 0, 0, 0);
+  sub.add(tailMat, proto.taillamp.clone(), 0, 0, 0);
+  sub.add(mats.carTire ?? mats.darkMetal, proto.wheelTire.clone(), 0, 0, 0);
 
   if (withWheels) {
-    // 2. Sculpted radiator grille, lower bumper air dam, chrome trim & Japanese license plates
-    const noseZ = cl * 0.5;
-    const grilleY = isVan ? 0.78 : 0.67;
-    sub.addBox(mats.darkMetal, 0.90, isVan ? 0.18 : 0.14, 0.035, 0, grilleY, noseZ - 0.015, -0.10, 0, 0);
-    sub.addBox(mats.darkMetal, 1.04, 0.11, 0.035, 0, 0.36, noseZ - 0.025);
-    sub.addBox(mats.silverMetal, 0.88, 0.026, 0.04, 0, grilleY + (isVan ? 0.06 : 0.045), noseZ - 0.010);
-    // Rear chrome garnish bar above license plate
-    sub.addBox(mats.silverMetal, 0.74, 0.028, 0.025, 0, isVan ? 0.94 : 0.84, -noseZ + 0.008);
-    // Japanese white passenger license plates with crisp dark frame
-    const plateMat = mats.vendWhite;
-    sub.addBox(mats.darkMetal, 0.35, 0.18, 0.018, 0, 0.42, noseZ + 0.004);
-    sub.addBox(plateMat, 0.33, 0.165, 0.024, 0, 0.42, noseZ + 0.010);
-    sub.addBox(mats.darkMetal, 0.35, 0.18, 0.018, 0, isVan ? 0.62 : 0.58, -noseZ - 0.004);
-    sub.addBox(plateMat, 0.33, 0.165, 0.024, 0, isVan ? 0.62 : 0.58, -noseZ - 0.010);
+    sub.add(mats.carClearLens ?? mats.shopGlass, proto.clearLens.clone(), 0, 0, 0);
+    sub.add(mats.silverMetal, proto.silver.clone(), 0, 0, 0);
+    sub.add(mats.carAmber ?? mats.tactileYellow, proto.amber.clone(), 0, 0, 0);
+    sub.add(mats.silverMetal, proto.wheelRim.clone(), 0, 0, 0);
 
-    // Subtle cowl windshield wipers at the base of the front glass
-    const cowlZ = isVan ? 1.15 : 0.80;
-    const cowlY = isVan ? 1.135 : 0.975;
-    sub.addBox(mats.carTrimBlack ?? mats.darkMetal, 0.44, 0.018, 0.022, -0.22, cowlY, cowlZ, 0, 0.08, 0.04);
-    sub.addBox(mats.carTrimBlack ?? mats.darkMetal, 0.42, 0.018, 0.022, 0.24, cowlY, cowlZ - 0.01, 0, -0.06, -0.04);
-
-    const headMat = isDriving ? (mats.carHeadlampOn ?? mats.warmLamp) : (mats.carHeadlampOff ?? mats.silverMetal);
-    const tailMat = isDriving ? (mats.carTaillampOn ?? mats.accentRed) : (mats.carTaillampOff ?? mats.accentRed);
-    const mirrorZ = isVan ? 0.94 : 0.56;
-    const mirrorY = isVan ? 1.14 : 0.99;
-
-    for (const sx of [-1, 1]) {
-      // Sleek modern wrap-around headlamp clusters + ruby rear combination taillamps
-      sub.addBox(mats.darkMetal, 0.30, 0.12, 0.065, sx * 0.56, isVan ? 0.84 : 0.72, noseZ - 0.06, -0.14, sx * 0.22, 0);
-      sub.addBox(headMat, 0.27, 0.095, 0.045, sx * 0.56, isVan ? 0.84 : 0.72, noseZ - 0.046, -0.14, sx * 0.22, 0);
-      sub.addBox(tailMat, 0.18, isVan ? 0.32 : 0.20, 0.05, sx * 0.64, isVan ? 1.02 : 0.92, -noseZ + 0.045, 0.06, -sx * 0.18, 0);
-
-      // Aerodynamic side mirrors mounted at A-pillar base + flush silver door handles
-      sub.addBox(mats.darkMetal, 0.09, 0.036, 0.055, sx * (cw * 0.455), mirrorY - 0.025, mirrorZ + 0.02);
-      sub.addBox(carBody, 0.13, 0.095, 0.16, sx * (cw * 0.50 + 0.03), mirrorY, mirrorZ, 0, sx * 0.14, 0);
-      sub.addBox(mats.silverMetal, 0.026, 0.032, 0.14, sx * (cw * 0.485), isVan ? 1.00 : 0.86, isVan ? 0.24 : 0.02);
-      sub.addBox(mats.silverMetal, 0.026, 0.032, 0.14, sx * (cw * 0.485), isVan ? 1.00 : 0.86, isVan ? -0.68 : -0.72);
-    }
-
-    // 3. Chamfered rubber tires + recessed 3D alloy rims + 5-spoke star spiders inside wheel arches!
-    const wheelTrackX = cw * 0.44;
-    for (const [wx, wz] of [[-wheelTrackX, zF], [wheelTrackX, zF], [-wheelTrackX, zR], [wheelTrackX, zR]]) {
-      const sgn = Math.sign(wx);
-      sub.addProto(mats.carTire ?? mats.darkMetal, PROTO_TIRE, wx, wheelR, wz, tireW, wheelR, wheelR);
-      sub.addProto(
-        mats.silverMetal,
-        PROTO_ALLOY_RIM,
-        wx,
-        wheelR,
-        wz,
-        tireW,
-        wheelR,
-        wheelR,
-        0,
-        sgn > 0 ? 0 : Math.PI,
-        0,
-      );
-      // 3 crossed spoke bars across alloy dish for crisp wheel detail
-      for (let sp = 0; sp < 3; sp++) {
-        sub.addBox(mats.silverMetal, 0.024, wheelR * 1.02, 0.042, wx + sgn * 0.075, wheelR, wz, (sp * Math.PI) / 3, 0, 0);
-      }
-    }
+    // Japanese Kei-Car (`軽自動車` 330 x 165 mm) yellow passenger / black commercial license plates
+    const plateMat = (isVan && isDriving)
+      ? (mats.keiPlateBlack ?? mats.vendWhite)
+      : (mats.keiPlateYellow ?? mats.vendWhite);
+    sub.addBox(mats.carTrimBlack ?? mats.darkMetal, 0.346, 0.178, 0.014, 0, 0.39, 1.694);
+    sub.add(plateMat, frontFaceBox(0.33, 0.165, 0.016, 0.01, 0.01), 0, 0.39, 1.698);
+    sub.addBox(mats.carTrimBlack ?? mats.darkMetal, 0.346, 0.178, 0.014, 0, 0.43, -1.698);
+    sub.add(plateMat, frontFaceBox(0.33, 0.165, 0.016, 0.01, 0.01), 0, 0.43, -1.702, 0, Math.PI, 0);
   }
 }
 
