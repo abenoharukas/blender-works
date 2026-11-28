@@ -11,6 +11,7 @@
 //   insulators, non-emissive woven Shotengai street flags under Suzuran bell lamps, and open-truss
 //   Shotengai entrance arches with brushed-gold sign bezels and gooseneck floodlights.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { KEI_VEHICLE_PROTOS } from './kei-vehicles.js?v=20261127e';
 
 const _mat4 = new THREE.Matrix4();
@@ -1182,42 +1183,207 @@ export function addPottedPlant(lot, mats, { x, z, scale = 1.0, yaw = 0 }) {
   sub.addProto(shrubMat, PROTO_HEDGE_FRINGE, 0, potH + 0.26 * scale, 0, 0.28 * scale, 0.30 * scale, 0.28 * scale, 0, 2.2, 0);
 }
 
+let _keiPlateProtos = null;
+function getKeiPlateProtos() {
+  if (_keiPlateProtos) return _keiPlateProtos;
+  const bake = (g, x, y, z, ry = 0) => {
+    if (ry) g.rotateY(ry);
+    g.translate(x, y, z);
+    return ensureIndexedClean(g);
+  };
+  const backingParts = [
+    bake(new THREE.BoxGeometry(0.346, 0.178, 0.014), 0, 0.39, 1.694),
+    bake(new THREE.BoxGeometry(0.346, 0.178, 0.014), 0, 0.43, -1.698),
+  ];
+  const faceParts = [
+    bake(frontFaceBox(0.33, 0.165, 0.016, 0.01, 0.01), 0, 0.39, 1.698),
+    bake(frontFaceBox(0.33, 0.165, 0.016, 0.01, 0.01), 0, 0.43, -1.702, Math.PI),
+  ];
+  const backing = mergeGeometries(backingParts, false);
+  const face = mergeGeometries(faceParts, false);
+  backingParts.forEach((g) => g.dispose());
+  faceParts.forEach((g) => g.dispose());
+  _keiPlateProtos = { backing, face };
+  return _keiPlateProtos;
+}
+
 /**
  * Authentic Japanese Kei-Car (`軽自動車`: Suzuki Alto HA36S `3.395 x 1.475 x 1.495 m` & Tall Kei-Wagon
  * `3.395 x 1.475 x 1.725 m`) with Clearcoat coachwork, hollow RHD cabin, physical transmissive
  * safety glass, multi-layer faceted reflector headlamps + clear lenses, and yellow/black Kei plates.
+ *
+ * Records a lightweight placement record in `mats.carPlacements` so `buildKeiCarInstances()` can
+ * render all vehicles via shared `InstancedMesh`es (WebGL) or shared-mesh glTF nodes (ThreeRT / Cycles)
+ * instead of duplicating ~25k vertices per car.
  */
 export function addKeiCar(lot, mats, lx, lz, yaw = 0, bodyBucket = null, isVan = false, withWheels = true, isDriving = false) {
-  const carBody = bodyBucket ?? mats.carWhite;
-  const proto = isVan ? KEI_VEHICLE_PROTOS.van : KEI_VEHICLE_PROTOS.alto;
   const sub = lot.subContext(lx, lz, yaw, 0);
+  if (!mats.carPlacements) mats.carPlacements = [];
+  mats.carPlacements.push({
+    x: sub.cx,
+    y: sub.baseY,
+    z: sub.cz,
+    yaw: sub.yaw,
+    bodyBucket: bodyBucket ?? mats.carWhite,
+    isVan: Boolean(isVan),
+    withWheels: Boolean(withWheels),
+    isDriving: Boolean(isDriving),
+  });
+}
 
-  const headMat = isDriving ? (mats.carHeadlampOn ?? mats.warmLamp) : (mats.carHeadlampOff ?? mats.silverMetal);
-  const tailMat = isDriving ? (mats.carTaillampOn ?? mats.accentRed) : (mats.carTaillampOff ?? mats.accentRed);
+/**
+ * Materialize recorded `mats.carPlacements` under `parent`:
+ * - `mode: 'instanced'` (default, WebGL): ~35 `THREE.InstancedMesh`es sharing prototype BufferGeometries.
+ * - `mode: 'gltfNodes'` (GLB export for ThreeRT & Blender Cycles): one standard `THREE.Mesh` node per car
+ *   sharing ~4 multi-material prototype geometries + per-variant material arrays so GLTFExporter writes
+ *   each vehicle mesh once and instantiates it by glTF node reference.
+ */
+export function buildKeiCarInstances(parent, mats, { mode = 'instanced' } = {}) {
+  const placements = mats.carPlacements;
+  if (!placements || !placements.length) return null;
 
-  sub.add(carBody, proto.body.clone(), 0, 0, 0);
-  sub.add(mats.carGlass ?? mats.shopGlass, proto.glass.clone(), 0, 0, 0);
-  sub.add(mats.carTrimBlack ?? mats.darkMetal, proto.trimBlack.clone(), 0, 0, 0);
-  sub.add(mats.carUndercarriage ?? mats.darkMetal, proto.undercarriage.clone(), 0, 0, 0);
-  sub.add(headMat, proto.headlamp.clone(), 0, 0, 0);
-  sub.add(tailMat, proto.taillamp.clone(), 0, 0, 0);
-  sub.add(mats.carTire ?? mats.darkMetal, proto.wheelTire.clone(), 0, 0, 0);
+  const plates = getKeiPlateProtos();
+  const matOf = (bucket) => bucket.material;
+  const glassMat = matOf(mats.carGlass ?? mats.shopGlass);
+  const clearLensMat = matOf(mats.carClearLens ?? mats.shopGlass);
+  const trimBlackMat = matOf(mats.carTrimBlack ?? mats.darkMetal);
+  const underMat = matOf(mats.carUndercarriage ?? mats.darkMetal);
+  const tireMat = matOf(mats.carTire ?? mats.darkMetal);
+  const silverMat = matOf(mats.silverMetal);
+  const amberMat = matOf(mats.carAmber ?? mats.tactileYellow);
+  const headOnMat = matOf(mats.carHeadlampOn ?? mats.warmLamp);
+  const headOffMat = matOf(mats.carHeadlampOff ?? mats.silverMetal);
+  const tailOnMat = matOf(mats.carTaillampOn ?? mats.accentRed);
+  const tailOffMat = matOf(mats.carTaillampOff ?? mats.accentRed);
+  const plateYellowMat = matOf(mats.keiPlateYellow ?? mats.vendWhite);
+  const plateBlackMat = matOf(mats.keiPlateBlack ?? mats.vendWhite);
 
-  if (withWheels) {
-    sub.add(mats.carClearLens ?? mats.shopGlass, proto.clearLens.clone(), 0, 0, 0);
-    sub.add(mats.silverMetal, proto.silver.clone(), 0, 0, 0);
-    sub.add(mats.carAmber ?? mats.tactileYellow, proto.amber.clone(), 0, 0, 0);
-    sub.add(mats.silverMetal, proto.wheelRim.clone(), 0, 0, 0);
+  const carsGroup = new THREE.Group();
+  carsGroup.name = 'kei_cars';
 
-    // Japanese Kei-Car (`軽自動車` 330 x 165 mm) yellow passenger / black commercial license plates
-    const plateMat = (isVan && isDriving)
-      ? (mats.keiPlateBlack ?? mats.vendWhite)
-      : (mats.keiPlateYellow ?? mats.vendWhite);
-    sub.addBox(mats.carTrimBlack ?? mats.darkMetal, 0.346, 0.178, 0.014, 0, 0.39, 1.694);
-    sub.add(plateMat, frontFaceBox(0.33, 0.165, 0.016, 0.01, 0.01), 0, 0.39, 1.698);
-    sub.addBox(mats.carTrimBlack ?? mats.darkMetal, 0.346, 0.178, 0.014, 0, 0.43, -1.698);
-    sub.add(plateMat, frontFaceBox(0.33, 0.165, 0.016, 0.01, 0.01), 0, 0.43, -1.702, 0, Math.PI, 0);
+  if (mode === 'gltfNodes') {
+    // At most 4 combined multi-material BufferGeometries: (alto|van) x (withWheels|noWheels)
+    const protoGeoCache = new Map();
+    const getCombinedGeo = (modelKey, withWheels) => {
+      const k = `${modelKey}_${withWheels ? 'w' : 'nw'}`;
+      if (protoGeoCache.has(k)) return protoGeoCache.get(k);
+      const proto = KEI_VEHICLE_PROTOS[modelKey];
+      const tempGeos = [];
+      let trimGeo = proto.trimBlack;
+      if (withWheels) {
+        trimGeo = mergeGeometries([proto.trimBlack, plates.backing], false);
+        tempGeos.push(trimGeo);
+      }
+      const partGeos = [
+        proto.body,
+        proto.glass,
+        trimGeo,
+        proto.undercarriage,
+        proto.headlamp,
+        proto.taillamp,
+        proto.wheelTire,
+      ];
+      if (withWheels) {
+        const silverGeo = mergeGeometries([proto.silver, proto.wheelRim], false);
+        tempGeos.push(silverGeo);
+        partGeos.push(proto.clearLens, silverGeo, proto.amber, plates.face);
+      }
+      const combined = mergeGeometries(partGeos, true);
+      tempGeos.forEach((g) => g.dispose());
+      combined.computeBoundingSphere();
+      protoGeoCache.set(k, combined);
+      return combined;
+    };
+
+    // Reuse identical Material[] per variant so GLTFExporter caches a single glTF mesh per variant
+    const variantMatsCache = new Map();
+    const getVariantMats = (p) => {
+      const bodyMat = matOf(p.bodyBucket);
+      const modelKey = p.isVan ? 'van' : 'alto';
+      const headMat = p.isDriving ? headOnMat : headOffMat;
+      const tailMat = p.isDriving ? tailOnMat : tailOffMat;
+      const plateMat = (p.isVan && p.isDriving) ? plateBlackMat : plateYellowMat;
+      const vKey = `${modelKey}_${p.withWheels ? 'w' : 'nw'}_${p.isDriving ? 'd' : 'p'}_${bodyMat.name}`;
+      if (variantMatsCache.has(vKey)) return variantMatsCache.get(vKey);
+      const list = [bodyMat, glassMat, trimBlackMat, underMat, headMat, tailMat, tireMat];
+      if (p.withWheels) list.push(clearLensMat, silverMat, amberMat, plateMat);
+      variantMatsCache.set(vKey, list);
+      return list;
+    };
+
+    for (let i = 0; i < placements.length; i++) {
+      const p = placements[i];
+      const modelKey = p.isVan ? 'van' : 'alto';
+      const geo = getCombinedGeo(modelKey, p.withWheels);
+      const matList = getVariantMats(p);
+      const mesh = new THREE.Mesh(geo, matList);
+      mesh.name = `kei_${modelKey}_${i}`;
+      mesh.position.set(p.x, p.y, p.z);
+      mesh.rotation.set(0, p.yaw, 0);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      carsGroup.add(mesh);
+    }
+    parent.add(carsGroup);
+    return carsGroup;
   }
+
+  // Default WebGL path: group by (geometry, material) into InstancedMeshes (~35 draw calls total)
+  const buckets = new Map();
+  const pushInst = (key, geo, mat, castShadow, receiveShadow, p) => {
+    let entry = buckets.get(key);
+    if (!entry) {
+      entry = { key, geo, mat, castShadow, receiveShadow, list: [] };
+      buckets.set(key, entry);
+    }
+    entry.list.push(p);
+  };
+
+  for (const p of placements) {
+    const modelKey = p.isVan ? 'van' : 'alto';
+    const proto = KEI_VEHICLE_PROTOS[modelKey];
+    const bodyMat = matOf(p.bodyBucket);
+    const headMat = p.isDriving ? headOnMat : headOffMat;
+    const tailMat = p.isDriving ? tailOnMat : tailOffMat;
+
+    pushInst(`${modelKey}_body_${bodyMat.name}`, proto.body, bodyMat, true, true, p);
+    pushInst(`${modelKey}_glass`, proto.glass, glassMat, false, false, p);
+    pushInst(`${modelKey}_trim`, proto.trimBlack, trimBlackMat, true, true, p);
+    pushInst(`${modelKey}_under`, proto.undercarriage, underMat, true, true, p);
+    pushInst(`${modelKey}_head_${headMat.name}`, proto.headlamp, headMat, true, true, p);
+    pushInst(`${modelKey}_tail_${tailMat.name}`, proto.taillamp, tailMat, true, true, p);
+    pushInst(`${modelKey}_tire`, proto.wheelTire, tireMat, true, true, p);
+
+    if (p.withWheels) {
+      const plateMat = (p.isVan && p.isDriving) ? plateBlackMat : plateYellowMat;
+      pushInst(`${modelKey}_lens`, proto.clearLens, clearLensMat, false, false, p);
+      pushInst(`${modelKey}_silver`, proto.silver, silverMat, true, true, p);
+      pushInst(`${modelKey}_amber`, proto.amber, amberMat, true, true, p);
+      pushInst(`${modelKey}_rim`, proto.wheelRim, silverMat, true, true, p);
+      pushInst(`plate_backing`, plates.backing, trimBlackMat, true, true, p);
+      pushInst(`plate_${plateMat.name}`, plates.face, plateMat, true, true, p);
+    }
+  }
+
+  for (const entry of buckets.values()) {
+    const inst = new THREE.InstancedMesh(entry.geo, entry.mat, entry.list.length);
+    inst.name = `kei_inst_${entry.key}`;
+    inst.castShadow = entry.castShadow;
+    inst.receiveShadow = entry.receiveShadow;
+    for (let i = 0; i < entry.list.length; i++) {
+      const p = entry.list[i];
+      _euler.set(0, p.yaw, 0);
+      _quat.setFromEuler(_euler);
+      _pos.set(p.x, p.y, p.z);
+      _mat4.compose(_pos, _quat, _one);
+      inst.setMatrixAt(i, _mat4);
+    }
+    inst.instanceMatrix.needsUpdate = true;
+    inst.computeBoundingSphere();
+    carsGroup.add(inst);
+  }
+  parent.add(carsGroup);
+  return carsGroup;
 }
 
 export function addBicycleCluster(lot, mats, lx, lz, count = 2, rotY = 0) {

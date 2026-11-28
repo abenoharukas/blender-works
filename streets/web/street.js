@@ -53,10 +53,11 @@ import {
   addChochinRow,
   addGardenTree,
   addKeiCar,
+  buildKeiCarInstances,
   addUtilityPole,
   addShotengaiLamp,
   addShotengaiArch,
-} from './japanese-buildings.js?v=20261128c';
+} from './japanese-buildings.js?v=20261128d';
 import { applyInteriorMapping } from './interior-mapping.js?v=20261127e';
 
 export const STREET = { road: 4.8, walk: 2.3, from: 136, to: 592 };
@@ -985,6 +986,7 @@ function createMaterialLibrary() {
     keiPlateBlack,
     carWhite: carPalette[0],
     carPalette,
+    carPlacements: [],
   };
 }
 
@@ -1366,7 +1368,7 @@ function populateIkkodateBlock(mats, rnd, { x0, x1, z0, z1, lampSpots = null }) 
 
 // ------------------------------------------------------------------ main town builder
 
-export function buildStreet(scene) {
+export function buildStreet(scene, { carMode = 'instanced' } = {}) {
   const rnd = mulberry32(0x5a7c19);
   _globalSignSeq = 0;
   const mats = createMaterialLibrary();
@@ -1748,7 +1750,7 @@ export function buildStreet(scene) {
     'houseLightBlanks', 'houseDarkBlanks', 'shikkuiBlank',
     'commUpperLight', 'windowLitList', 'konbiniLitList',
     'fasciasIzakaya', 'fasciasRamen', 'fasciasKissaten', 'fasciasPharmacy', 'fasciasBookstore',
-    'shopRetails', 'norenSets', 'awnings', 'carWhite',
+    'shopRetails', 'norenSets', 'awnings', 'carWhite', 'carPlacements',
     'lanternRed', 'lanternWarm', 'lanternAll',
     'kabukiFascia', 'imaiFascia', 'sprinterPoster', 'neonRingPoster', 'cosmePoster', 'kabukiPoster',
   ]);
@@ -1756,6 +1758,8 @@ export function buildStreet(scene) {
     if (skipKeys.has(key)) continue;
     buildAll(val, { castShadow: true, receiveShadow: true });
   }
+
+  buildKeiCarInstances(group, mats, { mode: carMode });
 
   group.userData.mats = mats;
   group.userData.lampSpots = lampSpots;

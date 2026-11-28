@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { buildStreet } from './street.js?v=20261128c';
+import { buildStreet } from './street.js?v=20261128d';
 import { MODELS, PLOTS, groundHeightAt } from './models.js?v=20261128b';
 import { createWalkController } from './walk.js?v=20261127e';
 import {
