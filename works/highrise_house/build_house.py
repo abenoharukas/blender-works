@@ -562,11 +562,16 @@ CEILING_LIGHT_CORE_CLEAR = 0.20
 CEILING_LIGHT_CORNER_AXIS_COUNT = 2
 CEILING_LIGHT_H = 0.06
 CEILING_LIGHT_Z = H - SLAB_T - CEILING_LIGHT_H / 2.0
-# Every fixture independently has this chance of being lit. Keep the seeded
-# pattern stable between rebuilds, while letting rooms have zero, one, or two
-# lights on like a real inhabited building.
+# Apartment ceiling lighting is grouped into 32 warm + 32 daylight circuits
+# (matching The Stack's 64-circuit architecture). Every diffuser uses a matte
+# white acrylic Base Color so switched-off apartments never render as black
+# boxes; all circuits stay lit by default in Blender and downstream renderers
+# toggle realistic per-apartment subsets by time of day.
 CEILING_LIGHT_SEED = 20260823
-CEILING_LIGHT_ON_RATIO = 0.36
+CEILING_LIGHT_WARM_GROUPS = 32
+CEILING_LIGHT_DAYLIGHT_GROUPS = 32
+CEILING_LIGHT_WARM_SHARE = 0.65
+CEILING_LIGHT_DIFFUSER_BASE = (0.90, 0.90, 0.88)
 
 # Simulated interior lighting. An occupied tower of this size carries thousands
 # of discrete room fixtures; the panel field above is their visible pattern, but
@@ -1168,35 +1173,97 @@ def ceiling_light_overlaps_column(center, dims):
     return False
 
 
-def add_ceiling_light(parts, name, center, dims, floor_index, facade_index,
-                      room_index, ring_index, mats):
-    """Install one panel unless a load-bearing perimeter column occupies it."""
-    if ceiling_light_overlaps_column(center, dims):
-        return
-    # The quad sits on the old box's visible underside, not on the slab plane,
-    # so it cannot z-fight with the floor plate above it.
-    parts.append(panel(
-        name, (center[0], center[1], center[2] - CEILING_LIGHT_H / 2.0),
-        dims,
-        mats[ceiling_light_state(floor_index, facade_index, room_index,
-                                 ring_index)]))
+def _floor_suite_spans(x_min, x_max, min_w, max_w, snap, rng):
+    """Partition a floor span into realistic contiguous apartments."""
+    cuts = [x_min]
+    cur = x_min
+    while x_max - cur > max_w:
+        rem = x_max - cur
+        if rem <= 2 * min_w:
+            mid = cur + round((rem / 2.0) / snap) * snap
+            if cur + snap <= mid <= x_max - snap:
+                cuts.append(mid)
+            break
+        hi = min(max_w, rem - min_w)
+        w = round(rng.uniform(min_w, hi) / snap) * snap
+        w = max(min_w, min(hi, w))
+        cur += w
+        cuts.append(cur)
+    cuts.append(x_max)
+    return list(zip(cuts[:-1], cuts[1:]))
 
 
-def ceiling_light_state(floor_index, facade_index, room_index, fixture_index):
-    """Return the independent on/off state and colour temperature of a panel."""
-    rng = ceiling_light_rng(floor_index, facade_index, room_index,
-                            fixture_index)
-    if rng.random() >= CEILING_LIGHT_ON_RATIO:
-        return "off"
-    return rng.choice(("daylight", "warm"))
+def _pick_floor_groups(count, total_groups, usage, rng):
+    """Pick `count` distinct circuit groups for one floor, balanced across the pool."""
+    order = list(range(total_groups))
+    rng.shuffle(order)
+    order.sort(key=lambda g: usage[g])
+    chosen = order[:count]
+    rng.shuffle(chosen)
+    for g in chosen:
+        usage[g] += 1
+    return chosen
 
 
-def ceiling_lights(name, z0, floor_index, mats):
-    """Seven panel-light rings, including one that follows the column line."""
+def make_house_light(name, emission_color, strength, web_roughness=0.45):
+    """Ceiling fixture with matte white acrylic diffuser Base Color so unlit
+    circuits stay white in any scene and never render black. A per-group
+    web_roughness keeps circuits distinct through glTF optimization."""
+    mat = materials.make_ceiling_light(name, emission_color, strength)
+    bsdf = materials._bsdf(mat)
+    materials._set(bsdf, "Base Color", (*CEILING_LIGHT_DIFFUSER_BASE, 1.0))
+    mat.diffuse_color = (*CEILING_LIGHT_DIFFUSER_BASE, 1.0)
+    mat["web_roughness"] = round(web_roughness, 4)
+    return mat
+
+
+def ensure_grouped_light_materials(mats):
+    """Ensure the 64 grouped apartment light materials exist and remove any dark
+    CeilingLight_Off material so no black light boxes can appear."""
+    off_mat = mats.pop("ceiling_light_off", None)
+    if off_mat is not None and off_mat.users == 0:
+        bpy.data.materials.remove(off_mat)
+    for g in range(1, CEILING_LIGHT_DAYLIGHT_GROUPS + 1):
+        key = f"ceiling_light_daylight_g{g:02d}"
+        if key not in mats:
+            mats[key] = make_house_light(
+                f"CeilingLight_Daylight_G{g:02d}",
+                materials.CEILING_LIGHT_DAYLIGHT,
+                materials.CEILING_LIGHT_STRENGTH,
+                web_roughness=0.400 + 0.002 * g,
+            )
+    for g in range(1, CEILING_LIGHT_WARM_GROUPS + 1):
+        key = f"ceiling_light_warm_g{g:02d}"
+        if key not in mats:
+            mats[key] = make_house_light(
+                f"CeilingLight_Warm_G{g:02d}",
+                materials.CEILING_LIGHT_WARM,
+                materials.CEILING_LIGHT_STRENGTH,
+                web_roughness=0.400 + 0.002 * g,
+            )
+    for podium_key, rough in (("podium_ceiling_light_cool", 0.49),
+                              ("podium_ceiling_light_warm", 0.50)):
+        pmat = mats.get(podium_key)
+        if pmat is not None:
+            bsdf = materials._bsdf(pmat)
+            materials._set(bsdf, "Base Color", (*CEILING_LIGHT_DIFFUSER_BASE, 1.0))
+            pmat.diffuse_color = (*CEILING_LIGHT_DIFFUSER_BASE, 1.0)
+            pmat["web_roughness"] = rough
+    return mats
+
+
+def ceiling_lights(name, z0, floor_index, mats, usage=None, tower_seed=0):
+    """Seven panel-light rings grouped into contiguous apartment circuits."""
     zc = z0 + CEILING_LIGHT_Z
-    parts = []
+    candidates = []
+
+    def collect(part_name, center, dims):
+        if ceiling_light_overlaps_column(center, dims):
+            return
+        candidates.append((part_name, center, dims))
+
     ring_setbacks = ceiling_light_ring_setbacks()
-    for facade_index, sx in enumerate((-1, 1)):
+    for sx in (-1, 1):
         for ring_index, setback in enumerate(ring_setbacks):
             x = sx * (W / 2 - GLASS_T - setback - CEILING_LIGHT_D / 2)
             axes = ceiling_light_axis_positions(D)
@@ -1206,12 +1273,10 @@ def ceiling_lights(name, z0, floor_index, mats):
                 axes = sorted(axes)[CEILING_LIGHT_CORNER_AXIS_COUNT:
                                    -CEILING_LIGHT_CORNER_AXIS_COUNT]
             for axis_index, y in enumerate(axes):
-                add_ceiling_light(
-                    parts, f"{name}_ew_{ring_index}_{sx}_{axis_index}",
-                    (x, y, zc),
-                    (CEILING_LIGHT_D, CEILING_LIGHT_W, CEILING_LIGHT_H),
-                    floor_index, facade_index, axis_index, ring_index, mats)
-    for facade_index, sy in enumerate((-1, 1), start=2):
+                collect(f"{name}_ew_{ring_index}_{sx}_{axis_index}",
+                        (x, y, zc),
+                        (CEILING_LIGHT_D, CEILING_LIGHT_W, CEILING_LIGHT_H))
+    for sy in (-1, 1):
         for ring_index, setback in enumerate(ring_setbacks):
             y = sy * (D / 2 - GLASS_T - setback - CEILING_LIGHT_D / 2)
             axes = ceiling_light_axis_positions(W)
@@ -1219,11 +1284,9 @@ def ceiling_lights(name, z0, floor_index, mats):
                 axes = sorted(axes)[CEILING_LIGHT_CORNER_AXIS_COUNT:
                                    -CEILING_LIGHT_CORNER_AXIS_COUNT]
             for axis_index, x in enumerate(axes):
-                add_ceiling_light(
-                    parts, f"{name}_ns_{ring_index}_{sy}_{axis_index}",
-                    (x, y, zc),
-                    (CEILING_LIGHT_W, CEILING_LIGHT_D, CEILING_LIGHT_H),
-                    floor_index, facade_index, axis_index, ring_index, mats)
+                collect(f"{name}_ns_{ring_index}_{sy}_{axis_index}",
+                        (x, y, zc),
+                        (CEILING_LIGHT_W, CEILING_LIGHT_D, CEILING_LIGHT_H))
     # Inner rings continue around the four corners with one panel per corner.
     # The outer ring has no corner panel because the larger corner column occupies
     # that position on the facade side.
@@ -1232,30 +1295,71 @@ def ceiling_lights(name, z0, floor_index, mats):
         corner_depth = D / 2 - GLASS_T - setback - CEILING_LIGHT_D / 2
         for corner_index, (sx, sy) in enumerate(
                 ((-1, -1), (-1, 1), (1, -1), (1, 1))):
-            add_ceiling_light(
-                parts, f"{name}_corner_{ring_index}_{corner_index}",
-                (sx * inset, sy * corner_depth, zc),
-                (CEILING_LIGHT_W, CEILING_LIGHT_D, CEILING_LIGHT_H),
-                floor_index, 4, corner_index, ring_index, mats)
+            collect(f"{name}_corner_{ring_index}_{corner_index}",
+                    (sx * inset, sy * corner_depth, zc),
+                    (CEILING_LIGHT_W, CEILING_LIGHT_D, CEILING_LIGHT_H))
 
     # The new ring follows the perimeter support line. Panels sit in the clear
     # portion of every structural bay; the overlap test above makes the rule
     # explicit, so a fixture is never generated where a column occupies it.
-    column_ring_index = CEILING_LIGHT_RING_COUNT - 1
-    for facade_index, sx in enumerate((-1, 1)):
+    for sx in (-1, 1):
         x = sx * col_grid(W)[-1]
         for axis_index, y in enumerate(ceiling_light_axis_positions(D)):
-            add_ceiling_light(
-                parts, f"{name}_ew_column_{sx}_{axis_index}", (x, y, zc),
-                (CEILING_LIGHT_D, CEILING_LIGHT_W, CEILING_LIGHT_H),
-                floor_index, facade_index, axis_index, column_ring_index, mats)
-    for facade_index, sy in enumerate((-1, 1), start=2):
+            collect(f"{name}_ew_column_{sx}_{axis_index}", (x, y, zc),
+                    (CEILING_LIGHT_D, CEILING_LIGHT_W, CEILING_LIGHT_H))
+    for sy in (-1, 1):
         y = sy * col_grid(D)[-1]
         for axis_index, x in enumerate(ceiling_light_axis_positions(W)):
-            add_ceiling_light(
-                parts, f"{name}_ns_column_{sy}_{axis_index}", (x, y, zc),
-                (CEILING_LIGHT_W, CEILING_LIGHT_D, CEILING_LIGHT_H),
-                floor_index, facade_index, axis_index, column_ring_index, mats)
+            collect(f"{name}_ns_column_{sy}_{axis_index}", (x, y, zc),
+                    (CEILING_LIGHT_W, CEILING_LIGHT_D, CEILING_LIGHT_H))
+
+    # Partition north (y >= 0) and south (y < 0) halves into contiguous apartment
+    # suites snapped to the 4 m room-window module so every light inside one
+    # apartment shares the same colour temperature and circuit group.
+    rng = random.Random(CEILING_LIGHT_SEED + tower_seed * 100003 + floor_index * 101)
+    side_spans = {
+        side: _floor_suite_spans(-W / 2.0, W / 2.0, 2.0 * PANE_W, 4.0 * PANE_W,
+                                 PANE_W, rng)
+        for side in (0, 1)
+    }
+    suite_panels = {}
+    for item in candidates:
+        cx, cy = item[1][0], item[1][1]
+        side = 1 if cy >= 0.0 else 0
+        spans = side_spans[side]
+        span_idx = len(spans) - 1
+        for idx, (xa, xb) in enumerate(spans):
+            if xa <= cx <= xb:
+                span_idx = idx
+                break
+        suite_panels.setdefault((side, span_idx), []).append(item)
+
+    if usage is None:
+        usage = {
+            "warm": [0] * CEILING_LIGHT_WARM_GROUPS,
+            "daylight": [0] * CEILING_LIGHT_DAYLIGHT_GROUPS,
+        }
+    warm_keys, daylight_keys = [], []
+    for key in sorted(suite_panels.keys()):
+        if rng.random() < CEILING_LIGHT_WARM_SHARE:
+            warm_keys.append(key)
+        else:
+            daylight_keys.append(key)
+    suite_mats = {}
+    for key, g in zip(warm_keys, _pick_floor_groups(
+            len(warm_keys), CEILING_LIGHT_WARM_GROUPS, usage["warm"], rng)):
+        suite_mats[key] = mats[f"ceiling_light_warm_g{g + 1:02d}"]
+    for key, g in zip(daylight_keys, _pick_floor_groups(
+            len(daylight_keys), CEILING_LIGHT_DAYLIGHT_GROUPS, usage["daylight"], rng)):
+        suite_mats[key] = mats[f"ceiling_light_daylight_g{g + 1:02d}"]
+
+    parts = []
+    for key, items in suite_panels.items():
+        mat = suite_mats[key]
+        for part_name, center, dims in items:
+            parts.append(panel(
+                part_name, (center[0], center[1], center[2] - CEILING_LIGHT_H / 2.0),
+                dims, mat))
     return parts
 
 
@@ -1939,14 +2043,15 @@ def build(reset=True, mats=None, add_trusses=False,
     if mats is None:
         mats = materials.build_all(engine=RENDER_ENGINE, wall_color=WALL_COLOR,
                                     glass_tint=GLASS_TINT)
+    ensure_grouped_light_materials(mats)
     concrete = mats["concrete"]
     spandrel = mats["spandrel"]
     glass = mats["glass"]
-    ceiling_light_mats = {
-        "daylight": mats["ceiling_light_daylight"],
-        "warm": mats["ceiling_light_warm"],
-        "off": mats["ceiling_light_off"],
+    light_usage = {
+        "warm": [0] * CEILING_LIGHT_WARM_GROUPS,
+        "daylight": [0] * CEILING_LIGHT_DAYLIGHT_GROUPS,
     }
+    tower_light_seed = 0 if WINDOWS_LONG <= 18 else 1
     metal = mats["metal"]
     dark = mats["dark"]
 
@@ -2068,8 +2173,9 @@ def build(reset=True, mats=None, add_trusses=False,
             (backs if "_back_" in o.name else louvres).append(o)
 
         glazing += glass_ring(f"{tag}_Glass", z0 + WIN_Z, WIN_H, glass)
-        ceiling_lights_mesh += ceiling_lights(f"{tag}_CeilingLight", z0, f,
-                                              ceiling_light_mats)
+        ceiling_lights_mesh += ceiling_lights(
+            f"{tag}_CeilingLight", z0, f, mats,
+            usage=light_usage, tower_seed=tower_light_seed)
         frames += mullions(f"{tag}_Mullion", z0 + WIN_Z, WIN_H, metal)
 
         # Floor plate for the level above, visible behind the glazing. Skipped
@@ -2921,7 +3027,9 @@ def gltf_fixture(material):
     links.new(bsdf.outputs[0], output.inputs[0])
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Metallic"].default_value = 0.0
-    bsdf.inputs["Roughness"].default_value = 0.45
+    bsdf.inputs["Roughness"].default_value = float(
+        material.get("web_roughness", 0.45)
+    )
     bsdf.inputs["Emission Color"].default_value = glow
     bsdf.inputs["Emission Strength"].default_value = GLB_FIXTURE_EMISSIVE
     panel.diffuse_color = color

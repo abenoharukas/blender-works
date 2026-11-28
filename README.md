@@ -21,6 +21,10 @@ npm run serve
 # Offline Blender Cycles renders (50 mm lens, day / blue / night)
 blender --background --factory-startup --python-exit-code 1 \
   --python streets/native/render_cycles.py -- --sky blue --view street
+
+# Choose the startup tower: stack / abeno / pompidou / house / office
+blender --background --factory-startup --python-exit-code 1 \
+  --python streets/native/render_cycles.py -- --model house --sky blue --view street
 ```
 
 ## Highrise House

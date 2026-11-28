@@ -40,6 +40,19 @@ live, so the page works from either the repository root or this directory.
 | Walk | `Walk` (`F`): first-person at 1.7 m — `WASD` move, `Shift` run, mouse look, `Esc` back to orbit. `Space` jumps; double-tap it to fly (Minecraft creative style): in flight `WASD` follows the look direction, `Space` climbs, `Shift` descends, and touching down lands |
 | Clear scene | removes every placed model |
 
+## Default model
+
+Use the `model` query parameter to choose the building loaded on startup. For
+example:
+
+- `/streets/web/?model=house` — Highrise House
+- `/streets/web/?model=abeno` — Abeno Harukas
+- `/streets/web/?model=office` — Office Tower
+- `/streets/web/?model=pompidou` — Centre Pompidou
+- `/streets/web/?model=stack` — The Stack
+
+Without the parameter, or with an unknown model ID, the scene loads The Stack.
+
 The street network, commercial hubs, residential lots, and overhead utility
 lines are generated deterministically from a fixed seed, merged per material to
 keep draw calls low.

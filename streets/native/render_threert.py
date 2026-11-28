@@ -1,7 +1,7 @@
 """Render the Playground street with ThreeRT (clear day / blue / night).
 
-Mirrors `streets/native/render_cycles.py` in CLI flags, 50 mm full-frame camera
-presets (`VIEWS`), and output naming (`threert-<tag>-<view>.png`). Decodes the
+Shares 50 mm full-frame camera presets (`VIEWS`) and output naming
+(`threert-<tag>-<view>.png`) with `streets/native/render_cycles.py`. Decodes the
 single canonical `model_viewer/assets/the_stack.optimized.glb` into a temporary
 directory with physical ThreeRT emissive nits so no duplicate GLBs are left on
 disk.

@@ -561,6 +561,10 @@ walk.enter({ lock: false, preserveHeight: false });
 resize();
 setStatus('Street ready — add a model');
 
-// A first model so the playground never opens empty. The camera stays in the
-// street for the first look instead of framing the tower.
-addModel(MODELS[0].id, { focus: false });
+// A first model so the playground never opens empty. Share a different starting
+// building with `?model=stack|abeno|pompidou|house|office`; missing or unknown
+// values keep the Stack as the default. The camera stays in the street for the
+// first look instead of framing the tower.
+const requestedModelId = new URLSearchParams(window.location.search).get('model');
+const defaultModel = MODELS.find((model) => model.id === requestedModelId) ?? MODELS[0];
+addModel(defaultModel.id, { focus: false });

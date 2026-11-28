@@ -238,17 +238,50 @@ function sampleStackCurve(curve, hour) {
 }
 
 function stackLampIntensity(matName, hour, sunUpFactor, weatherOfficeFloor = 0) {
-  if (!matName || !matName.startsWith('Stack_')) return null;
-  let m = matName.match(/^Stack_Light_Daylight_G(\d+)/);
+  if (!matName) return null;
+  if (matName.startsWith('Stack_')) {
+    let m = matName.match(/^Stack_Light_Daylight_G(\d+)/);
+    if (m) {
+      const g = parseInt(m[1], 10);
+      const rank = ((g * 19 + 7) % 32) / 32;
+      const bright = 0.72 + 0.56 * (((g * 13 + 3) % 32) / 31);
+      const occ = Math.max(sampleStackCurve(STACK_OFFICE_CURVE, hour), weatherOfficeFloor);
+      if (occ <= 0.001) return 0;
+      return THREE.MathUtils.smoothstep(occ, rank - 0.015, rank + 0.015) * 2.4 * bright;
+    }
+    m = matName.match(/^Stack_Light_Warm_G(\d+)/);
+    if (m) {
+      const g = parseInt(m[1], 10);
+      const rank = ((g * 23 + 11) % 32) / 32;
+      const bright = 0.70 + 0.60 * (((g * 17 + 5) % 32) / 31);
+      const occ = sampleStackCurve(STACK_APARTMENT_CURVE, hour);
+      if (occ <= 0.001) return 0;
+      return THREE.MathUtils.smoothstep(occ, rank - 0.015, rank + 0.015) * 2.7 * bright;
+    }
+    if (matName.startsWith('Stack_Mall_Glow')) {
+      return Math.max(sampleStackCurve(STACK_MALL_CURVE, hour), weatherOfficeFloor * 0.6) * 2.0;
+    }
+    if (matName.startsWith('Stack_Light_Warm')) {
+      return sampleStackCurve(STACK_GARDEN_CURVE, hour) * 3.2;
+    }
+    if (matName === 'Stack_Ceiling_Slab') {
+      // Keep cream ceiling bounce only in daylight; at night unlit floors and
+      // open refuge slabs must stay dark so lit office/apartment suites pop.
+      return 0.32 * sunUpFactor;
+    }
+    return null;
+  }
+  // Highrise House 64-circuit grouped apartment lighting (same curve as Stack apartments).
+  let m = matName.match(/^CeilingLight_Daylight_G(\d+)/);
   if (m) {
     const g = parseInt(m[1], 10);
     const rank = ((g * 19 + 7) % 32) / 32;
-    const bright = 0.72 + 0.56 * (((g * 13 + 3) % 32) / 31);
-    const occ = Math.max(sampleStackCurve(STACK_OFFICE_CURVE, hour), weatherOfficeFloor);
+    const bright = 0.70 + 0.60 * (((g * 13 + 3) % 32) / 31);
+    const occ = sampleStackCurve(STACK_APARTMENT_CURVE, hour);
     if (occ <= 0.001) return 0;
-    return THREE.MathUtils.smoothstep(occ, rank - 0.015, rank + 0.015) * 2.4 * bright;
+    return THREE.MathUtils.smoothstep(occ, rank - 0.015, rank + 0.015) * 2.5 * bright;
   }
-  m = matName.match(/^Stack_Light_Warm_G(\d+)/);
+  m = matName.match(/^CeilingLight_Warm_G(\d+)/);
   if (m) {
     const g = parseInt(m[1], 10);
     const rank = ((g * 23 + 11) % 32) / 32;
@@ -257,16 +290,8 @@ function stackLampIntensity(matName, hour, sunUpFactor, weatherOfficeFloor = 0) 
     if (occ <= 0.001) return 0;
     return THREE.MathUtils.smoothstep(occ, rank - 0.015, rank + 0.015) * 2.7 * bright;
   }
-  if (matName.startsWith('Stack_Mall_Glow')) {
-    return Math.max(sampleStackCurve(STACK_MALL_CURVE, hour), weatherOfficeFloor * 0.6) * 2.0;
-  }
-  if (matName.startsWith('Stack_Light_Warm')) {
-    return sampleStackCurve(STACK_GARDEN_CURVE, hour) * 3.2;
-  }
-  if (matName === 'Stack_Ceiling_Slab') {
-    // Keep cream ceiling bounce only in daylight; at night unlit floors and
-    // open refuge slabs must stay dark so lit office/apartment suites pop.
-    return 0.32 * sunUpFactor;
+  if (matName.startsWith('PodiumCeilingLight_')) {
+    return Math.max(sampleStackCurve(STACK_MALL_CURVE, hour), weatherOfficeFloor * 0.6) * 2.2;
   }
   return null;
 }
@@ -912,8 +937,8 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
           for (const mat of mats) {
             if (!mat) continue;
-            const isStackFixture = /^Stack_(Light_|Mall_Glow|Ceiling_Slab)/.test(mat.name || '');
-            if (!isStackFixture && mat.userData.lampBase === undefined && (mat.emissiveIntensity ?? 0) <= 1) {
+            const isGroupedFixture = /^(Stack_(Light_|Mall_Glow|Ceiling_Slab)|CeilingLight_(Warm|Daylight)_G|PodiumCeilingLight_)/.test(mat.name || '');
+            if (!isGroupedFixture && mat.userData.lampBase === undefined && (mat.emissiveIntensity ?? 0) <= 1) {
               continue;
             }
             if (mat.userData.lampBase === undefined) {

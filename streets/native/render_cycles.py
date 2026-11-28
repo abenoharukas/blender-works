@@ -1,4 +1,4 @@
-"""Render the Playground street with Cycles (clear day / clear night).
+"""Render the Playground street with Cycles (clear day / blue / night).
 
 The street is the GLB exported from the Three.js scene for ThreeRT. The GLB
 carries geometry, merged PBR materials and the canvas textures; the lighting
@@ -6,9 +6,13 @@ rig is rebuilt here from `playground-scene.json` (sun, exposure, street lamps).
 
     blender --background --factory-startup --python-exit-code 1 \
         --python streets/native/render_cycles.py -- --sky day
+    blender --background --factory-startup --python-exit-code 1 \
+        --python streets/native/render_cycles.py -- --model house --sky blue --view street
 
-Add `--samples N` / `--width N` for quick tests. The imported scene is cached in
-`streets/native/out/cycles-street-base.blend`, so repeated renders skip import.
+`--model` accepts `stack`, `abeno`, `pompidou`, `house`, or `office`; `highrise`
+is an alias for `house`. The default remains `stack`. Add `--samples N` /
+`--width N` for quick tests. Each model has its own cached imported scene under
+`streets/native/out/`, so switching models never reuses the wrong tower.
 """
 
 import json
@@ -30,7 +34,15 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 OUT = os.path.join(HERE, "out")
 ASSETS = "/Users/raku/repos/others/threert-assets"
 LOCAL_STREET_GLB = os.path.join(OUT, "playground_street_rt.glb")
-LOCAL_TOWER_GLB = os.path.join(ROOT, "model_viewer/assets/the_stack.optimized.glb")
+MODEL_ASSETS = {
+    "stack": "the_stack.optimized.glb",
+    "abeno": "abeno_harukas.optimized.glb",
+    "pompidou": "centre_pompidou.optimized.glb",
+    "house": "highrise_house.optimized.glb",
+    "office": "office_tower.optimized.glb",
+}
+MODEL_ALIASES = {"highrise": "house"}
+DEFAULT_MODEL = "stack"
 
 
 def _resolve_glb(local_path, shared_name):
@@ -47,9 +59,7 @@ def _resolve_glb(local_path, shared_name):
 
 
 STREET_GLB = _resolve_glb(LOCAL_STREET_GLB, "playground_street_rt.glb")
-TOWER_GLB = LOCAL_TOWER_GLB
 SCENE_JSON = os.path.join(HERE, "playground-scene.json")
-BASE_BLEND = os.path.join(OUT, "cycles-street-base.blend")
 
 VIEWS = {
     # Same eye-level street preset as the ThreeRT scene.
@@ -62,9 +72,31 @@ VIEWS = {
 }
 
 
+def normalize_model_id(model_id):
+    model_id = MODEL_ALIASES.get(model_id, model_id)
+    if model_id not in MODEL_ASSETS:
+        choices = ", ".join(MODEL_ASSETS)
+        raise ValueError(f"Unknown model '{model_id}'. Choose one of: {choices}")
+    return model_id
+
+
+def model_asset(model_id):
+    return os.path.join(ROOT, "model_viewer", "assets", MODEL_ASSETS[model_id])
+
+
+def model_root_name(model_id):
+    # Keep the existing Stack cache/root name for backwards compatibility.
+    return "the_stack" if model_id == DEFAULT_MODEL else f"building_{model_id}"
+
+
+def base_blend_path(model_id):
+    name = "cycles-street-base.blend" if model_id == DEFAULT_MODEL else f"cycles-street-{model_id}-base.blend"
+    return os.path.join(OUT, name)
+
+
 def argv():
     args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    opts = {"sky": "day", "view": "street", "samples": None, "width": 1920,
+    opts = {"sky": "day", "view": "street", "model": DEFAULT_MODEL, "samples": None, "width": 1920,
             "height": 1080, "tag": None}
     i = 0
     while i < len(args):
@@ -72,6 +104,8 @@ def argv():
             opts["sky"] = args[i + 1]; i += 2
         elif args[i] == "--view":
             opts["view"] = args[i + 1]; i += 2
+        elif args[i] == "--model":
+            opts["model"] = args[i + 1]; i += 2
         elif args[i] == "--samples":
             opts["samples"] = int(args[i + 1]); i += 2
         elif args[i] == "--width":
@@ -118,23 +152,36 @@ def import_gltf_safe(filepath):
         bpy.ops.import_scene.gltf(filepath=decoded)
 
 
-def import_base():
+def import_base(model_id):
     clear_scene()
     import_gltf_safe(STREET_GLB)
     before = set(bpy.data.objects)
-    import_gltf_safe(TOWER_GLB)
+    import_gltf_safe(model_asset(model_id))
     with open(SCENE_JSON) as fh:
         data = json.load(fh)
-    tower = bpy.data.objects.get("the_stack")
+    root_name = model_root_name(model_id)
+    tower = bpy.data.objects.get(root_name)
     if not tower:
         new_roots = [o for o in bpy.data.objects if o not in before and o.parent is None]
-        tower = bpy.data.objects.new("the_stack", None)
+        tower = bpy.data.objects.new(root_name, None)
         bpy.context.collection.objects.link(tower)
         for o in new_roots:
             o.parent = tower
     tower.location = to_blender(data["tower"]["pos"])
     tower.rotation_euler[2] = -data["tower"]["yaw"]
-    bpy.ops.wm.save_as_mainfile(filepath=BASE_BLEND)
+    bpy.ops.wm.save_as_mainfile(filepath=base_blend_path(model_id))
+
+
+def tower_material_names(model_id):
+    tower = bpy.data.objects.get(model_root_name(model_id))
+    if not tower:
+        return set()
+    names = set()
+    for obj in tower.children_recursive:
+        for slot in obj.material_slots:
+            if slot.material:
+                names.add(slot.material.name)
+    return names
 
 
 def emission_materials():
@@ -179,7 +226,27 @@ def _stack_circuit_factor(mat_name, sky):
     return 1.0
 
 
-def apply_emission(emissions, street_scale, tower_scale, sky="blue"):
+def _house_circuit_factor(mat_name, sky):
+    occ = STACK_OCCUPANCY.get(sky, STACK_OCCUPANCY["blue"])
+    for prefix, a, b, c, d in (
+        ("CeilingLight_Daylight_G", 19, 7, 13, 3),
+        ("CeilingLight_Warm_G", 23, 11, 17, 5),
+    ):
+        if mat_name.startswith(prefix):
+            tail = mat_name[len(prefix):].split("_", 1)[0]
+            if tail.isdigit():
+                g = int(tail)
+                rank = ((g * a + b) % 32) / 32.0
+                if rank >= occ["apartment"]:
+                    return 0.0
+                return 0.70 + 0.60 * (((g * c + d) % 32) / 31.0)
+    if mat_name.startswith("PodiumCeilingLight_"):
+        return occ["mall"]
+    return 1.0
+
+
+def apply_emission(emissions, street_scale, tower_scale, sky="blue", tower_materials=None):
+    tower_materials = tower_materials or set()
     for node, base, mat_name in emissions:
         if mat_name.startswith("Stack_"):
             if base > 20.0:
@@ -196,8 +263,48 @@ def apply_emission(emissions, street_scale, tower_scale, sky="blue"):
             else:
                 factor = _stack_circuit_factor(mat_name, sky)
                 node.inputs["Emission Strength"].default_value = base * (1.65 if sky == "blue" else 1.80) * factor
+        elif mat_name in tower_materials:
+            if sky == "day":
+                node.inputs["Emission Strength"].default_value = 0.0
+            elif base <= 5.0:
+                # Non-Stack GLBs clamp interior fixture emission to ~2.0 for Web viewers,
+                # whereas Cycles needs physical strength (~50-150) to light floor slabs,
+                # columns, and soffits via real path-traced GI.
+                factor = _house_circuit_factor(mat_name, sky)
+                podium_boost = 2.0 if "Podium" in mat_name else 1.0
+                node.inputs["Emission Strength"].default_value = base * tower_scale * podium_boost * factor
+            else:
+                node.inputs["Emission Strength"].default_value = base
         else:
             node.inputs["Emission Strength"].default_value = base * street_scale
+
+
+def upgrade_tower_glass_for_cycles(tower_materials):
+    """Make transmissive architectural glass on non-Stack buildings shadow-ray transparent in Cycles."""
+    for mat_name in tower_materials:
+        mat = bpy.data.materials.get(mat_name)
+        if not mat or not mat.use_nodes or mat.name.startswith("Stack_Glass_"):
+            continue
+        nt = mat.node_tree
+        out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
+        bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if not out or not bsdf or not out.inputs["Surface"].links:
+            continue
+        trans_sock = bsdf.inputs.get("Transmission Weight")
+        if not trans_sock or trans_sock.default_value < 0.5:
+            continue
+        if any(n.label == "Tower Cycles Glass Shadow" for n in nt.nodes):
+            continue
+        prev = out.inputs["Surface"].links[0].from_socket
+        lp = nt.nodes.new("ShaderNodeLightPath")
+        trans = nt.nodes.new("ShaderNodeBsdfTransparent")
+        trans.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+        mix_shadow = nt.nodes.new("ShaderNodeMixShader")
+        mix_shadow.label = "Tower Cycles Glass Shadow"
+        nt.links.new(lp.outputs["Is Shadow Ray"], mix_shadow.inputs[0])
+        nt.links.new(prev, mix_shadow.inputs[1])
+        nt.links.new(trans.outputs[0], mix_shadow.inputs[2])
+        nt.links.new(mix_shadow.outputs[0], out.inputs["Surface"])
 
 
 def upgrade_stack_glass_for_cycles():
@@ -379,12 +486,12 @@ def configure_render(samples, width, height):
     scene.cycles.adaptive_threshold = 0.02
     scene.cycles.use_denoising = True
     scene.cycles.denoiser = "OPENIMAGEDENOISE"
-    scene.cycles.max_bounces = 6
-    scene.cycles.diffuse_bounces = 3
-    scene.cycles.glossy_bounces = 3
-    scene.cycles.transmission_bounces = 4
+    scene.cycles.max_bounces = 10
+    scene.cycles.diffuse_bounces = 4
+    scene.cycles.glossy_bounces = 4
+    scene.cycles.transmission_bounces = 10
     scene.cycles.transparent_max_bounces = 16
-    scene.cycles.sample_clamp_indirect = 8.0
+    scene.cycles.sample_clamp_indirect = 30.0
     scene.cycles.blur_glossy = 0.15
     scene.render.resolution_x = width
     scene.render.resolution_y = height
@@ -410,11 +517,12 @@ def configure_render(samples, width, height):
             print(f"[cycles] GPU setup skipped: {exc}")
 
 
-def base_is_fresh():
-    if not os.path.exists(BASE_BLEND):
+def base_is_fresh(model_id):
+    base_blend = base_blend_path(model_id)
+    if not os.path.exists(base_blend):
         return False
-    base_mtime = os.path.getmtime(BASE_BLEND)
-    for src in (STREET_GLB, TOWER_GLB, SCENE_JSON):
+    base_mtime = os.path.getmtime(base_blend)
+    for src in (STREET_GLB, model_asset(model_id), SCENE_JSON):
         if os.path.exists(src) and os.path.getmtime(src) > base_mtime:
             return False
     return True
@@ -422,11 +530,13 @@ def base_is_fresh():
 
 def main():
     opts = argv()
+    model_id = normalize_model_id(opts["model"])
+    opts["model"] = model_id
     os.makedirs(OUT, exist_ok=True)
-    if base_is_fresh():
-        bpy.ops.wm.open_mainfile(filepath=BASE_BLEND)
+    if base_is_fresh(model_id):
+        bpy.ops.wm.open_mainfile(filepath=base_blend_path(model_id))
     else:
-        import_base()
+        import_base(model_id)
 
     with open(SCENE_JSON) as fh:
         data = json.load(fh)
@@ -439,7 +549,11 @@ def main():
 
     # Upgrade 1F hollow storefronts to true 3D furnished rooms & upper/residential windows to GPU Interior Mapping
     upgrade_cycles_interiors(opts["sky"])
-    upgrade_stack_glass_for_cycles()
+    tower_materials = tower_material_names(model_id)
+    if model_id == "stack":
+        upgrade_stack_glass_for_cycles()
+    else:
+        upgrade_tower_glass_for_cycles(tower_materials)
 
     cam_obj = add_camera(VIEWS[opts["view"]])
     emissions = emission_materials()
@@ -447,28 +561,32 @@ def main():
     if opts["sky"] == "day":
         set_world_day(0.10)
         add_sun((0.48, 0.42, -0.77), 6.5, (1.0, 0.92, 0.80))
-        apply_emission(emissions, 0.0, 0.0, sky="day")
+        apply_emission(emissions, 0.0, 0.0, sky="day", tower_materials=tower_materials)
         scene.view_settings.exposure = -1.0
         samples = opts["samples"] or 48
     elif opts["sky"] == "blue":
         set_world_blue()
         add_sun((-0.75, 0.30, -0.35), 0.24, (0.58, 0.74, 1.0), angle_deg=8.0)
         add_street_lights(data, watt=110.0, cam_pos=cam_obj.location)
-        apply_emission(emissions, 0.0032, 0.0010, sky="blue")
+        tower_scale = 0.0010 if model_id == "stack" else 4.0
+        apply_emission(emissions, 0.0032, tower_scale, sky="blue", tower_materials=tower_materials)
         scene.view_settings.exposure = 1.45
         samples = opts["samples"] or 128
     else:
         set_world_night()
         add_sun((-0.25, 0.45, -0.85), 0.12, (0.55, 0.68, 1.0), angle_deg=2.0)
         add_street_lights(data, watt=95.0, cam_pos=cam_obj.location)
-        apply_emission(emissions, 0.0028, 0.0009, sky="night")
+        tower_scale = 0.0009 if model_id == "stack" else 3.5
+        apply_emission(emissions, 0.0028, tower_scale, sky="night", tower_materials=tower_materials)
         scene.view_settings.exposure = 1.05
         samples = opts["samples"] or 96
 
     configure_render(samples, opts["width"], opts["height"])
     tag = opts["tag"] or f"clear-{opts['sky']}"
+    if opts["tag"] is None and model_id != DEFAULT_MODEL:
+        tag += f"-{model_id}"
     scene.render.filepath = os.path.join(OUT, f"cycles-{tag}-{opts['view']}.png")
-    print(f"[cycles] {tag} {opts['width']}x{opts['height']} {samples}spp -> {scene.render.filepath}")
+    print(f"[cycles] model={model_id} {tag} {opts['width']}x{opts['height']} {samples}spp -> {scene.render.filepath}")
     bpy.ops.render.render(write_still=True)
 
 

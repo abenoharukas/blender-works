@@ -1352,22 +1352,21 @@ def main():
     check("ceiling lights object exists", lights is not None)
     if lights:
         light_mats = {mat.name: mat for mat in lights.data.materials if mat}
-        expected_light_mats = {
-            "CeilingLight_Daylight", "CeilingLight_Warm", "CeilingLight_Off"
-        }
-        check("ceiling light object has daylight, warm and off material states",
-              expected_light_mats <= set(light_mats),
-              f"materials={sorted(light_mats)}")
-        if expected_light_mats <= set(light_mats):
-            daylight = light_mats["CeilingLight_Daylight"].node_tree.nodes[
-                "Principled BSDF"].inputs["Emission Strength"].default_value
-            warm = light_mats["CeilingLight_Warm"].node_tree.nodes[
-                "Principled BSDF"].inputs["Emission Strength"].default_value
-            off = light_mats["CeilingLight_Off"].node_tree.nodes[
-                "Principled BSDF"].inputs["Emission Strength"].default_value
-            check("daylight and warm room lights are bright in the real-time view",
-                  daylight >= 100.0 and warm >= 100.0 and off <= 1e-6,
-                  f"daylight={daylight:.1f}, warm={warm:.1f}, off={off:.1f}")
+        daylight_groups = [m for n, m in light_mats.items() if n.startswith("CeilingLight_Daylight_G")]
+        warm_groups = [m for n, m in light_mats.items() if n.startswith("CeilingLight_Warm_G")]
+        check("ceiling light object uses grouped daylight/warm circuits with no dark CeilingLight_Off",
+              len(daylight_groups) > 0 and len(warm_groups) > 0
+              and "CeilingLight_Off" not in light_mats
+              and bpy.data.materials.get("CeilingLight_Off") is None,
+              f"daylight_groups={len(daylight_groups)}, warm_groups={len(warm_groups)}")
+        if daylight_groups and warm_groups:
+            min_emit = min(
+                m.node_tree.nodes["Principled BSDF"].inputs["Emission Strength"].default_value
+                for m in daylight_groups + warm_groups
+            )
+            check("grouped room lights are bright in the real-time view",
+                  min_emit >= 100.0,
+                  f"min_emit={min_emit:.1f}")
         light_z = z_clusters(lights)
         check("ceiling lights have one level per glazed floor",
               len(light_z) == GLAZED_FLOORS,
@@ -1549,11 +1548,11 @@ def main():
                 mat = lights.data.materials[poly.material_index]
                 state_faces[mat.name] = state_faces.get(mat.name, 0) + 1
         state_pieces = {name: faces for name, faces in state_faces.items()}
-        check("individual House lights retain lit and unlit random states",
-              all(state_pieces.get(name, 0) > 0
-                  for name in ("CeilingLight_Daylight", "CeilingLight_Warm",
-                               "CeilingLight_Off")),
-              f"segments by state={state_pieces}")
+        warm_faces = sum(c for n, c in state_pieces.items() if n.startswith("CeilingLight_Warm_G"))
+        daylight_faces = sum(c for n, c in state_pieces.items() if n.startswith("CeilingLight_Daylight_G"))
+        check("House lights are distributed across grouped warm and daylight circuits",
+              warm_faces > 0 and daylight_faces > 0 and "CeilingLight_Off" not in state_pieces,
+              f"warm_faces={warm_faces}, daylight_faces={daylight_faces}, groups={len(state_pieces)}")
 
     # --- refuge floor / sky garden -------------------------------------
     if SKY_GARDEN:
