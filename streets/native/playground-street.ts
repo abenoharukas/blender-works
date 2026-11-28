@@ -127,11 +127,11 @@ function sunAnglesAt(hour: number): { elevation: number; azimuth: number } {
 }
 
 // Calibrated to SkyAtmosphere + 100,000 lux sun (matching games/tokyo/tokyo-tod.game.ts):
-// Noon ~13.8, Golden sunset (+1.6°) ~10.6, Blue hour (-3.2°) ~7.4, Night (-28°) ~4.2.
+// Noon ~13.8, Golden sunset (+1.6°) ~10.6, Blue hour (-3.2°) ~6.75, Night (-28°) ~7.2.
 function evAt(elevation: number): number {
   return lerpKeys(elevation, [
-    [-14, 4.2],
-    [-6, 5.4],
+    [-14, 7.2],
+    [-6, 6.95],
     [-3.2, 6.75],
     [0, 9.6],
     [1.6, 10.6],
@@ -228,8 +228,12 @@ function applyLighting(
   camera.setManualExposure(evAt(elevation) + weatherEvShift);
 
   const glow = nightGlowFactor(hour, weather);
+  // Keep blue hour streetlamp punch (1.8x), and pull back in deep night (0.9x)
+  // so dense shotengai pavement stays rich dark night asphalt instead of washing out.
+  const deepNight = smoothstep(6.0, 14.0, -elevation);
+  const lampMult = 1.8 * (1.0 - 0.5 * deepNight);
   for (const pl of pointLights) {
-    pl.obj.intensity = pl.baseIntensity * (glow * 1.8);
+    pl.obj.intensity = pl.baseIntensity * (glow * lampMult);
   }
 }
 
