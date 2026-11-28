@@ -1820,8 +1820,9 @@ export function buildRandomIkkodate(lot, mats, rnd, opts) {
 /** Projecting vertical shop sleeve sign (袖看板) with 3D metallic perimeter bezel & bracket arms. */
 export function addSleeveSign(lot, mats, signIdx, { x, y, z }) {
   const signBucket = mats.sleeveSigns[((signIdx % mats.sleeveSigns.length) + mats.sleeveSigns.length) % mats.sleeveSigns.length];
-  const sw = 0.68;
-  const sh = 2.18;
+  // Exact 1:3 aspect ratio matching 256x768 sleeve sign texture (1:1 CJK glyphs)
+  const sw = 0.72;
+  const sh = 2.16;
   const thick = 0.16;
   const sz = z + 0.24 + sw * 0.5;
 
@@ -2275,10 +2276,10 @@ function addRecessedStorefront(lot, mats, rnd, {
   // Roll-up steel shutter box (シャッターボックス) tucked under the lintel
   lot.addBox(shutterMat ?? mats.silverMetal, innerW, 0.22, 0.18, 0, h1 - 0.52, frontZ - 0.08);
 
-  // Protruding 3D framed horizontal fascia signboard (看板) with clamped [0..1] shop title!
+  // Protruding 3D framed horizontal fascia signboard (看板) with exact 6:1 aspect ratio (1:1 CJK glyphs)!
   if (withFascia && fasciaBucket) {
-    const signW = Math.min(bw - 0.36, 5.4);
-    const signH = 0.78;
+    const signW = Math.min(bw - 0.36, 5.1);
+    const signH = signW / 6.0;
     const signY = h1 - 0.06;
     lot.addBox(mats.darkMetal, signW + 0.08, signH + 0.08, 0.16, 0, signY, frontZ + 0.08);
     lot.add(fasciaBucket, signBox(signW, signH, 0.18), 0, signY, frontZ + 0.10);
@@ -2422,8 +2423,9 @@ export function buildMachiyaShop(lot, mats, rnd, { w = 7.4, d = 10.5, detail = t
     w: bw + 0.32, depth: 1.02, drop: 0.30, roofBucket: mats.kawaraDark,
   });
   const signW = Math.min(bw * 0.68, 4.2);
-  lot.addBox(mats.woodDark, signW + 0.12, 0.82, 0.14, 0, h1 + 0.48, frontZ + 0.18);
-  lot.add(fasciaBucket, signBox(signW, 0.72, 0.16), 0, h1 + 0.48, frontZ + 0.20);
+  const signH = signW / 6.0;
+  lot.addBox(mats.woodDark, signW + 0.12, signH + 0.10, 0.14, 0, h1 + 0.48, frontZ + 0.18);
+  lot.add(fasciaBucket, signBox(signW, signH, 0.16), 0, h1 + 0.48, frontZ + 0.20);
 
   // 4-panel fluttering Noren curtain (暖簾)
   const norenSet = mats.norenSets[Math.floor(rnd() * mats.norenSets.length)];
@@ -2661,7 +2663,8 @@ export function buildNeighborhoodSuper(lot, mats, rnd, { w = 16.5, d = 13.5, det
 
   const headerMat = rnd() < 0.5 ? mats.konbiniFasciaFamima : mats.konbiniFasciaLawson;
   lot.addBox(mats.silverMetal, bw + 0.32, 1.24, bd * 0.36, 0, h - 0.5, bz + bd * 0.34);
-  lot.add(fasciaBucket, signBox(Math.min(bw * 0.68, 7.6), 0.96, 0.22), 0, h - 0.48, frontZ + 0.22);
+  const pharmSignW = Math.min(bw * 0.68, 6.0);
+  lot.add(fasciaBucket, signBox(pharmSignW, pharmSignW / 6.0, 0.22), 0, h - 0.48, frontZ + 0.22);
   lot.add(headerMat, box(bw + 0.36, 0.22, 0.18, 4.0, 0.22), 0, h - 1.06, frontZ + 0.18);
   lot.addBox(mats.roofConcrete, bw + 0.3, 0.25, bd + 0.3, 0, h + 0.12, bz);
 
@@ -2796,7 +2799,7 @@ export function addShotengaiLamp(mats, x, z, side = 1, flagBucket = null, breeze
     lot.addBox(mats.silverMetal, 0.58, 0.032, 0.032, -side * 0.29, 3.72, 0);
     lot.addBox(mats.silverMetal, 0.56, 0.028, 0.028, -side * 0.29, 2.56, 0);
     lot.addProto(mats.archGoldTrim, PROTO_SPHERE, -side * 0.59, 3.72, 0, 0.035, 0.035, 0.035);
-    lot.add(flagBucket, streetFlagGeometry(0.45, 1.10, 0.014, 0.07), fx, 3.14, 0, breezeAngle, 0, 0);
+    lot.add(flagBucket, streetFlagGeometry(0.48, 1.08, 0.014, 0.07), fx, 3.14, 0, breezeAngle, 0, 0);
   }
 }
 
@@ -2867,12 +2870,12 @@ export function addShotengaiArch(mats, z, halfSpan = 6.15, bannerBucket = null, 
     }
   }
 
-  // 3. Layered 3D Signboard Casing (看板筐体) + Champagne-Gold Metallic Bezel + Recessed Plaque
-  const signW = Math.min(halfSpan * 1.18, 6.75);
-  const signH = signW > 5.8 ? 1.32 : 1.08;
-  const signY = (yLow + yHigh) * 0.5 + 0.06;
+  // 3. Layered 3D Signboard Casing (看板筐体) — inner plaque locked to exact 1024:224 arch texture ratio!
+  const signW = Math.min(halfSpan * 1.18, 6.4);
   const caseD = 0.62;
   const frameT = 0.095;
+  const signH = (signW - frameT * 1.5) / (1024 / 224) + frameT * 1.5;
+  const signY = (yLow + yHigh) * 0.5 + 0.06;
 
   // Dark steel inner sign cabinet
   lot.addBox(mats.darkMetal, signW, signH, caseD, 0, signY, 0);
@@ -3189,15 +3192,20 @@ export function addGiant3DGourmetCrest(lot, mats, { x = 0, y = 6.2, z = 0, scale
  * Projects into the commercial canyon inside a sleek 3D dark-steel structural outrigger cage.
  */
 export function addStackedSignTower(lot, mats, towerIdx, {
-  x, yBot = 4.6, z, height = 8.4, width = 0.78,
+  x, yBot = 4.6, z, height = 7.6, width = null,
 }) {
   const pool = mats.towerSigns;
   if (!pool || !pool.length) return;
+  // Lock exact 1:8 aspect ratio matching the 256x2048 towerSign texture (zero CJK squish!).
+  const actualW = width ?? Math.max(0.84, Math.min(1.00, height / 8.0));
+  const actualH = actualW * 8.0;
   const signBucket = pool[((towerIdx % pool.length) + pool.length) % pool.length];
   const thick = 0.22;
-  const cy = yBot + height * 0.5;
+  const cy = yBot + actualH * 0.5;
   const standoff = 0.20;
-  const sz = z + standoff + width * 0.5;
+  const sz = z + standoff + actualW * 0.5;
+  height = actualH;
+  width = actualW;
 
   // Heavy steel outrigger mounting struts + diagonal truss ties back to building pilaster
   for (const frac of [0.12, 0.50, 0.88]) {
@@ -3221,10 +3229,13 @@ export function addStackedSignTower(lot, mats, towerIdx, {
  * Rooftop Landmark Neon/LED Crown Billboard on an Open Steel Truss Frame (屋上広告塔, Reference 2!):
  */
 export function addRooftopBillboard(lot, mats, crownIdx, {
-  w = 7.4, h = 3.5, yRoof, zFront,
+  w = 7.2, h = null, yRoof, zFront,
 }) {
   const pool = mats.rooftopSigns;
   if (!pool || !pool.length) return;
+  // Lock exact 2:1 aspect ratio matching 768x384 rooftop billboard texture (1:1 CJK glyphs!).
+  const actualH = h ?? (w * 0.5);
+  h = actualH;
   const signBucket = pool[((crownIdx % pool.length) + pool.length) % pool.length];
   const legH = 0.85;
   const signY = yRoof + legH + h * 0.5;
@@ -3515,8 +3526,8 @@ export function buildShochikuzaTheatre(lot, mats, rnd, { w = 13.6, d = 12.4 }) {
   // Classical `大阪松竹座` plaque + Edo Kabuki wooden billing board (`歌舞伎絵看板`)
   const kabukiFascia = mats.kabukiFascia ?? mats.dotonboriFascias?.[0];
   if (kabukiFascia) {
-    lot.addBox(mats.archGoldTrim, 6.2, 1.06, 0.22, 0, 4.28, frontZ + 0.16);
-    lot.add(kabukiFascia, signBox(6.0, 0.94, 0.24), 0, 4.28, frontZ + 0.18);
+    lot.addBox(mats.archGoldTrim, 6.2, 1.12, 0.22, 0, 4.28, frontZ + 0.16);
+    lot.add(kabukiFascia, signBox(6.0, 1.00, 0.24), 0, 4.28, frontZ + 0.18);
   }
   if (mats.kabukiPoster) {
     for (const sx of [-1, 1]) {
@@ -3533,7 +3544,7 @@ export function buildShochikuzaTheatre(lot, mats, rnd, { w = 13.6, d = 12.4 }) {
         const bzFlag = frontZ + 0.72;
         lot.addProto(mats.woodWarm, PROTO_CYL6, bx, 1.55, bzFlag, 0.018, 2.9, 0.018);
         const flagMat = mats.streetFlags[(bi + (sx > 0 ? 0 : 2)) % mats.streetFlags.length];
-        lot.add(flagMat, streetFlagGeometry(0.44, 1.52, 0.014, 0.04), bx, 2.05, bzFlag + 0.02, 0.03 * bi, 0, 0);
+        lot.add(flagMat, streetFlagGeometry(0.56, 1.26, 0.014, 0.04), bx, 2.05, bzFlag + 0.02, 0.03 * bi, 0, 0);
       }
     }
   }
@@ -3650,8 +3661,8 @@ export function buildDotonboriImaiSukiya(lot, mats, rnd, { w = 9.8, d = 11.8 }) 
   lot.addBox(mats.woodDark, 0.58, 0.92, 0.46, -bw * 0.04, 2.35, frontZ + 0.34);
   lot.addBox(mats.chochinCore ?? mats.warmLamp, 0.46, 0.78, 0.36, -bw * 0.04, 2.35, frontZ + 0.35);
   if (mats.imaiFascia) {
-    lot.addBox(mats.woodDark, 3.8, 0.74, 0.14, 0, h1 + 0.52, frontZ + 0.22);
-    lot.add(mats.imaiFascia, signBox(3.64, 0.62, 0.16), 0, h1 + 0.52, frontZ + 0.24);
+    lot.addBox(mats.woodDark, 3.88, 0.74, 0.14, 0, h1 + 0.52, frontZ + 0.22);
+    lot.add(mats.imaiFascia, signBox(3.72, 0.62, 0.16), 0, h1 + 0.52, frontZ + 0.24);
   }
 
   // 2F Shikkui white plaster + full-width Hinoki mushiko/koshido lattice + Tier 2 kawara eave!
@@ -3853,9 +3864,9 @@ export function buildDotonboriFlagship(lot, mats, rnd, {
     }
   }
 
-  // Elevated 1F Flagship Signboard (`y = 4.14 m`, 100% unobstructed above sidewalks & lanterns)
-  const mainSignW = Math.min(bw - 0.44, styleId === 0 ? 5.6 : 7.4);
-  const mainSignH = styleId === 0 ? 0.86 : 1.04;
+  // Elevated 1F Flagship Signboard (`y = 4.14 m`, exact 6:1 aspect matching 1152x192 texture!)
+  const mainSignW = Math.min(bw - 0.44, styleId === 0 ? 5.4 : 6.6);
+  const mainSignH = mainSignW / 6.0;
   const mainSignY = h1 - 0.54;
   lot.addBox(mats.darkMetal, mainSignW + 0.12, mainSignH + 0.12, 0.20, 0, mainSignY, frontZ + 0.13);
   lot.addBox(mats.archGoldTrim, mainSignW + 0.16, 0.045, 0.24, 0, mainSignY + mainSignH * 0.5 + 0.045, frontZ + 0.13);
@@ -3934,20 +3945,27 @@ export function buildDotonboriFlagship(lot, mats, rnd, {
     // Iconic Ebisubashi Multi-Screen Neon & Sprinter Media Wall spanning 2F..top!
     upperWinStartFloor = upperStoreys;
     const sprinterMat = mats.sprinterPoster ?? mats.podiumPosters?.[0];
-    const tallH = Math.min(hUpper - 0.8, floorH * 3.1);
-    const mainW = Math.min(bw * 0.56, 5.8);
+    const maxTallH = Math.min(hUpper - 0.8, floorH * 3.1);
+    // Lock exact 384:640 (0.60) portrait aspect for glico_sprinter!
+    const mainW = Math.min(bw * 0.54, maxTallH * 0.60);
+    const tallH = mainW / 0.60;
+    const mainX = -bw * 0.5 + mainW * 0.5 + 0.36;
     if (sprinterMat) {
-      lot.addBox(mats.darkMetal, mainW + 0.18, tallH + 0.18, 0.20, -bw * 0.16, h1 + tallH * 0.5 + 0.35, frontZ + 0.12);
-      lot.add(sprinterMat, frontFaceBox(mainW, tallH, 0.22, 0.005, 0.005), -bw * 0.16, h1 + tallH * 0.5 + 0.35, frontZ + 0.15);
+      lot.addBox(mats.darkMetal, mainW + 0.18, tallH + 0.18, 0.20, mainX, h1 + tallH * 0.5 + 0.35, frontZ + 0.12);
+      lot.add(sprinterMat, frontFaceBox(mainW, tallH, 0.22, 0.005, 0.005), mainX, h1 + tallH * 0.5 + 0.35, frontZ + 0.15);
     }
-    // Stacked companion neon billboards on right half of the media wall
+    // Stacked companion 16:9 landscape neon billboards on right half of the media wall (exact 512:288 aspect!)
     if (mats.podiumPosters?.length) {
-      const sideW = Math.max(2.4, bw - mainW - 0.95);
-      const sx = bw * 0.5 - sideW * 0.5 - 0.28;
-      for (let k = 0; k < 2; k++) {
-        const pm = mats.podiumPosters[(k * 2 + 1) % mats.podiumPosters.length];
-        const ph = (tallH - 0.28) * 0.5;
-        const py = h1 + 0.35 + ph * 0.5 + k * (ph + 0.28);
+      const sideW = Math.max(2.4, bw - mainW - 1.05);
+      const sx = bw * 0.5 - sideW * 0.5 - 0.32;
+      const ph = sideW * (288 / 512);
+      const stackGap = 0.28;
+      const count = Math.max(2, Math.min(3, Math.floor((tallH + stackGap) / (ph + stackGap))));
+      const stackTotalH = count * ph + (count - 1) * stackGap;
+      const yStart = h1 + 0.35 + (tallH - stackTotalH) * 0.5;
+      for (let k = 0; k < count; k++) {
+        const pm = mats.podiumPosters[k % 3];
+        const py = yStart + ph * 0.5 + k * (ph + stackGap);
         lot.addBox(mats.darkMetal, sideW + 0.12, ph + 0.12, 0.18, sx, py, frontZ + 0.10);
         lot.add(pm, frontFaceBox(sideW, ph, 0.20, 0.005, 0.005), sx, py, frontZ + 0.13);
       }
@@ -3965,7 +3983,7 @@ export function buildDotonboriFlagship(lot, mats, rnd, {
       if (mats.neonRingPoster && upperStoreys >= 3) {
         upperWinStartFloor = 3;
         const nw = Math.min(glassW, 5.4);
-        const nh = floorH * 1.72;
+        const nh = nw * (288 / 512);
         const ny = h1 + floorH * 2.0;
         lot.addBox(mats.archGoldTrim, nw + 0.18, nh + 0.18, 0.14, 0, ny, frontZ + 0.08);
         lot.add(mats.neonRingPoster, frontFaceBox(nw, nh, 0.16, 0.005, 0.005), 0, ny, frontZ + 0.10);
@@ -4011,8 +4029,8 @@ export function buildDotonboriFlagship(lot, mats, rnd, {
         frameMat: mats.silverMetal, style: 'commercial', preferOffice: false, litProb: 0.95,
       });
       if (mats.cosmePoster) {
-        const pw = Math.min(bw - 1.0, 6.2);
-        const ph = floorH - 0.45;
+        const ph = Math.min(floorH - 0.45, (bw - 1.0) * (288 / 512));
+        const pw = ph * (512 / 288);
         const py = h1 + floorH * 1.50;
         lot.addBox(mats.silverMetal, pw + 0.16, ph + 0.16, 0.16, 0, py, frontZ + 0.09);
         lot.add(mats.cosmePoster, frontFaceBox(pw, ph, 0.18, 0.005, 0.005), 0, py, frontZ + 0.11);
@@ -4088,9 +4106,10 @@ export function buildDotonboriFlagship(lot, mats, rnd, {
     lot.addBox(mats.concrete, pt, 0.48, bd, bw * 0.5, totalH + 0.36, bz);
 
     if (withRooftopCrown && storeys >= 5) {
+      const rw = Math.min(bw * 0.86, 7.6);
       addRooftopBillboard(lot, mats, seq, {
-        w: Math.min(bw * 0.86, 8.0),
-        h: 3.4,
+        w: rw,
+        h: rw * 0.5,
         yRoof: totalH + 0.84,
         zFront: frontZ,
       });
@@ -4107,13 +4126,12 @@ export function buildDotonboriFlagship(lot, mats, rnd, {
     // Osaka Ohsho already carries its own 4-lantern steel tower rack!
   } else if (landmark !== null || styleId === 3 || styleId === 4) {
     if (storeys >= 5 && (seq % 2 === 0 || landmark === 'ebisu_media' || styleId === 3)) {
-      const towerH = Math.min(totalH - h1 - 0.6, 8.8);
+      const towerH = Math.min(totalH - h1 - 0.6, 7.6);
       addStackedSignTower(lot, mats, seq * 3 + styleId, {
         x: primarySide * (bw * 0.46),
         yBot: h1 + 0.32,
         z: frontZ + 0.06,
         height: towerH,
-        width: 0.76,
       });
     } else {
       addSleeveSign(lot, mats, seq * 5 + styleId, {

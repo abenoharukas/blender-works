@@ -180,18 +180,33 @@ def upgrade_materials_for_blue_hour_cycles():
         if not bsdf:
             continue
 
-        # Balanced dusk glow so Tier 1 retail escalators stay crisp while upper
-        # office and apartment ceilings sparkle like jewel boxes under AgX.
-        if mat.name == "Stack_Light_Warm":
+        # Balanced blue-hour (18:45) grouped lighting: ~63% of office circuits
+        # and ~50% of apartment circuits lit with natural brightness variation;
+        # switched-off circuits drop to 0.0 (staying white acrylic diffusers).
+        if mat.name.startswith("Stack_Light_Daylight_G"):
+            g = int(mat.name.rsplit("_G", 1)[1])
+            rank = ((g * 19 + 7) % 32) / 32.0
+            bright = 0.72 + 0.56 * (((g * 13 + 3) % 32) / 31.0)
+            bsdf.inputs["Emission Strength"].default_value = (
+                10.0 * bright if rank < 0.63 else 0.0
+            )
+        elif mat.name.startswith("Stack_Light_Warm_G"):
+            g = int(mat.name.rsplit("_G", 1)[1])
+            rank = ((g * 23 + 11) % 32) / 32.0
+            bright = 0.70 + 0.60 * (((g * 17 + 5) % 32) / 31.0)
+            bsdf.inputs["Emission Strength"].default_value = (
+                13.0 * bright if rank < 0.50 else 0.0
+            )
+        elif mat.name.startswith("Stack_Light_Warm"):
             bsdf.inputs["Emission Strength"].default_value = 13.0
-        elif mat.name == "Stack_Light_Daylight":
+        elif mat.name.startswith("Stack_Light_Daylight"):
             bsdf.inputs["Emission Strength"].default_value = 10.0
         elif mat.name == "Stack_Mall_Glow":
-            bsdf.inputs["Emission Color"].default_value = (1.0, 0.68, 0.34, 1.0)
             bsdf.inputs["Emission Strength"].default_value = 4.6
         elif mat.name == "Stack_Ceiling_Slab":
-            # Soft warm cream bounce inside the lit storeys at blue hour.
-            bsdf.inputs["Emission Strength"].default_value = 0.36
+            # Let Cycles real bounce light illuminate lit suites only; unlit
+            # suites and open refuge ceilings stay naturally shaded.
+            bsdf.inputs["Emission Strength"].default_value = 0.0
         elif mat.name == "Stack_Ground":
             # Procedural damp dark architectural stone paving so the foreground
             # reads as a real urban twilight plaza rather than smooth water.

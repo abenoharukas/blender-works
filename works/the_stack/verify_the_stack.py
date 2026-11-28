@@ -176,9 +176,41 @@ def main():
         if bsdf:
             frame_color = tuple(bsdf.inputs["Base Color"].default_value)
 
+    expected_office_levels = [z for z in expected_room_levels
+                              if z <= level_apartment]
+    expected_apartment_levels = [z for z in expected_room_levels
+                                 if z > level_apartment]
+    mall_glow = bpy.data.materials.get("Stack_Mall_Glow")
+    mall_glow_color, mall_glow_strength = None, 0.0
+    if mall_glow and mall_glow.use_nodes:
+        bsdf = mall_glow.node_tree.nodes.get("Principled BSDF")
+        if bsdf:
+            mall_glow_color = tuple(bsdf.inputs["Emission Color"].default_value)
+            mall_glow_strength = float(bsdf.inputs["Emission Strength"].default_value)
     mall_lights = objects("Stack_Mall_Ceiling_Lights")
     base_glass = [obj for obj in bpy.data.objects if "Base_Glass" in obj.name]
     room_objs = objects("Stack_Room_Lights_")
+    daylight_objs = objects("Stack_Room_Lights_Daylight_G")
+    warm_objs = objects("Stack_Room_Lights_Warm_G")
+    light_mats = [m for m in bpy.data.materials
+                  if m.name.startswith(("Stack_Light_", "Stack_Mall_Glow"))]
+
+    def groups_on_level(objs, level):
+        hits = 0
+        for obj in objs:
+            if any(level - 0.5 < (obj.matrix_world @ v.co).z < level
+                   for v in obj.data.vertices):
+                hits += 1
+        return hits
+
+    def is_white_diffuser(mat):
+        if not mat.use_nodes:
+            return False
+        b = mat.node_tree.nodes.get("Principled BSDF")
+        if not b:
+            return False
+        base = tuple(b.inputs["Base Color"].default_value)
+        return min(base[:3]) > 0.80
     braces = objects("Stack_Core_Brace_")
     brace_centers = sorted({round(center_z(o), 2) for o in braces})
     brace_z = [p.z for o in braces
@@ -332,15 +364,34 @@ def main():
         - min(b - a for a, b in zip(brace_centers, brace_centers[1:])) < 0.05
         and brace_low > 5.0
         and brace_high < model_height - 5.0,
-        # The mall ceiling is continuous bright rings; the offices and apartments
-        # take the house panel grid; the open refuges take no ceiling lights at
-        # all — their open-air gardens are lit by the track lamps instead.
+        # The mall ceiling is continuous cool bright rings; offices take 32 cool
+        # daylight circuits and both upper apartment zones take 32 warm circuits,
+        # with multiple independent groups per floor; every diffuser has a white
+        # Base Color so unlit circuits never read black.
         "mall ceiling lights": len(mall_lights) == 1
         and len(mall_lights[0].data.vertices) > 0
-        and covers(mall_plate_levels, light_z(mall_lights)),
-        "office and apartment ceiling lights": len(room_objs) == 3
+        and covers(mall_plate_levels, light_z(mall_lights))
+        and mall_glow_color is not None
+        and mall_glow_color[2] > mall_glow_color[0]
+        and mall_glow_strength > 0.0,
+        "office and apartment ceiling lights": len(daylight_objs) == 32
+        and len(warm_objs) == 32
+        and len(room_objs) == 64
+        and count("Stack_Room_Lights_Off") == 0
+        and bpy.data.materials.get("Stack_Light_Off") is None
         and all(len(obj.data.vertices) > 0 for obj in room_objs)
-        and covers(expected_room_levels, light_z(room_objs)),
+        and all(is_white_diffuser(m) for m in light_mats)
+        and covers(expected_room_levels, light_z(room_objs))
+        and covers(expected_office_levels, light_z(daylight_objs))
+        and covers(expected_apartment_levels, light_z(warm_objs))
+        and all(z <= level_apartment for z in light_z(daylight_objs))
+        and all(z > level_apartment for z in light_z(warm_objs)),
+        "multiple light groups per floor": all(
+            groups_on_level(daylight_objs, level) >= 6
+            for level in expected_office_levels)
+        and all(
+            groups_on_level(warm_objs, level) >= 8
+            for level in expected_apartment_levels),
         "no floating lights": not any(
             abs(z - (drop - 0.19)) < 0.1
             for z in light_z(room_objs) for drop in refuge_drops),

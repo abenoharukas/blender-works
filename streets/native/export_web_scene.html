@@ -56,6 +56,7 @@
         out.set(view, off);
         off += view.byteLength;
       }
+      blob.__parts = null;
       queueMicrotask(() => {
         Object.defineProperty(this, 'result', { value: out.buffer, configurable: true });
         if (typeof this.onload === 'function') this.onload({ target: this });
@@ -104,12 +105,24 @@
     const glb = await new GLTFExporter().parseAsync(scene, { binary: true });
     await log(`glb ${glb.byteLength} bytes`);
 
-    const saved = await fetch('/__save?name=playground_street_rt.glb', {
-      method: 'POST',
-      body: glb,
-    });
-    document.title = saved.ok ? 'DONE' : 'SAVE-FAILED';
-    await log(`save ${saved.status}`);
+    const bytes = new Uint8Array(glb);
+    const CHUNK = 8 * 1024 * 1024;
+    let ok = true;
+    for (let off = 0, part = 0; off < bytes.byteLength; off += CHUNK, part += 1) {
+      const end = Math.min(off + CHUNK, bytes.byteLength);
+      const done = end >= bytes.byteLength ? 1 : 0;
+      const slice = bytes.slice(off, end);
+      const res = await fetch(`/__save_chunk?name=playground_street_rt.glb&part=${part}&done=${done}`, {
+        method: 'POST',
+        body: slice,
+      });
+      if (!res.ok) {
+        ok = false;
+        break;
+      }
+    }
+    document.title = ok ? 'DONE' : 'SAVE-FAILED';
+    await log(`save ${ok ? 200 : 500}`);
     window.__exportDone = true;
   } catch (error) {
     document.title = 'ERROR';

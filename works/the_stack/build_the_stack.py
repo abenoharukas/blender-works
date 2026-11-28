@@ -170,21 +170,26 @@ ESCALATOR_ENTRIES = (
 # openwork, per the client direction.
 BASE_GROUP_H = 2 * MALL_H
 
-# Office and apartment ceiling lighting, following the house reference: a grid
-# of small emissive panels on every storey ceiling, each independently lit
-# daylight, lit warm, or switched off. The panels stay installed when off.
+# Office and apartment ceiling lighting: a grid of small emissive panels on
+# every storey ceiling, all lit by default in Blender (never black when off).
+# Each floor is subdivided into multiple horizontal suites/units on both north
+# and south sides and assigned across 32 office circuits (cool daylight) and
+# 32 apartment circuits (warm), so downstream scenes can toggle realistic
+# per-floor subsets while keeping switched-off diffusers white.
 ROOM_LIGHT_W = 1.4
 ROOM_LIGHT_H = 0.10
 ROOM_LIGHT_PITCH = 3.5
 ROOM_LIGHT_CLEAR = 0.6
-ROOM_LIGHT_SEED = 20260823
-ROOM_LIGHT_ON_RATIO = 0.5
+OFFICE_LIGHT_GROUPS = 32
+APARTMENT_LIGHT_GROUPS = 32
+LIGHT_GROUP_SEED = 20260823
+LIGHT_DIFFUSER_BASE = (0.90, 0.90, 0.88)
 # The house strength (100) clips both colours to white under AgX; this lower
 # value keeps the cool-white / warm-white difference readable while still lit.
 ROOM_LIGHT_STRENGTH = 8.0
 
-# The mall ceilings are continuous luminous rings that follow each ring slab
-# around the escalator atrium, all lit and bright rather than fragmented.
+# The mall ceilings are continuous cool luminous rings that follow each ring
+# slab around the escalator atrium, all lit and bright rather than fragmented.
 MALL_GLOW_CLEAR = 0.3
 
 # The open refuge plates and the top roof are planted decks: a lawn inside a
@@ -867,13 +872,10 @@ def spine_escalators(mats):
         base_escalator(f"Stack_Spine_Escalator_{i}", start, end, mats)
 
 
-def room_light_state(floor_index, i, j):
-    """Independent on/off state and colour temperature of one room panel."""
-    rng = random.Random(ROOM_LIGHT_SEED + floor_index * 101
-                        + i * 10007 + j * 1000003)
-    if rng.random() >= ROOM_LIGHT_ON_RATIO:
-        return "off"
-    return rng.choice(("daylight", "warm"))
+def room_light_state(zc):
+    """Zone colour temperature of one room ceiling panel: cool daylight in the
+    office zone, warm light in both upper apartment zones."""
+    return "warm" if zc > LEVEL_APARTMENT else "daylight"
 
 
 def is_refuge(zc):
@@ -882,12 +884,50 @@ def is_refuge(zc):
     return any(z0 < zc <= z1 for z0, z1 in REFUGES)
 
 
+def _floor_suite_spans(x_min, x_max, min_w, max_w, snap, rng):
+    """Partition a floor span into realistic contiguous suites/apartments."""
+    cuts = [x_min]
+    cur = x_min
+    while x_max - cur > max_w:
+        rem = x_max - cur
+        if rem <= 2 * min_w:
+            mid = cur + round((rem / 2) / snap) * snap
+            if cur + snap <= mid <= x_max - snap:
+                cuts.append(mid)
+            break
+        hi = min(max_w, rem - min_w)
+        w = round(rng.uniform(min_w, hi) / snap) * snap
+        w = max(min_w, min(hi, w))
+        cur += w
+        cuts.append(cur)
+    cuts.append(x_max)
+    return list(zip(cuts[:-1], cuts[1:]))
+
+
+def _pick_floor_groups(count, total_groups, usage, rng):
+    """Pick `count` distinct group indices for one floor, balanced across the
+    full circuit pool so every group is used evenly and never repeats on the
+    same floor."""
+    order = list(range(total_groups))
+    rng.shuffle(order)
+    order.sort(key=lambda g: usage[g])
+    chosen = order[:count]
+    rng.shuffle(chosen)
+    for g in chosen:
+        usage[g] += 1
+    return chosen
+
+
 def room_ceiling_lights(mats):
-    """A grid of panel lights on the ceiling of every office and apartment
-    storey, following the house reference. Panels are clipped around the cores,
-    the central public shaft and the two apartment voids, and merged into one
-    object per light state. The open refuge storeys take no ceiling lights:
-    their open-air gardens are lit by the track lamps instead."""
+    """A grid of lit panel lights on the ceiling of every office and apartment
+    storey. Office ceilings take cool daylight (32 circuits) and both apartment
+    zones take warm light (32 circuits); every floor is partitioned into
+    multiple independent north/south suites or apartment units so real scenes
+    can switch realistic subsets per floor while keeping unlit diffusers white.
+    Panels are clipped around the cores, the central public shaft and the two
+    apartment voids, and merged into one object per circuit. The open refuge
+    storeys take no ceiling lights: their open-air gardens are lit by the track
+    lamps instead."""
     slab_half = WIDTH / 2 + FACADE - GLASS_BACK - GLASS_T
     slab_half_y = DEPTH / 2 + FACADE - GLASS_BACK - GLASS_T
     half = ROOM_LIGHT_W / 2
@@ -899,8 +939,19 @@ def room_ceiling_lights(mats):
     while y <= slab_half_y - ROOM_LIGHT_CLEAR - half:
         ys.append(y)
         y += ROOM_LIGHT_PITCH
-    boxes = {"daylight": [], "warm": [], "off": []}
-    for floor_index, zc in enumerate(storey_levels(), start=1):
+    x_min, x_max = xs[0] - half, xs[-1] + half
+    group_counts = {
+        "daylight": OFFICE_LIGHT_GROUPS,
+        "warm": APARTMENT_LIGHT_GROUPS,
+    }
+    boxes = {
+        (state, g): []
+        for state, n in group_counts.items()
+        for g in range(1, n + 1)
+    }
+    usage = {state: [0] * n for state, n in group_counts.items()}
+    rng = random.Random(LIGHT_GROUP_SEED)
+    for zc in storey_levels():
         if zc <= LEVEL_BASE or is_refuge(zc):
             continue
         # A dropped refuge plate is no ceiling: the storey below it is part of
@@ -908,8 +959,21 @@ def room_ceiling_lights(mats):
         if zc in REFUGE_DROP_LEVELS:
             continue
         z = zc - 0.15 - ROOM_LIGHT_H / 2
-        for i, px in enumerate(xs):
-            for j, py in enumerate(ys):
+        state = room_light_state(zc)
+        if state == "daylight":
+            min_w, max_w, snap = 15.0, 27.5, 2.5
+        else:
+            min_w, max_w, snap = 10.0, 17.5, APARTMENT_MULLION_SPACING
+        # Build north (y >= 0) and south (y < 0) suites/apartments on this floor.
+        side_spans = {
+            side: _floor_suite_spans(x_min, x_max, min_w, max_w, snap, rng)
+            for side in (0, 1)
+        }
+        # Collect active panels per (side, span_index) so only occupied suites
+        # consume circuit slots on this floor.
+        suite_panels = {}
+        for px in xs:
+            for py in ys:
                 in_core = (abs(px) - half < CORE_X + CORE_WIDTH / 2
                            and abs(py) - half < CORE_DEPTH / 2)
                 # The central public shaft is open air between the cores, so no
@@ -924,14 +988,29 @@ def room_ceiling_lights(mats):
                     for x0, x1, z0, z1 in VOIDS)
                 if in_core or in_shaft or in_void:
                     continue
-                state = room_light_state(floor_index, i, j)
-                boxes[state].append(((px, py, z),
-                                     (ROOM_LIGHT_W, ROOM_LIGHT_W,
-                                      ROOM_LIGHT_H)))
-    for state, items in boxes.items():
+                side = 1 if py >= 0.0 else 0
+                spans = side_spans[side]
+                span_idx = len(spans) - 1
+                for idx, (xa, xb) in enumerate(spans):
+                    if xa <= px <= xb:
+                        span_idx = idx
+                        break
+                suite_panels.setdefault((side, span_idx), []).append((px, py))
+        keys = sorted(suite_panels.keys())
+        chosen = _pick_floor_groups(len(keys), group_counts[state],
+                                    usage[state], rng)
+        for suite_key, group_idx in zip(keys, chosen):
+            bucket = boxes[(state, group_idx + 1)]
+            for px, py in suite_panels[suite_key]:
+                bucket.append(((px, py, z),
+                               (ROOM_LIGHT_W, ROOM_LIGHT_W, ROOM_LIGHT_H)))
+    for (state, g), items in boxes.items():
         if items:
-            merged_boxes(f"Stack_Room_Lights_{state.capitalize()}", items,
-                         mats[f"light_{state}"])
+            merged_boxes(
+                f"Stack_Room_Lights_{state.capitalize()}_G{g:02d}",
+                items,
+                mats[f"light_{state}_g{g:02d}"],
+            )
 
 
 def mall_ceiling_lights(mats):
@@ -1196,7 +1275,7 @@ def sky_garden(name, z, mats, plates, trees):
             beam(f"{name}_Lamp_Post", (px, py, z - 0.1),
                  (px, py, z + LAMP_H), LAMP_POLE_R, mats["dark"])
             sphere(f"{name}_Lamp_Head", (px, py, z + LAMP_H), LAMP_HEAD_R,
-                   mats["glow"])
+                   mats["light_warm"])
     rng = random.Random(7100 + int(z))
     placed = 0
     for _ in range(trees * 8):
@@ -1742,8 +1821,26 @@ def make_cream_ceiling(name="Stack_Ceiling_Slab", color=(0.94, 0.91, 0.84),
     return mat
 
 
+def make_stack_light(name, emission_color, strength, web_roughness=0.45):
+    """Ceiling/fixture light with a matte white acrylic diffuser Base Color so
+    unlit groups stay white in any scene and never render black. A per-group
+    web_roughness keeps circuits distinct through glTF optimization."""
+    mat = materials.make_ceiling_light(name, emission_color, strength)
+    bsdf = materials._bsdf(mat)
+    materials._set(bsdf, "Base Color", (*LIGHT_DIFFUSER_BASE, 1.0))
+    mat.diffuse_color = (*LIGHT_DIFFUSER_BASE, 1.0)
+    mat["web_roughness"] = round(web_roughness, 4)
+    return mat
+
+
 def build_materials():
-    return {
+    mall_glow = make_stack_light(
+        "Stack_Mall_Glow", materials.CEILING_LIGHT_DAYLIGHT, strength=16.0,
+        web_roughness=0.50)
+    garden_lamp = make_stack_light(
+        "Stack_Light_Warm", materials.CEILING_LIGHT_WARM,
+        strength=ROOM_LIGHT_STRENGTH, web_roughness=0.48)
+    mats = {
         "glass_cool": make_oneway_glass_outer(
             "Stack_Glass_Cool",
             tint=(0.62, 0.78, 0.85),
@@ -1801,21 +1898,28 @@ def build_materials():
         "core": materials.make_concrete("Stack_Core", color=(0.20, 0.23, 0.25)),
         "steel": materials.make_metal("Stack_Core_Steel", color=(0.65, 0.68, 0.66)),
         "ground": materials.make_ground("Stack_Ground", color=(0.13, 0.14, 0.13)),
-        "light_daylight": materials.make_ceiling_light(
-            "Stack_Light_Daylight", materials.CEILING_LIGHT_DAYLIGHT,
-            ROOM_LIGHT_STRENGTH),
-        "light_warm": materials.make_ceiling_light(
-            "Stack_Light_Warm", materials.CEILING_LIGHT_WARM,
-            ROOM_LIGHT_STRENGTH),
-        "light_off": materials.make_ceiling_light(
-            "Stack_Light_Off", (0.055, 0.045, 0.035), 0.0),
-        "glow": materials.make_ceiling_light(
-            "Stack_Mall_Glow", color=(1.0, 0.72, 0.38), strength=16.0),
+        "light_warm": garden_lamp,
+        "glow": mall_glow,
         "trunk": materials.make_trunk("Stack_Trunk"),
         "foliage": materials.make_foliage("Stack_Foliage", color=(0.09, 0.30, 0.11)),
         "lawn": materials.make_wall("Stack_Lawn", color=(0.16, 0.36, 0.14)),
         "track": materials.make_wall("Stack_Track", color=(0.46, 0.14, 0.11)),
     }
+    for g in range(1, OFFICE_LIGHT_GROUPS + 1):
+        mats[f"light_daylight_g{g:02d}"] = make_stack_light(
+            f"Stack_Light_Daylight_G{g:02d}",
+            materials.CEILING_LIGHT_DAYLIGHT,
+            ROOM_LIGHT_STRENGTH,
+            web_roughness=0.400 + 0.002 * g,
+        )
+    for g in range(1, APARTMENT_LIGHT_GROUPS + 1):
+        mats[f"light_warm_g{g:02d}"] = make_stack_light(
+            f"Stack_Light_Warm_G{g:02d}",
+            materials.CEILING_LIGHT_WARM,
+            ROOM_LIGHT_STRENGTH,
+            web_roughness=0.400 + 0.002 * g,
+        )
+    return mats
 
 
 def build(args):

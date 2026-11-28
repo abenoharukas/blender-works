@@ -150,6 +150,35 @@ def emission_materials():
     return found
 
 
+STACK_OCCUPANCY = {
+    "day": {"office": 0.0, "apartment": 0.0, "mall": 0.0, "garden": 0.0},
+    "blue": {"office": 0.63, "apartment": 0.50, "mall": 1.0, "garden": 1.0},
+    "night": {"office": 0.36, "apartment": 0.44, "mall": 0.85, "garden": 1.0},
+}
+
+
+def _stack_circuit_factor(mat_name, sky):
+    occ = STACK_OCCUPANCY.get(sky, STACK_OCCUPANCY["blue"])
+    for prefix, key, a, b, c, d in (
+        ("Stack_Light_Daylight_G", "office", 19, 7, 13, 3),
+        ("Stack_Light_Warm_G", "apartment", 23, 11, 17, 5),
+    ):
+        if mat_name.startswith(prefix):
+            tail = mat_name[len(prefix):].split("_", 1)[0]
+            if tail.isdigit():
+                g = int(tail)
+                rank = ((g * a + b) % 32) / 32.0
+                if rank >= occ[key]:
+                    return 0.0
+                lo, span = (0.72, 0.56) if key == "office" else (0.70, 0.60)
+                return lo + span * (((g * c + d) % 32) / 31.0)
+    if "Mall_Glow" in mat_name:
+        return occ["mall"]
+    if mat_name.startswith("Stack_Light_Warm"):
+        return occ["garden"]
+    return 1.0
+
+
 def apply_emission(emissions, street_scale, tower_scale, sky="blue"):
     for node, base, mat_name in emissions:
         if mat_name.startswith("Stack_"):
@@ -158,11 +187,15 @@ def apply_emission(emissions, street_scale, tower_scale, sky="blue"):
             elif sky == "day":
                 node.inputs["Emission Strength"].default_value = 0.0
             elif "Ceiling_Slab" in mat_name:
-                node.inputs["Emission Strength"].default_value = base * (0.26 if sky == "blue" else 0.24)
+                # Let Cycles real indirect lighting illuminate only lit suites;
+                # unlit suites and open refuge ceilings stay naturally shaded.
+                node.inputs["Emission Strength"].default_value = 0.0
             elif "Mall_Glow" in mat_name:
-                node.inputs["Emission Strength"].default_value = base * (0.75 if sky == "blue" else 0.90)
+                factor = _stack_circuit_factor(mat_name, sky)
+                node.inputs["Emission Strength"].default_value = base * (0.75 if sky == "blue" else 0.90) * factor
             else:
-                node.inputs["Emission Strength"].default_value = base * (1.65 if sky == "blue" else 1.80)
+                factor = _stack_circuit_factor(mat_name, sky)
+                node.inputs["Emission Strength"].default_value = base * (1.65 if sky == "blue" else 1.80) * factor
         else:
             node.inputs["Emission Strength"].default_value = base * street_scale
 

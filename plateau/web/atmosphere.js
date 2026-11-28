@@ -207,6 +207,68 @@ export function phaseLabel(hour) {
   return 'Night · 黑夜';
 }
 
+// Realistic 24-hour grouped skyscraper lighting schedule for The Stack's 64 circuits.
+const STACK_OFFICE_CURVE = [
+  [0.0, 0.16], [4.5, 0.12], [6.0, 0.0], [16.75, 0.0], [17.75, 0.48],
+  [18.75, 0.63], [20.5, 0.48], [22.5, 0.36], [23.5, 0.20], [24.0, 0.16],
+];
+const STACK_APARTMENT_CURVE = [
+  [0.0, 0.20], [2.0, 0.12], [5.25, 0.15], [6.25, 0.0], [17.0, 0.0],
+  [18.0, 0.35], [18.75, 0.50], [21.0, 0.56], [22.5, 0.44], [23.5, 0.28], [24.0, 0.20],
+];
+const STACK_MALL_CURVE = [
+  [0.0, 0.20], [5.25, 0.15], [6.25, 0.0], [16.75, 0.0], [18.0, 0.85],
+  [18.75, 1.0], [22.0, 1.0], [22.5, 0.85], [23.5, 0.25], [24.0, 0.20],
+];
+const STACK_GARDEN_CURVE = [
+  [0.0, 1.0], [5.25, 1.0], [6.0, 0.0], [17.0, 0.0], [18.0, 1.0], [24.0, 1.0],
+];
+
+function sampleStackCurve(curve, hour) {
+  const h = ((hour % 24) + 24) % 24;
+  for (let i = 0; i < curve.length - 1; i++) {
+    const [h0, v0] = curve[i];
+    const [h1, v1] = curve[i + 1];
+    if (h >= h0 && h <= h1) {
+      const t = (h - h0) / Math.max(1e-6, h1 - h0);
+      return v0 + (v1 - v0) * t;
+    }
+  }
+  return curve[0][1];
+}
+
+function stackLampIntensity(matName, hour, sunUpFactor, weatherOfficeFloor = 0) {
+  if (!matName || !matName.startsWith('Stack_')) return null;
+  let m = matName.match(/^Stack_Light_Daylight_G(\d+)/);
+  if (m) {
+    const g = parseInt(m[1], 10);
+    const rank = ((g * 19 + 7) % 32) / 32;
+    const bright = 0.72 + 0.56 * (((g * 13 + 3) % 32) / 31);
+    const occ = Math.max(sampleStackCurve(STACK_OFFICE_CURVE, hour), weatherOfficeFloor);
+    if (occ <= 0.001) return 0;
+    return THREE.MathUtils.smoothstep(occ, rank - 0.015, rank + 0.015) * 2.4 * bright;
+  }
+  m = matName.match(/^Stack_Light_Warm_G(\d+)/);
+  if (m) {
+    const g = parseInt(m[1], 10);
+    const rank = ((g * 23 + 11) % 32) / 32;
+    const bright = 0.70 + 0.60 * (((g * 17 + 5) % 32) / 31);
+    const occ = sampleStackCurve(STACK_APARTMENT_CURVE, hour);
+    if (occ <= 0.001) return 0;
+    return THREE.MathUtils.smoothstep(occ, rank - 0.015, rank + 0.015) * 2.7 * bright;
+  }
+  if (matName.startsWith('Stack_Mall_Glow')) {
+    return Math.max(sampleStackCurve(STACK_MALL_CURVE, hour), weatherOfficeFloor * 0.6) * 2.0;
+  }
+  if (matName.startsWith('Stack_Light_Warm')) {
+    return sampleStackCurve(STACK_GARDEN_CURVE, hour) * 3.2;
+  }
+  if (matName === 'Stack_Ceiling_Slab') {
+    return 0.32 * sunUpFactor;
+  }
+  return null;
+}
+
 function createSnowflakeTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
@@ -814,8 +876,11 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
 
     // Lift interior lamp fixtures at night along the 24h cycle while keeping
     // all exported glTF glass and surface PBR properties untouched.
+    // The Stack switches its 64 office/apartment circuits independently.
     const nightWeight = 1 - sunUpFactor;
     const lampBoost = 1 + 3.2 * nightWeight;
+    const weatherOfficeFloor =
+      (w === 'rain' || w === 'fog') && h >= 8.0 && h <= 17.5 ? 0.45 * inten : 0;
     for (const entry of placed) {
       if (!entry.lampMaterials) {
         entry.lampMaterials = [];
@@ -823,9 +888,13 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
           if (!obj.isMesh) return;
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
           for (const mat of mats) {
-            if (!mat || (mat.emissiveIntensity ?? 0) <= 1) continue;
+            if (!mat) continue;
+            const isStackFixture = /^Stack_(Light_|Mall_Glow|Ceiling_Slab)/.test(mat.name || '');
+            if (!isStackFixture && mat.userData.lampBase === undefined && (mat.emissiveIntensity ?? 0) <= 1) {
+              continue;
+            }
             if (mat.userData.lampBase === undefined) {
-              mat.userData.lampBase = mat.emissiveIntensity;
+              mat.userData.lampBase = mat.emissiveIntensity || 1.0;
             }
             if (!entry.lampMaterials.includes(mat)) {
               entry.lampMaterials.push(mat);
@@ -834,7 +903,12 @@ export function createAtmosphereSystem({ scene, renderer, camera, controls, plac
         });
       }
       for (const mat of entry.lampMaterials) {
-        mat.emissiveIntensity = mat.userData.lampBase * lampBoost;
+        const stackIntensity = stackLampIntensity(mat.name, h, sunUpFactor, weatherOfficeFloor);
+        if (stackIntensity !== null) {
+          mat.emissiveIntensity = stackIntensity;
+        } else {
+          mat.emissiveIntensity = mat.userData.lampBase * lampBoost;
+        }
       }
     }
 

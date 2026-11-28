@@ -379,7 +379,9 @@ def _make_fixture_panel(material):
     links.new(bsdf.outputs[0], output.inputs[0])
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Metallic"].default_value = 0.0
-    bsdf.inputs["Roughness"].default_value = 0.45
+    bsdf.inputs["Roughness"].default_value = float(
+        material.get("web_roughness", 0.45)
+    )
     bsdf.inputs["Emission Color"].default_value = glow
     bsdf.inputs["Emission Strength"].default_value = WEB_FIXTURE_EMISSIVE
     panel.diffuse_color = color

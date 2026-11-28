@@ -37,7 +37,7 @@ import {
   createOhshoLanternStackSet,
   createFestivalLanternSet,
   createKeiLicensePlateTexture,
-} from './japanese-textures.js?v=20261127e';
+} from './japanese-textures.js?v=20261128c';
 import {
   box,
   LotContext,
@@ -56,7 +56,7 @@ import {
   addUtilityPole,
   addShotengaiLamp,
   addShotengaiArch,
-} from './japanese-buildings.js?v=20261127e';
+} from './japanese-buildings.js?v=20261128c';
 import { applyInteriorMapping } from './interior-mapping.js?v=20261127e';
 
 export const STREET = { road: 4.8, walk: 2.3, from: 136, to: 592 };

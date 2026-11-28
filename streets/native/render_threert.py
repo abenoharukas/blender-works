@@ -60,8 +60,48 @@ def vfov_50mm_deg(width, height):
     return math.degrees(2.0 * math.atan((sensor_h / 2.0) / 50.0))
 
 
+# Per-sky occupancy fractions matching the 24h web skyscraper schedule:
+# blue (18:45): ~63% offices, ~50% apartments, 100% mall
+# night (22:30): ~36% overtime offices, ~44% apartments, 85% mall
+STACK_OCCUPANCY = {
+    "day": {"office": 0.0, "apartment": 0.0, "mall": 0.0, "garden": 0.0, "slab": 0.0},
+    "blue": {"office": 0.63, "apartment": 0.50, "mall": 1.0, "garden": 1.0, "slab": 0.0},
+    "night": {"office": 0.36, "apartment": 0.44, "mall": 0.85, "garden": 1.0, "slab": 0.0},
+}
+
+
+def _stack_circuit_group(name, prefix):
+    if not name.startswith(prefix):
+        return None
+    tail = name[len(prefix):].split("_", 1)[0]
+    return int(tail) if tail.isdigit() else None
+
+
+def _stack_emissive_nits(name, sky):
+    occ = STACK_OCCUPANCY.get(sky, STACK_OCCUPANCY["blue"])
+    g_day = _stack_circuit_group(name, "Stack_Light_Daylight_G")
+    if g_day is not None:
+        rank = ((g_day * 19 + 7) % 32) / 32.0
+        bright = 0.72 + 0.56 * (((g_day * 13 + 3) % 32) / 31.0)
+        return STACK_EMISSIVE_NITS["Stack_Light_Daylight_Web"] * bright if rank < occ["office"] else 0.0
+    g_warm = _stack_circuit_group(name, "Stack_Light_Warm_G")
+    if g_warm is not None:
+        rank = ((g_warm * 23 + 11) % 32) / 32.0
+        bright = 0.70 + 0.60 * (((g_warm * 17 + 5) % 32) / 31.0)
+        return STACK_EMISSIVE_NITS["Stack_Light_Warm_Web"] * bright if rank < occ["apartment"] else 0.0
+    if name.startswith("Stack_Light_Warm"):
+        return STACK_EMISSIVE_NITS["Stack_Light_Warm_Web"] * occ["garden"]
+    if name.startswith("Stack_Light_Daylight"):
+        return STACK_EMISSIVE_NITS["Stack_Light_Daylight_Web"] * occ["office"]
+    if name.startswith("Stack_Mall_Glow"):
+        return STACK_EMISSIVE_NITS["Stack_Mall_Glow_Web"] * occ["mall"]
+    if name == "Stack_Ceiling_Slab":
+        return STACK_EMISSIVE_NITS["Stack_Ceiling_Slab"] * occ["slab"]
+    return None
+
+
 def patch_stack_emissives_to_nits(glb_path, sky):
-    """Apply physical ThreeRT nit strengths (or 0 in daytime) to the decoded GLB."""
+    """Apply physical ThreeRT nit strengths and grouped occupancy to the decoded GLB."""
     with open(glb_path, "rb") as fh:
         data = fh.read()
     j_len = struct.unpack_from("<I", data, 12)[0]
@@ -70,12 +110,12 @@ def patch_stack_emissives_to_nits(glb_path, sky):
 
     for mat in gltf.get("materials", []):
         name = mat.get("name", "")
-        if name in STACK_EMISSIVE_NITS:
-            nits = 0.0 if sky == "day" else STACK_EMISSIVE_NITS[name]
+        nits = _stack_emissive_nits(name, sky)
+        if nits is not None:
             exts = dict(mat.get("extensions") or {})
             exts["KHR_materials_emissive_strength"] = {"emissiveStrength": nits}
             mat["extensions"] = exts
-            if sky == "day":
+            if nits <= 0.0:
                 mat["emissiveFactor"] = [0.0, 0.0, 0.0]
 
     j_bytes = json.dumps(gltf, separators=(",", ":")).encode("utf-8")

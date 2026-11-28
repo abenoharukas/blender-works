@@ -18,10 +18,31 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("content-length", 0))
         data = self.rfile.read(length)
-        if self.path.startswith("/__save"):
-            name = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get(
-                "name", ["export.glb"]
-            )[0]
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        if self.path.startswith("/__save_chunk"):
+            name = qs.get("name", ["export.glb"])[0]
+            part = int(qs.get("part", ["0"])[0])
+            done = qs.get("done", ["0"])[0] == "1"
+            base = os.path.basename(name)
+            path = os.path.join(OUT, base)
+            tmp = path + ".part"
+            mode = "wb" if part == 0 else "ab"
+            with open(tmp, mode) as fh:
+                fh.write(data)
+            if done:
+                os.replace(tmp, path)
+                size = os.path.getsize(path)
+                print(f"saved {path} ({size} bytes)", flush=True)
+                if os.path.isdir(THREERT_ASSETS):
+                    dst = os.path.join(THREERT_ASSETS, base)
+                    shutil.copy2(path, dst)
+                    print(f"synced {dst}", flush=True)
+                base_blend = os.path.join(OUT, "cycles-street-base.blend")
+                if os.path.exists(base_blend):
+                    os.remove(base_blend)
+                    print(f"invalidated {base_blend}", flush=True)
+        elif self.path.startswith("/__save"):
+            name = qs.get("name", ["export.glb"])[0]
             base = os.path.basename(name)
             path = os.path.join(OUT, base)
             with open(path, "wb") as fh:

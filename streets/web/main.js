@@ -5,8 +5,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { buildStreet } from './street.js?v=20261127e';
-import { MODELS, PLOTS, groundHeightAt } from './models.js?v=20261127e';
+import { buildStreet } from './street.js?v=20261128c';
+import { MODELS, PLOTS, groundHeightAt } from './models.js?v=20261128b';
 import { createWalkController } from './walk.js?v=20261127e';
 import {
   createAtmosphereSystem,
@@ -14,7 +14,7 @@ import {
   WEATHER_MODES,
   formatHour,
   phaseLabel,
-} from './atmosphere.js?v=20261127e';
+} from './atmosphere.js?v=20261128b';
 
 const viewer = document.querySelector('#viewer');
 const status = document.querySelector('#status');
@@ -277,7 +277,12 @@ async function addModel(id, { focus = true } = {}) {
       if (!object.isMesh) return;
       const mats = Array.isArray(object.material) ? object.material : [object.material];
       const isGlassOrLamp = mats.some(
-        (m) => m && ((m.transmission ?? 0) > 0 || m.transparent || (m.emissiveIntensity ?? 0) > 1),
+        (m) =>
+          m &&
+          ((m.transmission ?? 0) > 0 ||
+            m.transparent ||
+            (m.emissiveIntensity ?? 0) > 1 ||
+            /^Stack_(Light_|Mall_Glow)/.test(m.name || '')),
       );
       const isInteriorSlab =
         /slab/i.test(object.name) ||

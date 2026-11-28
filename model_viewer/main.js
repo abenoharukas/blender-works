@@ -176,6 +176,68 @@ function refreshSkyEnvironment(force = false) {
   scene.environment = skyEnvironment.texture;
 }
 
+// Realistic 24-hour grouped skyscraper lighting schedule for The Stack's 64 circuits.
+const STACK_OFFICE_CURVE = [
+  [0.0, 0.16], [4.5, 0.12], [6.0, 0.0], [16.75, 0.0], [17.75, 0.48],
+  [18.75, 0.63], [20.5, 0.48], [22.5, 0.36], [23.5, 0.20], [24.0, 0.16],
+];
+const STACK_APARTMENT_CURVE = [
+  [0.0, 0.20], [2.0, 0.12], [5.25, 0.15], [6.25, 0.0], [17.0, 0.0],
+  [18.0, 0.35], [18.75, 0.50], [21.0, 0.56], [22.5, 0.44], [23.5, 0.28], [24.0, 0.20],
+];
+const STACK_MALL_CURVE = [
+  [0.0, 0.20], [5.25, 0.15], [6.25, 0.0], [16.75, 0.0], [18.0, 0.85],
+  [18.75, 1.0], [22.0, 1.0], [22.5, 0.85], [23.5, 0.25], [24.0, 0.20],
+];
+const STACK_GARDEN_CURVE = [
+  [0.0, 1.0], [5.25, 1.0], [6.0, 0.0], [17.0, 0.0], [18.0, 1.0], [24.0, 1.0],
+];
+
+function sampleStackCurve(curve, hour) {
+  const h = ((hour % 24) + 24) % 24;
+  for (let i = 0; i < curve.length - 1; i++) {
+    const [h0, v0] = curve[i];
+    const [h1, v1] = curve[i + 1];
+    if (h >= h0 && h <= h1) {
+      const t = (h - h0) / Math.max(1e-6, h1 - h0);
+      return v0 + (v1 - v0) * t;
+    }
+  }
+  return curve[0][1];
+}
+
+function stackLampIntensity(matName, hour, daylight) {
+  if (!matName || !matName.startsWith('Stack_')) return null;
+  let m = matName.match(/^Stack_Light_Daylight_G(\d+)/);
+  if (m) {
+    const g = parseInt(m[1], 10);
+    const rank = ((g * 19 + 7) % 32) / 32;
+    const bright = 0.72 + 0.56 * (((g * 13 + 3) % 32) / 31);
+    const occ = sampleStackCurve(STACK_OFFICE_CURVE, hour);
+    if (occ <= 0.001) return 0;
+    return smoothstep(rank - 0.015, rank + 0.015, occ) * 2.4 * bright;
+  }
+  m = matName.match(/^Stack_Light_Warm_G(\d+)/);
+  if (m) {
+    const g = parseInt(m[1], 10);
+    const rank = ((g * 23 + 11) % 32) / 32;
+    const bright = 0.70 + 0.60 * (((g * 17 + 5) % 32) / 31);
+    const occ = sampleStackCurve(STACK_APARTMENT_CURVE, hour);
+    if (occ <= 0.001) return 0;
+    return smoothstep(rank - 0.015, rank + 0.015, occ) * 2.7 * bright;
+  }
+  if (matName.startsWith('Stack_Mall_Glow')) {
+    return sampleStackCurve(STACK_MALL_CURVE, hour) * 2.0;
+  }
+  if (matName.startsWith('Stack_Light_Warm')) {
+    return sampleStackCurve(STACK_GARDEN_CURVE, hour) * 3.2;
+  }
+  if (matName === 'Stack_Ceiling_Slab') {
+    return 0.32 * daylight;
+  }
+  return null;
+}
+
 // Modelled lamp panels: exported at a fixed emissive strength, brightened as
 // the sky darkens so lit windows read at night the way they do at dusk.
 const lampMaterials = new Set();
@@ -185,9 +247,13 @@ function collectLampMaterials() {
     if (!object.isMesh) return;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
-      if (!material || (material.emissiveIntensity ?? 0) <= 0.5) continue;
+      if (!material) continue;
+      const isStackFixture = /^Stack_(Light_|Mall_Glow|Ceiling_Slab)/.test(material.name || '');
+      if (!isStackFixture && material.userData.lampBase === undefined && (material.emissiveIntensity ?? 0) <= 0.5) {
+        continue;
+      }
       if (material.userData.lampBase === undefined) {
-        material.userData.lampBase = material.emissiveIntensity;
+        material.userData.lampBase = material.emissiveIntensity || 1.0;
       }
       lampMaterials.add(material);
     }
@@ -266,7 +332,7 @@ const views = {
 };
 const models = {
   stack: {
-    label: 'The Stack', meta: '01 / 301.8 m', asset: './assets/the_stack.optimized.glb?v=20261127g',
+    label: 'The Stack', meta: '01 / 301.8 m', asset: './assets/the_stack.optimized.glb?v=20261128b',
     eyebrow: 'MVRDV competition proposal / web conversion',
     title: 'A vertical city,<br /><i>stacked in public.</i>',
     intro: 'A vertical sequence of retail, gardens, work and living bands, translated from the procedural Blender study.',
@@ -554,10 +620,16 @@ function setSunHour(hour, immediate = false) {
   renderer.toneMappingExposure = 0.50 + 0.36 * daylight;
   ground.material.color.copy(NIGHT_GROUND).lerp(DAY_GROUND, daylight);
 
-  // Exported lamp panels brighten as the sky darkens.
+  // Exported lamp panels brighten as the sky darkens; The Stack switches its
+  // 64 office/apartment circuits independently along the 24-hour schedule.
   const lampBoost = 1 + 3.2 * (1 - daylight);
   for (const material of lampMaterials) {
-    material.emissiveIntensity = material.userData.lampBase * lampBoost;
+    const stackIntensity = stackLampIntensity(material.name, sunHour, daylight);
+    if (stackIntensity !== null) {
+      material.emissiveIntensity = stackIntensity;
+    } else {
+      material.emissiveIntensity = material.userData.lampBase * lampBoost;
+    }
   }
 
   const angle = hourAngle(sunHour);

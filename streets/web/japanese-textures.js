@@ -36,6 +36,21 @@ function makeCanvasTexture(width, height, draw, opts = {}) {
   return finalizeTexture(canvas, opts);
 }
 
+/**
+ * Set a strictly 1:1 font size (never horizontally squished!) that fits `text`
+ * inside `maxW` by scaling font size down uniformly if needed.
+ */
+function setFittedFont(g, text, maxW, maxSize, family, weight = '900') {
+  let size = maxSize;
+  g.font = `${weight} ${size}px ${family}`;
+  const measured = g.measureText(text).width;
+  if (measured > maxW && measured > 0) {
+    size = Math.max(12, Math.floor(size * (maxW / measured)));
+    g.font = `${weight} ${size}px ${family}`;
+  }
+  return size;
+}
+
 function rgbShift(hexInt, delta, rBias = 0, gBias = 0, bBias = 0) {
   const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
   const r = clamp(((hexInt >> 16) & 255) + delta + rBias);
@@ -731,7 +746,8 @@ export function createShopfrontBayTextureSet(variant) {
  * Clamped [0..1] 3D shop fascia signboard texture + masked emissiveMap (never slices mid-character!).
  */
 export function createShopFasciaSignSet({ bg, fg, text, sub = '', border = '#2c2824', backlit = true }) {
-  const W = 640;
+  // Exact 6:1 aspect ratio matching 3D fascia signBox(signW, signW / 6, ...) so every CJK glyph stays 1:1.
+  const W = 864;
   const H = 144;
   const draw = (g, w, h, isMask) => {
     if (isMask && !backlit) {
@@ -762,15 +778,15 @@ export function createShopFasciaSignSet({ bg, fg, text, sub = '', border = '#2c2
     }
 
     g.fillStyle = isMask ? '#fffaf0' : fg;
-    g.font = 'bold 58px "Hiragino Mincho ProN", "Hiragino Kaku Gothic ProN", "Yu Gothic", serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText(text, w / 2, sub ? h * 0.44 : h * 0.52);
+    setFittedFont(g, text, w - 76, 62, '"Hiragino Mincho ProN", "Hiragino Kaku Gothic ProN", "Yu Gothic", serif', 'bold');
+    g.fillText(text, w / 2, sub ? h * 0.43 : h * 0.52);
 
     if (sub) {
-      g.font = 'bold 20px "Hiragino Kaku Gothic ProN", sans-serif';
       g.fillStyle = isMask ? '#d8d2c5' : fg;
-      g.fillText(sub, w / 2, h * 0.8);
+      setFittedFont(g, sub, w - 96, 22, '"Hiragino Kaku Gothic ProN", sans-serif', 'bold');
+      g.fillText(sub, w / 2, h * 0.80);
     }
   };
 
@@ -999,8 +1015,9 @@ export function createStreetFlagTexture({ bg, accent, fg, title, subtitle }) {
  * Projecting shop sleeve sign (袖看板) texture + masked emissiveMap with realistic internal tube falloff.
  */
 export function createSleeveSignTextureSet({ bg, fg, text, sub = '', border = '#25282c' }) {
-  const W = 192;
-  const H = 512;
+  // Exact 1:3 aspect ratio matching addSleeveSign (0.72 x 2.16 m) so every CJK glyph stays 1:1.
+  const W = 256;
+  const H = 768;
   const draw = (g, w, h, isMask) => {
     // Metal outer frame never glows
     g.fillStyle = isMask ? '#000000' : border;
@@ -1016,36 +1033,37 @@ export function createSleeveSignTextureSet({ bg, fg, text, sub = '', border = '#
       tube.addColorStop(1, '#2b2b2b');
       g.fillStyle = bg;
       g.globalAlpha = 0.58;
-      g.fillRect(14, 14, w - 28, h - 28);
+      g.fillRect(16, 16, w - 32, h - 32);
       g.globalAlpha = 0.28;
       g.fillStyle = tube;
-      g.fillRect(14, 14, w - 28, h - 28);
+      g.fillRect(16, 16, w - 32, h - 32);
       g.globalAlpha = 1;
     } else {
       g.fillStyle = bg;
-      g.fillRect(12, 12, w - 24, h - 24);
+      g.fillRect(14, 14, w - 28, h - 28);
       g.strokeStyle = 'rgba(0,0,0,0.16)';
-      g.lineWidth = 3;
-      g.strokeRect(18, 18, w - 36, h - 36);
+      g.lineWidth = 4;
+      g.strokeRect(22, 22, w - 44, h - 44);
     }
 
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
     if (sub) {
-      g.fillStyle = isMask ? fg : fg;
-      g.font = 'bold 22px "Hiragino Kaku Gothic ProN", sans-serif';
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText(sub, w / 2, 46);
+      g.fillStyle = fg;
+      setFittedFont(g, sub, w - 52, 30, '"Hiragino Kaku Gothic ProN", sans-serif', 'bold');
+      g.fillText(sub, w / 2, 68);
     }
 
     g.fillStyle = isMask && fg === '#ffffff' ? '#ffffff' : fg;
     const chars = [...text];
-    const fontSize = chars.length >= 5 ? 52 : (chars.length === 4 ? 58 : 66);
+    const topPad = sub ? 116 : 64;
+    const availH = h - topPad - 64;
+    const fontSize = Math.min(
+      chars.length >= 5 ? 82 : (chars.length === 4 ? 96 : 114),
+      Math.floor(availH / Math.max(chars.length * 1.12, 1)),
+    );
     g.font = `bold ${fontSize}px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    const topPad = sub ? 78 : 48;
-    const availH = h - topPad - 48;
-    const step = Math.min(fontSize * 1.24, availH / Math.max(chars.length, 1));
+    const step = Math.min(fontSize * 1.22, availH / Math.max(chars.length, 1));
     const startY = topPad + availH / 2 - ((chars.length - 1) * step) / 2;
     chars.forEach((ch, idx) => {
       g.fillText(ch, w / 2, startY + idx * step);
@@ -2073,7 +2091,8 @@ export function createDotonboriFasciaSet({
   accent = '#c9a354',
   bgHex = '#15181e',
 }) {
-  const W = 768;
+  // Exact 6:1 aspect ratio matching flagship 3D fascia signBox(w, w / 6, ...) so every CJK glyph stays 1:1.
+  const W = 1152;
   const H = 192;
 
   const draw = (g, w, h, isMask) => {
@@ -2285,20 +2304,21 @@ export function createDotonboriFasciaSet({
 }
 
 /**
- * Multi-Tier Stacked Projecting Vertical Sign Tower (道頓堀・新世界 多段突き出し縦看板, 256x768):
+ * Multi-Tier Stacked Projecting Vertical Sign Tower (道頓堀・新世界 多段突き出し縦看板, 256x2048):
  * Renders 3 distinct stacked Osaka graphic sign compartments separated by dark steel mullions.
+ * Exact 1:8 aspect ratio matching addStackedSignTower (width = height / 8) so every CJK glyph stays 1:1.
  * Each tier item: { bg, fg, accent, text, sub, horizontal }.
  */
 export function createTowerSignTextureSet(tiers) {
   const W = 256;
-  const H = 768;
+  const H = 2048;
 
   const draw = (g, w, h, isMask) => {
     g.fillStyle = isMask ? '#000000' : '#181b20';
     g.fillRect(0, 0, w, h);
 
     const count = tiers.length;
-    const gap = 14;
+    const gap = 22;
     const padX = 14;
     const cellH = (h - gap * (count + 1)) / count;
 
@@ -2328,45 +2348,50 @@ export function createTowerSignTextureSet(tiers) {
         g.fillRect(padX, y0, cw, cellH);
       }
 
-      g.strokeStyle = isMask ? accent : accent;
-      g.lineWidth = 4;
-      g.strokeRect(padX + 7, y0 + 7, cw - 14, cellH - 14);
+      g.strokeStyle = accent;
+      g.lineWidth = 5;
+      g.strokeRect(padX + 8, y0 + 8, cw - 16, cellH - 16);
 
       const isLightBg = bg.startsWith('#f') || bg.startsWith('#e') || bg.startsWith('#fff');
       const textFill = isMask ? (isLightBg ? '#080808' : '#fffdf5') : fg;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
 
+      const pillH = 56;
       if (tier.sub) {
         g.fillStyle = isMask ? (isLightBg ? '#111111' : accent) : accent;
-        g.fillRect(padX + 12, y0 + 12, cw - 24, 32);
+        g.fillRect(padX + 14, y0 + 14, cw - 28, pillH);
         g.fillStyle = isMask ? (isLightBg ? '#fff8eb' : '#121212') : (accent.startsWith('#f') || accent.startsWith('#e') ? '#181412' : '#ffffff');
-        g.font = '900 20px "Hiragino Kaku Gothic ProN", sans-serif';
-        g.textAlign = 'center';
-        g.textBaseline = 'middle';
-        g.fillText(tier.sub, w * 0.5, y0 + 28);
+        setFittedFont(g, tier.sub, cw - 40, 32, '"Hiragino Kaku Gothic ProN", sans-serif', '900');
+        g.fillText(tier.sub, w * 0.5, y0 + 14 + pillH * 0.5);
       }
 
-      const bodyTop = y0 + (tier.sub ? 50 : 18);
-      const bodyH = cellH - (tier.sub ? 64 : 36);
+      const bodyTop = y0 + (tier.sub ? 14 + pillH + 14 : 24);
+      const bodyH = cellH - (tier.sub ? 14 + pillH + 34 : 48);
 
       if (tier.horizontal) {
         const lines = tier.text.split('\n');
-        const fSize = lines.length >= 3 ? 38 : 48;
         g.fillStyle = textFill;
-        g.font = `900 ${fSize}px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif`;
-        g.textAlign = 'center';
-        g.textBaseline = 'middle';
-        const lStep = fSize * 1.18;
-        const startY = bodyTop + bodyH * 0.5 - ((lines.length - 1) * lStep) * 0.5;
-        lines.forEach((ln, li) => g.fillText(ln, w * 0.5, startY + li * lStep));
+        const sizes = lines.map((ln) =>
+          setFittedFont(g, ln, cw - 34, lines.length >= 3 ? 64 : 84, '"Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif', '900'),
+        );
+        const totalBlockH = sizes.reduce((acc, s) => acc + s * 1.28, 0);
+        let curY = bodyTop + (bodyH - totalBlockH) * 0.5;
+        lines.forEach((ln, li) => {
+          const s = sizes[li];
+          g.font = `900 ${s}px "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif`;
+          g.fillText(ln, w * 0.5, curY + s * 0.64);
+          curY += s * 1.28;
+        });
       } else {
         const chars = [...tier.text];
-        const fSize = chars.length >= 6 ? 30 : (chars.length === 5 ? 35 : (chars.length === 4 ? 42 : 52));
-        const step = Math.min(fSize * 1.06, bodyH / Math.max(chars.length, 1));
+        const maxByWidth = cw - 46;
+        const maxByHeight = Math.floor(bodyH / Math.max(chars.length * 1.12, 1));
+        const fSize = Math.min(122, maxByWidth, maxByHeight);
+        const step = Math.min(fSize * 1.14, bodyH / Math.max(chars.length, 1));
         const startY = bodyTop + bodyH * 0.5 - ((chars.length - 1) * step) * 0.5;
         g.fillStyle = textFill;
         g.font = `900 ${fSize}px "Hiragino Kaku Gothic ProN", "Hiragino Mincho ProN", sans-serif`;
-        g.textAlign = 'center';
-        g.textBaseline = 'middle';
         chars.forEach((ch, ci) => g.fillText(ch, w * 0.5, startY + ci * step));
       }
     });
@@ -2536,8 +2561,10 @@ export function createRooftopBillboardSet(variant = 'taxfree') {
  * Variants: 'wagyu', 'crab_feast', 'gourmet_fest', 'glico_sprinter', 'neon_ring', 'cosme_luxury', 'kabuki_bill'.
  */
 export function createPodiumPosterSet(variant = 'wagyu') {
-  const W = 512;
-  const H = 288;
+  // Portrait 384x640 (0.60 aspect) for the tall Ebisu sprinter wall; 512x288 (16:9) for landscape posters.
+  const isPortrait = variant === 'glico_sprinter';
+  const W = isPortrait ? 384 : 512;
+  const H = isPortrait ? 640 : 288;
 
   const draw = (g, w, h, isMask) => {
     g.fillStyle = isMask ? '#000000' : '#16181c';
@@ -2554,43 +2581,45 @@ export function createPodiumPosterSet(variant = 'wagyu') {
 
       // Perspective white stadium track lanes converging to center
       g.strokeStyle = 'rgba(255,255,255,0.68)';
-      g.lineWidth = 3;
-      for (const tx of [48, 128, 384, 464]) {
+      g.lineWidth = 4;
+      for (const frac of [0.10, 0.28, 0.72, 0.90]) {
+        const tx = w * frac;
         g.beginPath();
-        g.moveTo(w * 0.5 + (tx - w * 0.5) * 0.22, h * 0.52);
+        g.moveTo(w * 0.5 + (tx - w * 0.5) * 0.22, h * 0.56);
         g.lineTo(tx, h - 14);
         g.stroke();
       }
-      // Giant crimson sun circle
+      // Giant crimson sun circle (1:1 true circle!)
       g.fillStyle = isMask ? '#ff2b1f' : '#e02218';
       g.beginPath();
-      g.arc(w * 0.5, h * 0.46, 82, 0, Math.PI * 2);
+      g.arc(w * 0.5, h * 0.46, 114, 0, Math.PI * 2);
       g.fill();
 
       // Triumphant white sprinter silhouette with raised V-arms!
       g.strokeStyle = '#ffffff';
       g.fillStyle = '#ffffff';
-      g.lineWidth = 12;
+      g.lineWidth = 14;
       g.beginPath();
-      g.arc(w * 0.5, h * 0.30, 16, 0, Math.PI * 2);
+      g.arc(w * 0.5, h * 0.32, 22, 0, Math.PI * 2);
       g.fill();
       g.beginPath();
-      g.moveTo(w * 0.5 - 46, h * 0.14);
+      g.moveTo(w * 0.5 - 66, h * 0.19);
       g.lineTo(w * 0.5, h * 0.40);
-      g.lineTo(w * 0.5 + 46, h * 0.14);
-      g.moveTo(w * 0.5, h * 0.38);
+      g.lineTo(w * 0.5 + 66, h * 0.19);
+      g.moveTo(w * 0.5, h * 0.39);
       g.lineTo(w * 0.5, h * 0.62);
-      g.lineTo(w * 0.5 - 24, h * 0.84);
+      g.lineTo(w * 0.5 - 36, h * 0.80);
       g.moveTo(w * 0.5, h * 0.60);
-      g.lineTo(w * 0.5 + 28, h * 0.72);
+      g.lineTo(w * 0.5 + 42, h * 0.70);
       g.stroke();
 
       g.fillStyle = '#fff9eb';
-      g.font = '900 30px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.font = '900 34px "Hiragino Kaku Gothic ProN", sans-serif';
+      g.textBaseline = 'middle';
       g.textAlign = 'left';
-      g.fillText('VICTORY', 28, 52);
+      g.fillText('VICTORY', 24, 54);
       g.textAlign = 'right';
-      g.fillText('300m', w - 28, 52);
+      g.fillText('300m', w - 24, 54);
       return;
     }
 
